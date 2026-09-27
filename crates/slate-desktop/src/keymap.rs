@@ -5,45 +5,6 @@
 
 use std::collections::BTreeMap;
 
-/// Named keys always present, in keycode order after the text characters.
-pub const NAMED_KEYS: &[(&str, &str)] = &[
-    ("return", "Return"),
-    ("enter", "Return"),
-    ("tab", "Tab"),
-    ("escape", "Escape"),
-    ("esc", "Escape"),
-    ("backspace", "BackSpace"),
-    ("delete", "Delete"),
-    ("space", "space"),
-    ("up", "Up"),
-    ("down", "Down"),
-    ("left", "Left"),
-    ("right", "Right"),
-    ("home", "Home"),
-    ("end", "End"),
-    ("pageup", "Prior"),
-    ("pagedown", "Next"),
-    ("insert", "Insert"),
-    ("ctrl", "Control_L"),
-    ("control", "Control_L"),
-    ("shift", "Shift_L"),
-    ("alt", "Alt_L"),
-    ("super", "Super_L"),
-    ("meta", "Super_L"),
-    ("f1", "F1"),
-    ("f2", "F2"),
-    ("f3", "F3"),
-    ("f4", "F4"),
-    ("f5", "F5"),
-    ("f6", "F6"),
-    ("f7", "F7"),
-    ("f8", "F8"),
-    ("f9", "F9"),
-    ("f10", "F10"),
-    ("f11", "F11"),
-    ("f12", "F12"),
-];
-
 /// Modifier bit for the `modifiers` request, by named key.
 pub fn modifier_mask(name: &str) -> Option<u32> {
     match name {
