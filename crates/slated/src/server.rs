@@ -18,6 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
+/// Snapshots kept on disk; older ones are deleted when a new one is taken.
+const SNAPSHOT_KEEP: usize = 30;
 
 struct PendingApproval {
     task_id: Option<String>,
@@ -57,13 +59,15 @@ impl State {
         if let Some(p) = existing {
             return Some(p.display().to_string());
         }
-        let snap = self.snapshots.as_mut()?;
+        let snap = self.snapshots.as_ref()?;
         match snap.create(task_id) {
             Ok(info) => {
+                for old in snap.prune(SNAPSHOT_KEEP) {
+                    eprintln!("slated: pruned snapshot {}", old.display());
+                }
                 let p = info.path.display().to_string();
                 let _ = self.tasks.update(task_id, |t| {
                     t.snapshot = Some(info.path.clone());
-                    t.snapshot_gen = Some(info.generation);
                 });
                 self.log(AuditEntry {
                     ts: now_millis(),
@@ -71,7 +75,7 @@ impl State {
                     session_id: None,
                     kind: AuditKind::Snapshot,
                     tool_name: None,
-                    summary: format!("snapshot {p} (gen {})", info.generation),
+                    summary: format!("snapshot {p}"),
                     tier: None,
                     decision: None,
                     snapshot: Some(p.clone()),
@@ -242,7 +246,6 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 prompt: prompt.chars().take(500).collect(),
                 cwd: cwd.clone(),
                 snapshot: None,
-                snapshot_gen: None,
                 tool_calls: 0,
                 touched: vec![cwd],
                 remembered: Default::default(),
@@ -528,7 +531,7 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
             message: "nothing to undo".into(),
         };
     };
-    let (Some(path), Some(generation)) = (task.snapshot.clone(), task.snapshot_gen) else {
+    let Some(path) = task.snapshot.clone() else {
         return Reply::Error {
             message: format!("task {} has no snapshot", task.task_id),
         };
@@ -538,7 +541,7 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
             message: format!("task {} was already undone", task.task_id),
         };
     }
-    let snap = SnapshotInfo { path, generation };
+    let snap = SnapshotInfo { path };
     let scope: Vec<PathBuf> = task
         .touched
         .iter()
@@ -558,6 +561,11 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
             }
         }
     };
+    let notes = if plan.notes.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", plan.notes.join("; "))
+    };
     if preview {
         return Reply::UndoResult {
             task_id: task.task_id,
@@ -568,7 +576,7 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
                 .cloned()
                 .collect(),
             deleted: plan.delete.clone(),
-            note: "preview".into(),
+            note: format!("preview{notes}"),
         };
     }
     let (restored, deleted) = match snapper.apply(&snap, &plan) {
@@ -595,6 +603,6 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
         task_id: task.task_id,
         restored,
         deleted,
-        note: "applied".into(),
+        note: format!("applied{notes}"),
     }
 }

@@ -16,8 +16,6 @@ pub struct Task {
     pub cwd: PathBuf,
     /// Snapshot path, if one was taken for this task.
     pub snapshot: Option<PathBuf>,
-    /// Filesystem generation at snapshot time (btrfs transid).
-    pub snapshot_gen: Option<u64>,
     pub tool_calls: u32,
     /// Absolute paths the task touched (from tool inputs), for undo scoping.
     pub touched: Vec<PathBuf>,
@@ -110,7 +108,7 @@ impl TaskStore {
             .iter()
             .rev()
             .filter_map(|id| self.tasks.get(id))
-            .find(|t| t.snapshot.is_some() && !t.undone)
+            .find(|t| t.snapshot.as_ref().map(|p| p.exists()).unwrap_or(false) && !t.undone)
     }
 
     pub fn recent(&self, n: usize) -> Vec<TaskSummary> {
