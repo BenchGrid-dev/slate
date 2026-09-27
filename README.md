@@ -94,7 +94,7 @@ Full detail, including the open questions, is in [docs/architecture.md](docs/arc
 
 | Crate | What it is | Status |
 |---|---|---|
-| `crates/slash` | The shell. Terminal and desktop-palette views of the same session. | placeholder |
+| `crates/slash` | The shell. Terminal and desktop-palette views of the same session. | v0: works with Claude Code and Codex, see [crates/slash](crates/slash) |
 | `crates/slated` | The daemon. Identity, approvals, audit, snapshots, memory, skills, MCP servers. | placeholder |
 | `crates/slate` | The CLI for inspecting and controlling `slated`. | placeholder |
 | `crates/slate-desktop` | Background computer use: agent seat, capture, input, a11y, over MCP. | placeholder |
