@@ -10,6 +10,8 @@ pub struct CommandRecord {
     pub exit_code: Option<i32>,
     /// Cleaned terminal output (tail), possibly empty.
     pub output: String,
+    /// The raw output did not end with a newline (so the prompt would glue on).
+    pub output_ended_without_newline: bool,
 }
 
 /// Output shown per command in the agent context.
@@ -131,6 +133,7 @@ mod tests {
             cwd: "/proj".into(),
             exit_code: Some(code),
             output: out.into(),
+            output_ended_without_newline: false,
         }
     }
 

@@ -51,8 +51,19 @@ extra_args = []
 
 Each `!` line runs in your shell inside a pty. slash forwards your keystrokes and tees the output to the screen and to a buffer, so vim, sudo and less work, and the agent can later see what the command printed (last 30 lines per command, cleaned of escape codes, within a total budget). Working directory and exported environment variables persist across lines. Aliases and functions from your rc files do not, unless `shell_interactive = true`.
 
+## Approvals, audit and undo (with slated)
+
+When `slated` is reachable (slash starts it if needed), every agent turn is a task:
+
+- Claude Code runs with `--permission-mode default`; a PreToolUse hook asks slated for the tier of each call. Observe and Reversible calls run without asking; the first Reversible call takes a btrfs snapshot.
+- Confirm-tier calls go to the permission tool, and slash asks you at the terminal: `[y]` once, `[a]` always for this task, `[n]` deny.
+- `/undo` rolls back what the last task changed in the directories it worked in; `/undo --preview` shows the plan first. Needs the snapshot root (your home, or `SLATE_SNAPSHOT_ROOT`) to be a btrfs subvolume you own.
+- `/audit` and `/tasks` show what happened.
+
+Codex runs inside its own sandbox; slated audits its tasks but cannot yet approve individual calls.
+
 ## What it does not do yet
 
-- Talk to `slated`: approvals, snapshots, `/undo`, memory. Those land with `slated`.
 - Job control (`Ctrl-Z`) inside `!` commands.
 - Persist unexported shell variables, aliases or functions across `!` lines.
+- Memory and skills from slated (not built yet).

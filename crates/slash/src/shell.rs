@@ -206,11 +206,13 @@ impl ShellRunner {
         }
         let _ = std::fs::remove_file(&state_env);
 
+        let output_ended_without_newline = captured.last().is_some_and(|b| *b != b'\n');
         Ok(CommandRecord {
             command: command.to_string(),
             cwd: before,
             exit_code: status.code(),
             output: clean_output(&captured),
+            output_ended_without_newline,
         })
     }
 

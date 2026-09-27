@@ -64,22 +64,15 @@ impl App {
 
     fn prompt(&self) -> String {
         let cwd = self.shell.cwd();
-        let home = dirs::home_dir();
-        let shown = match &home {
-            Some(h) if cwd.starts_with(h) => {
-                format!(
-                    "~{}",
-                    cwd.strip_prefix(h)
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default()
-                )
-            }
+        let shown = match dirs::home_dir() {
+            Some(h) if cwd == h => "~".to_string(),
+            Some(h) if cwd.starts_with(&h) => format!(
+                "~/{}",
+                cwd.strip_prefix(&h)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            ),
             _ => cwd.display().to_string(),
-        };
-        let shown = if shown == "~" || shown.is_empty() {
-            "~".to_string()
-        } else {
-            shown.trim_end_matches('/').to_string()
         };
         format!("{} {} ", dim(&shown), cyan("❯"))
     }
@@ -142,6 +135,9 @@ impl App {
             Input::Shell(cmd) => {
                 match self.shell.run(&cmd) {
                     Ok(rec) => {
+                        if rec.output_ended_without_newline {
+                            println!("{}", dim("⏎"));
+                        }
                         if let Some(c) = rec.exit_code {
                             if c != 0 {
                                 println!("{}", dim(&format!("exit {c}")));
