@@ -414,6 +414,26 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
         } => {
             let verdict = policy::classify(&tool_name, &tool_input);
             let summary = summarize_tool(&tool_name, &tool_input);
+            // The backend consults the permission tool for some tools regardless of the
+            // hook's answer (e.g. AskUserQuestion). Observe-tier calls never need a human.
+            if verdict.tier == Tier::Observe {
+                let st = state.lock().unwrap_or_else(|e| e.into_inner());
+                st.log(AuditEntry {
+                    ts: now_millis(),
+                    task_id: task_id.clone(),
+                    session_id,
+                    kind: AuditKind::Approval,
+                    tool_name: Some(tool_name),
+                    summary,
+                    tier: Some(verdict.tier),
+                    decision: Some(Decision::Allow),
+                    snapshot: None,
+                });
+                return Reply::Approval {
+                    allow: true,
+                    message: "observe-tier tool, allowed by policy".into(),
+                };
+            }
             let approval_id = new_task_id();
             let (tx, rx) = channel();
             {
