@@ -360,6 +360,9 @@ dependencies = [
 name = "slate"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
  "slate-proto",
 ]
 
@@ -373,12 +376,20 @@ dependencies = [
 [[package]]
 name = "slate-proto"
 version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "slated"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
  "slate-proto",
+ "tempfile",
 ]
 
 [[package]]

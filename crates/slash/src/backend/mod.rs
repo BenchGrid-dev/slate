@@ -42,6 +42,11 @@ pub struct TurnRequest<'a> {
     /// Session context to attach as system-prompt material.
     pub context: &'a str,
     pub cwd: &'a Path,
+    /// Set when slated is tracking this turn: the backend must export it to
+    /// subprocesses and wire hooks / the permission tool where it can.
+    pub task_id: Option<&'a str>,
+    /// Path to the `slate` binary for hooks and the MCP permission server.
+    pub slate_bin: Option<&'a Path>,
 }
 
 pub trait Backend {

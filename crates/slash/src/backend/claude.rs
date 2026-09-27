@@ -35,11 +35,37 @@ impl ClaudeCode {
             .arg("stream-json")
             .arg("--verbose")
             .arg("--include-partial-messages")
-            .arg("--permission-mode")
-            .arg(&self.cfg.permission_mode)
             .arg("--append-system-prompt")
             .arg(req.context)
             .current_dir(req.cwd);
+        match (req.task_id, req.slate_bin) {
+            (Some(task_id), Some(slate)) => {
+                // slated decides: hooks classify every call, Confirm-tier calls go to
+                // the permission tool, which asks the human through slash.
+                let slate = slate.display().to_string();
+                let settings = serde_json::json!({
+                    "hooks": {
+                        "PreToolUse": [{"hooks": [{"type": "command", "command": format!("{slate} hook pre-tool-use")}]}],
+                        "PostToolUse": [{"hooks": [{"type": "command", "command": format!("{slate} hook post-tool-use")}]}]
+                    }
+                });
+                let mcp = serde_json::json!({
+                    "mcpServers": {"slate": {"command": slate, "args": ["mcp"]}}
+                });
+                cmd.env(slate_proto::ENV_TASK, task_id)
+                    .arg("--permission-mode")
+                    .arg("default")
+                    .arg("--settings")
+                    .arg(settings.to_string())
+                    .arg("--mcp-config")
+                    .arg(mcp.to_string())
+                    .arg("--permission-prompt-tool")
+                    .arg("mcp__slate__approve");
+            }
+            _ => {
+                cmd.arg("--permission-mode").arg(&self.cfg.permission_mode);
+            }
+        }
         if let Some(id) = &self.session_id {
             cmd.arg("--resume").arg(id);
         }

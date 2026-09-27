@@ -7,6 +7,7 @@
 mod app;
 mod backend;
 mod config;
+mod daemon;
 mod render;
 mod router;
 mod session;

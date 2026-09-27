@@ -46,6 +46,9 @@ impl Codex {
             req.context, req.prompt
         );
         cmd.arg(prompt);
+        if let Some(t) = req.task_id {
+            cmd.env(slate_proto::ENV_TASK, t);
+        }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

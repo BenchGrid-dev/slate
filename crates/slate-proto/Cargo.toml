@@ -1,6 +1,6 @@
 [package]
 name = "slate-proto"
-description = "Shared types for Slate: IPC messages between slash, slated and slate-desktop, audit events, approval tiers."
+description = "Shared types for Slate: IPC messages between slash, slated and the slate CLI, audit events, approval tiers."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,3 +8,5 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

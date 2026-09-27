@@ -17,6 +17,25 @@ pub struct Config {
     pub context_commands: usize,
     pub claude: ClaudeConfig,
     pub codex: CodexConfig,
+    pub slated: SlatedConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SlatedConfig {
+    /// Use slated for approvals, audit and undo when available.
+    pub enable: bool,
+    /// Start slated if it is not running.
+    pub auto_start: bool,
+}
+
+impl Default for SlatedConfig {
+    fn default() -> Self {
+        Self {
+            enable: true,
+            auto_start: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -25,8 +44,8 @@ pub struct ClaudeConfig {
     pub bin: String,
     /// Passed as --model. An alias like "sonnet" or "opus", or a full model id.
     pub model: Option<String>,
-    /// Passed as --permission-mode. Until slated's approval broker exists this is the
-    /// only permission control in headless mode. "default" will deny most tool calls.
+    /// Passed as --permission-mode when slated is NOT in use. With slated, the mode is
+    /// "default" and slated's hook decides. Without it, "default" denies most tool calls.
     pub permission_mode: String,
     /// Passed as --allowedTools, comma-joined.
     pub allowed_tools: Vec<String>,
@@ -54,6 +73,7 @@ impl Default for Config {
             context_commands: 20,
             claude: ClaudeConfig::default(),
             codex: CodexConfig::default(),
+            slated: SlatedConfig::default(),
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::backend::{self, Backend, Event, TurnRequest};
 use crate::config::Config;
+use crate::daemon::{self, Attachment, Daemon};
 use crate::render::{self, bold, cyan, dim, green, red, yellow};
 use crate::router::{route, Input};
 use crate::session::Session;
@@ -17,6 +18,8 @@ pub struct App {
     shell: ShellRunner,
     session: Session,
     verbose: bool,
+    daemon: Option<Daemon>,
+    slate_bin: PathBuf,
 }
 
 impl App {
@@ -26,13 +29,37 @@ impl App {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let shell = ShellRunner::new(cfg.shell(), cfg.shell_interactive, cwd);
         let session = Session::new(cfg.context_commands);
+        let daemon = if cfg.slated.enable {
+            match Daemon::connect(cfg.slated.auto_start) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    eprintln!(
+                        "{} slated unavailable ({e:#}); running without approvals/undo",
+                        yellow("warning:")
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         Ok(Self {
             cfg,
             backend,
             shell,
             session,
             verbose: false,
+            daemon,
+            slate_bin: daemon::sibling_bin("slate"),
         })
+    }
+
+    fn daemon(&mut self) -> Option<&mut Daemon> {
+        // Reconnect lazily if the daemon went away.
+        if self.daemon.is_none() && self.cfg.slated.enable {
+            self.daemon = Daemon::connect(self.cfg.slated.auto_start).ok();
+        }
+        self.daemon.as_mut()
     }
 
     fn prompt(&self) -> String {
@@ -58,13 +85,27 @@ impl App {
     }
 
     pub fn run(&mut self) -> Result<i32> {
+        let slated_note = match self.daemon.as_mut() {
+            Some(d) => {
+                if d.snapshots_enabled() {
+                    "slated: approvals, audit, undo"
+                } else {
+                    "slated: approvals, audit (no snapshots)"
+                }
+            }
+            None => "slated: off",
+        };
         println!(
             "{} {}  {}",
             bold("slash"),
             dim(slate_proto::VERSION),
             dim(&format!(
-                "backend: {}  ·  /help for commands",
-                self.backend.name()
+                "backend: {}{}  ·  {slated_note}  ·  /help",
+                self.backend.name(),
+                self.backend
+                    .model()
+                    .map(|m| format!(" ({m})"))
+                    .unwrap_or_default()
             ))
         );
         let rl_cfg = RlConfig::builder().auto_add_history(true).build();
@@ -143,6 +184,9 @@ impl App {
                 );
                 println!("  /history                manual commands run in this session");
                 println!("  /cd <dir>               change directory");
+                println!("  /undo [--preview]       roll back the last task's file changes (needs slated + btrfs)");
+                println!("  /audit [N]              recent audit entries");
+                println!("  /tasks                  recent tasks");
                 println!("  /verbose                toggle raw event output");
                 println!("  /quit, /exit            leave slash");
                 println!();
@@ -235,6 +279,100 @@ impl App {
                 }
                 None
             }
+            "undo" => {
+                let preview = args.contains("--preview") || args.contains("-n");
+                let id = args
+                    .split_whitespace()
+                    .find(|a| !a.starts_with('-'))
+                    .map(str::to_string);
+                let Some(d) = self.daemon() else {
+                    println!("{} slated is not available", red("error:"));
+                    return None;
+                };
+                let req = if preview {
+                    slate_proto::Request::UndoPreview { task_id: id }
+                } else {
+                    slate_proto::Request::Undo { task_id: id }
+                };
+                match d.call(req) {
+                    Ok(slate_proto::Reply::UndoResult {
+                        task_id,
+                        restored,
+                        deleted,
+                        note,
+                    }) => {
+                        println!("{} task {} ({note})", green("↶"), dim(&task_id));
+                        for p in &restored {
+                            println!("  {} {}", dim("restore"), p.display());
+                        }
+                        for p in &deleted {
+                            println!("  {} {}", dim("delete "), p.display());
+                        }
+                        if restored.is_empty() && deleted.is_empty() {
+                            println!("  {}", dim("nothing changed since the snapshot"));
+                        }
+                    }
+                    Ok(slate_proto::Reply::Error { message }) => {
+                        println!("{} {message}", red("error:"))
+                    }
+                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => println!("{} {e:#}", red("error:")),
+                }
+                None
+            }
+            "audit" => {
+                let n = args.trim().parse().unwrap_or(20);
+                let Some(d) = self.daemon() else {
+                    println!("{} slated is not available", red("error:"));
+                    return None;
+                };
+                match d.call(slate_proto::Request::AuditTail { n }) {
+                    Ok(slate_proto::Reply::Audit { entries }) => {
+                        for e in entries {
+                            let tier = e.tier.map(|t| t.as_str()).unwrap_or("");
+                            let dec = e
+                                .decision
+                                .map(|d| format!("{d:?}").to_lowercase())
+                                .unwrap_or_default();
+                            println!(
+                                "{} {:<10} {:<10} {:<5} {} {}",
+                                dim(&format!("{:?}", e.kind).to_lowercase()),
+                                e.tool_name.unwrap_or_default(),
+                                dim(tier),
+                                dim(&dec),
+                                e.summary,
+                                dim(e.snapshot.map(|_| "📸").unwrap_or_default())
+                            );
+                        }
+                    }
+                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => println!("{} {e:#}", red("error:")),
+                }
+                None
+            }
+            "tasks" => {
+                let Some(d) = self.daemon() else {
+                    println!("{} slated is not available", red("error:"));
+                    return None;
+                };
+                match d.call(slate_proto::Request::Tasks { n: 10 }) {
+                    Ok(slate_proto::Reply::Tasks { tasks }) => {
+                        for t in tasks {
+                            println!(
+                                "{} {:?} calls={} snapshot={} {}",
+                                dim(&t.task_id),
+                                t.backend,
+                                t.tool_calls,
+                                if t.snapshot.is_some() { "yes" } else { "no" },
+                                t.prompt.lines().next().unwrap_or("")
+                            );
+                        }
+                    }
+                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => println!("{} {e:#}", red("error:")),
+                }
+                None
+            }
             "verbose" => {
                 self.verbose = !self.verbose;
                 println!(
@@ -264,6 +402,19 @@ impl App {
         let context = self.session.context_for_agent(self.shell.cwd());
         let cwd = self.shell.cwd().to_path_buf();
         let verbose = self.verbose;
+        let backend_name = self.backend.name();
+        let task_id = match self.daemon() {
+            Some(d) => match d.task_start(backend_name, prompt, &cwd) {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    println!("{} slated: {e:#}", yellow("warning:"));
+                    None
+                }
+            },
+            None => None,
+        };
+        let attachment = task_id.as_deref().and_then(|id| Attachment::start(id).ok());
+        let slate_bin = self.slate_bin.clone();
         let mut last_text: Option<String> = None;
         let mut streamed = 0usize;
         let mut on_event = |ev: Event| {
@@ -329,13 +480,25 @@ impl App {
             prompt,
             context: &context,
             cwd: &cwd,
+            task_id: task_id.as_deref(),
+            slate_bin: task_id.as_ref().map(|_| slate_bin.as_path()),
         };
-        if let Err(e) = self.backend.run_turn(req, &mut on_event) {
+        let result = self.backend.run_turn(req, &mut on_event);
+        let ok = result.is_ok();
+        if let Err(e) = result {
             println!("{} {e:#}", red("error:"));
             println!(
                 "{}",
                 yellow("hint: check the backend is installed and logged in; /agent to switch")
             );
+        }
+        if let Some(a) = attachment {
+            a.stop();
+        }
+        if let Some(id) = task_id {
+            if let Some(d) = self.daemon() {
+                d.task_end(&id, ok);
+            }
         }
     }
 }
