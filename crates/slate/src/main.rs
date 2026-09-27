@@ -244,6 +244,16 @@ fn skill_unsupported_reason(skill_dir: &std::path::Path) -> Option<String> {
 }
 
 fn command_exists(name: &str) -> bool {
+    // Slate's own binaries count even when they are not on PATH yet (dev builds).
+    if let Ok(exe) = std::env::current_exe() {
+        if exe
+            .parent()
+            .map(|d| d.join(name).is_file())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
     let Some(path) = std::env::var_os("PATH") else {
         return false;
     };
