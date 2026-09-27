@@ -1,6 +1,6 @@
 ---
 name: slate-display-brightness
-description: Read or set screen brightness with brightnessctl. Use for any request about the screen being too bright or too dim.
+description: Read or set screen brightness with brightnessctl. Use for any request about the screen being too bright or too dim. Linux only.
 ---
 
 # Display brightness

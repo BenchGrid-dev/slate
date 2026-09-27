@@ -214,6 +214,58 @@ fn claude_skills_dir() -> Option<std::path::PathBuf> {
     )
 }
 
+/// Why a skill does not apply to this machine, if it does not.
+fn skill_unsupported_reason(skill_dir: &std::path::Path) -> Option<String> {
+    let Ok(text) = std::fs::read_to_string(skill_dir.join("manifest.toml")) else {
+        return None; // no manifest: install unconditionally
+    };
+    let Ok(m) = text.parse::<toml::Table>() else {
+        return None;
+    };
+    if let Some(reqs) = m.get("requires").and_then(|v| v.as_array()) {
+        for r in reqs.iter().filter_map(|v| v.as_str()) {
+            if !command_exists(r) {
+                return Some(format!("needs {r}"));
+            }
+        }
+    }
+    if let Some(distros) = m
+        .get("applies_to")
+        .and_then(|v| v.get("distro"))
+        .and_then(|v| v.as_array())
+    {
+        let want: Vec<&str> = distros.iter().filter_map(|v| v.as_str()).collect();
+        let have = os_id();
+        if !want.is_empty() && !want.iter().any(|d| d.eq_ignore_ascii_case(&have)) {
+            return Some(format!("only for {} (this is {have})", want.join("/")));
+        }
+    }
+    None
+}
+
+fn command_exists(name: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| dir.join(name).is_file())
+}
+
+/// `ID` from /etc/os-release, or "macos"/"unknown".
+fn os_id() -> String {
+    if let Ok(text) = std::fs::read_to_string("/etc/os-release") {
+        for line in text.lines() {
+            if let Some(v) = line.strip_prefix("ID=") {
+                return v.trim_matches('"').to_string();
+            }
+        }
+    }
+    if cfg!(target_os = "macos") {
+        "macos".into()
+    } else {
+        "unknown".into()
+    }
+}
+
 fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {
     let src = match dir {
         Some(d) => d.canonicalize()?,
@@ -232,19 +284,25 @@ fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {
         }
         let name = entry.file_name().to_string_lossy().to_string();
         let dst = dst_root.join(format!("slate-{name}"));
-        if dst.is_symlink() || dst.exists() {
-            if dst.is_symlink() {
-                std::fs::remove_file(&dst)?;
-            } else {
-                println!("skip {} (exists and is not a symlink)", dst.display());
-                continue;
-            }
+        if dst.exists() && !dst.is_symlink() {
+            println!("skip {} (exists and is not a symlink)", dst.display());
+            continue;
+        }
+        if dst.is_symlink() {
+            std::fs::remove_file(&dst)?;
+        }
+        if let Some(why) = skill_unsupported_reason(&p) {
+            println!("skipped {name}: {why}");
+            continue;
         }
         std::os::unix::fs::symlink(&p, &dst)?;
-        println!("linked {} -> {}", dst.display(), p.display());
+        println!("linked {name}");
         n += 1;
     }
-    println!("{n} skills installed from {}", src.display());
+    println!(
+        "{n} skills installed for this machine from {}",
+        src.display()
+    );
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 ---
 name: slate-systemd-services
-description: Inspect, start, stop, restart, and read logs of systemd services. Use for anything about services, daemons, units, or journal logs.
+description: Inspect, start, stop, restart, and read logs of systemd services. Use for anything about services, daemons, units, or journal logs. Linux with systemd only.
 ---
 
 # systemd services

@@ -1,6 +1,6 @@
 ---
 name: slate-audio-volume
-description: Change output volume, mute, or switch the audio output device with wpctl. Use for any request about sound volume, muting, or speakers/headphones.
+description: Change output volume, mute, or switch the audio output device with wpctl. Use for any request about sound volume, muting, or speakers/headphones. Linux with PipeWire only.
 ---
 
 # Audio volume

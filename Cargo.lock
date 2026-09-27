@@ -493,6 +493,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slate-proto",
+ "toml",
 ]
 
 [[package]]

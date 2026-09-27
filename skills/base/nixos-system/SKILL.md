@@ -1,6 +1,6 @@
 ---
 name: slate-nixos-system
-description: Install packages, change settings, rebuild, and roll back on NixOS by editing configuration.nix. Use whenever the user wants software installed or a system setting changed on a NixOS machine.
+description: Install packages, change settings, rebuild, and roll back on NixOS by editing configuration.nix. Use whenever the user wants software installed or a system setting changed on a NixOS machine. NixOS only.
 ---
 
 # NixOS system changes
