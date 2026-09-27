@@ -23,6 +23,8 @@ Two paths, both explicit to the agent and the human:
 
 Longer term, the compositor closes the gap without client cooperation: apps the agent launches connect through a `wp_security_context_v1` socket, and a patched sway filters the globals those clients see so that the agent seat is their *only* seat. Human takeover then means attaching the human's physical devices to the agent seat (`swaymsg seat <name> attach`), which no client can tell from normal input. Pre-existing windows of first-seat-only toolkits still need the fallback.
 
+Measured: with `seat: "user"`, keyboard events reach GTK4; on a headless sway whose seat0 has no physical pointer, `wl_pointer.button` events from the virtual pointer were not delivered to any client (enter/leave were). Whether a real desktop with a physical mouse behaves differently is an open item.
+
 ## Consequences
 
 - The clean "agent never touches your input" story holds for well-behaved clients and for anything the agent launches on a patched compositor, not for pre-existing GTK4 windows on stock sway.

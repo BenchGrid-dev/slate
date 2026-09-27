@@ -29,7 +29,7 @@ Whether an app reacts to the agent seat depends on its toolkit binding every `wl
 | GTK 4.22 (gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
 | Qt, Chromium/Electron, GTK3 | untested | contributions welcome |
 
-`seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
+`seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). Verified so far: keyboard input reaches GTK4 this way; pointer buttons were not delivered on a headless sway whose seat0 has no physical pointer. Needs verification on a real desktop. See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
 
 ## CLI (for testing)
 
