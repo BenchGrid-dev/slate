@@ -128,8 +128,10 @@ def main():
             pw, ph = png_size(images[0])
             check("firefox screenshot cropped to window geometry", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
         m.tool("desktop_key", combo="ctrl+q")
+        time.sleep(1.5)
+        m.tool("desktop_key", combo="Return")  # confirm "Quit Firefox" if it asks
         gone = wait_for(lambda: find(m, "firefox", before_ff) is None, 15)
-        check("ctrl+q quits the firefox instance", bool(gone))
+        check("ctrl+q (+Return) quits the firefox instance", bool(gone))
 
     m.close()
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall passed")

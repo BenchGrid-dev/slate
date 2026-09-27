@@ -58,6 +58,52 @@ pub fn modifier_mask(name: &str) -> Option<u32> {
 /// evdev code of the no-op key present in every keymap.
 pub const VOID_CODE: u32 = 1;
 
+/// The xkb keysym name for a character. ASCII gets the standard Latin-1 keysyms
+/// (what a real keyboard produces), everything else the Unicode form `UXXXX`.
+/// Some toolkits treat Unicode keysyms differently from Latin-1 ones for text input.
+pub fn keysym_name(c: char) -> String {
+    if c.is_ascii_alphanumeric() {
+        return c.to_string();
+    }
+    let named = match c {
+        ' ' => "space",
+        '!' => "exclam",
+        '"' => "quotedbl",
+        '#' => "numbersign",
+        '$' => "dollar",
+        '%' => "percent",
+        '&' => "ampersand",
+        '\'' => "apostrophe",
+        '(' => "parenleft",
+        ')' => "parenright",
+        '*' => "asterisk",
+        '+' => "plus",
+        ',' => "comma",
+        '-' => "minus",
+        '.' => "period",
+        '/' => "slash",
+        ':' => "colon",
+        ';' => "semicolon",
+        '<' => "less",
+        '=' => "equal",
+        '>' => "greater",
+        '?' => "question",
+        '@' => "at",
+        '[' => "bracketleft",
+        '\\' => "backslash",
+        ']' => "bracketright",
+        '^' => "asciicircum",
+        '_' => "underscore",
+        '`' => "grave",
+        '{' => "braceleft",
+        '|' => "bar",
+        '}' => "braceright",
+        '~' => "asciitilde",
+        _ => return format!("U{:04X}", c as u32),
+    };
+    named.to_string()
+}
+
 pub struct Keymap {
     pub text: String,
     /// evdev key code for each character.
@@ -92,8 +138,7 @@ impl Keymap {
             let sym = match c {
                 '\n' => "Return".to_string(),
                 '\t' => "Tab".to_string(),
-                ' ' => "space".to_string(),
-                _ => format!("U{:04X}", c as u32),
+                _ => keysym_name(c),
             };
             let code = next;
             next += 1;
@@ -180,6 +225,9 @@ mod tests {
         let k = Keymap::for_text("hi 你");
         assert!(k.text.contains("U4F60"));
         assert!(k.text.contains("[ space ]"));
+        assert!(k.text.contains("[ h ]"));
+        assert_eq!(keysym_name('/'), "slash");
+        assert_eq!(keysym_name('é'), "U00E9");
         assert!(k.text.contains("modifier_map Control"));
         assert!(k.code_for_char('h').is_some());
         assert!(k.code_for_named("Return").is_some());
