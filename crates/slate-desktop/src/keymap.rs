@@ -55,6 +55,9 @@ pub fn modifier_mask(name: &str) -> Option<u32> {
     }
 }
 
+/// evdev code of the no-op key present in every keymap.
+pub const VOID_CODE: u32 = 1;
+
 pub struct Keymap {
     pub text: String,
     /// evdev key code for each character.
@@ -70,7 +73,14 @@ impl Keymap {
         let mut named = BTreeMap::new();
         let mut symbols = String::new();
         let mut codes = String::new();
-        let mut next: u32 = 1; // evdev code; xkb keycode = code + 8
+        // Code 1 is a deliberate no-op key: pressed once after every keymap upload,
+        // because the first key event after a keymap change gets dropped on the way
+        // to the client (observed on sway 1.12).
+        codes.push_str(&format!("        <K{VOID_CODE}> = {};\n", VOID_CODE + 8));
+        symbols.push_str(&format!(
+            "        key <K{VOID_CODE}> {{ [ VoidSymbol ] }};\n"
+        ));
+        let mut next: u32 = VOID_CODE + 1; // evdev code; xkb keycode = code + 8
 
         let mut unique: Vec<char> = text
             .chars()
