@@ -2,7 +2,7 @@
 //! plus the shared window/launch helpers the CLI uses.
 
 use crate::sway;
-use crate::wayland::Desktop;
+use crate::wayland::{Desktop, Seat};
 use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde_json::{json, Value};
@@ -117,33 +117,34 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_click",
-            "description": "Click with the agent's own pointer (the user's mouse is untouched). Coordinates are relative to the window's content if `window` is given, else absolute screen pixels.",
+            "description": "Click with the agent's own pointer (the user's mouse is untouched). Coordinates are relative to the window's content if `window` is given, else absolute screen pixels. If clicks have no visible effect in a GTK4/GNOME app, retry with seat='user'.",
             "inputSchema": {"type": "object", "properties": {
                 "x": {"type": "number"}, "y": {"type": "number"},
                 "window": {"type": "string"},
                 "button": {"type": "string", "enum": ["left", "right", "middle"]},
-                "count": {"type": "integer", "description": "1 for click, 2 for double-click"}
+                "count": {"type": "integer", "description": "1 for click, 2 for double-click"},
+                "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}
             }, "required": ["x", "y"]}
         },
         {
             "name": "desktop_move",
             "description": "Move the agent's pointer without clicking (hover). Same coordinate rules as desktop_click.",
-            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}}, "required": ["x", "y"]}
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
         },
         {
             "name": "desktop_scroll",
             "description": "Scroll at a position. dy > 0 scrolls down, dx > 0 scrolls right (values in pixels, ~15 per notch).",
-            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "dx": {"type": "number"}, "dy": {"type": "number"}}, "required": ["x", "y"]}
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "dx": {"type": "number"}, "dy": {"type": "number"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
         },
         {
             "name": "desktop_type",
             "description": "Type text with the agent's own keyboard into whatever the agent seat has focused (click a window first). Newlines press Return.",
-            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
         },
         {
             "name": "desktop_key",
             "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'alt+Tab', 'shift+Tab', 'Escape'.",
-            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}}, "required": ["combo"]}
+            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
         },
         {
             "name": "desktop_launch",
@@ -179,7 +180,17 @@ fn point(d: &mut Desktop, args: &Value) -> Result<(f64, f64)> {
     }
 }
 
+fn seat_of(args: &Value) -> Seat {
+    Seat::parse(args.get("seat").and_then(Value::as_str).unwrap_or("agent"))
+}
+
 fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
+    let seat = seat_of(args);
+    let via = if seat == Seat::User {
+        " via the user's seat"
+    } else {
+        ""
+    };
     let r: Result<Value> = (|| {
         Ok(match name {
             "desktop_windows" => text(serde_json::to_string_pretty(&windows(d)?)?),
@@ -199,30 +210,30 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 let (x, y) = point(d, args)?;
                 let button = args.get("button").and_then(Value::as_str).unwrap_or("left");
                 let count = args.get("count").and_then(Value::as_u64).unwrap_or(1) as u32;
-                d.click(x, y, button, count)?;
-                text(format!("clicked {button} at {x:.0},{y:.0}"))
+                d.click(seat, x, y, button, count)?;
+                text(format!("clicked {button} at {x:.0},{y:.0}{via}"))
             }
             "desktop_move" => {
                 let (x, y) = point(d, args)?;
-                d.pointer_move(x, y)?;
-                text(format!("pointer at {x:.0},{y:.0}"))
+                d.pointer_move(seat, x, y)?;
+                text(format!("pointer at {x:.0},{y:.0}{via}"))
             }
             "desktop_scroll" => {
                 let (x, y) = point(d, args)?;
                 let dx = args.get("dx").and_then(Value::as_f64).unwrap_or(0.0);
                 let dy = args.get("dy").and_then(Value::as_f64).unwrap_or(0.0);
-                d.scroll(x, y, dx, dy)?;
-                text(format!("scrolled dx={dx} dy={dy} at {x:.0},{y:.0}"))
+                d.scroll(seat, x, y, dx, dy)?;
+                text(format!("scrolled dx={dx} dy={dy} at {x:.0},{y:.0}{via}"))
             }
             "desktop_type" => {
                 let t = args.get("text").and_then(Value::as_str).unwrap_or("");
-                d.type_text(t)?;
-                text(format!("typed {} characters", t.chars().count()))
+                d.type_text(seat, t)?;
+                text(format!("typed {} characters{via}", t.chars().count()))
             }
             "desktop_key" => {
                 let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
-                d.key(c)?;
-                text(format!("pressed {c}"))
+                d.key(seat, c)?;
+                text(format!("pressed {c}{via}"))
             }
             "desktop_launch" => {
                 let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");

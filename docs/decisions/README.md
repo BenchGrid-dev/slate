@@ -10,3 +10,4 @@ Architecture decision records. Short, dated, and never edited after the fact; a 
 | 0004 | Base distribution | open |
 | 0005 | Rust for all first-party components | accepted |
 | 0006 | Privilege-free snapshots: each user's home is a user-owned btrfs subvolume | accepted |
+| 0007 | Toolkits that only bind the first seat: user-seat fallback now, compositor global filtering later | accepted |

@@ -19,6 +19,18 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 slash adds this server to the agent backend automatically when `WAYLAND_DISPLAY` is set and the binary sits next to `slash`.
 
+## Toolkit compatibility
+
+Whether an app reacts to the agent seat depends on its toolkit binding every `wl_seat`, not just the first. Verified on sway 1.12:
+
+| Toolkit / app | Agent seat | Notes |
+|---|---|---|
+| foot | works | binds all seats |
+| GTK 4.22 (gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
+| Qt, Chromium/Electron, GTK3 | untested | contributions welcome |
+
+`seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
+
 ## CLI (for testing)
 
 ```
@@ -29,6 +41,7 @@ slate-desktop click X Y [left|right|middle]
 slate-desktop type "echo hi"
 slate-desktop key Return
 slate-desktop launch foot
+slate-desktop --seat user click 700 600     # borrow the human's seat (GTK4 apps)
 ```
 
 Each CLI call creates a fresh transient seat; `serve` keeps one for the life of the MCP session.

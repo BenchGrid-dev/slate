@@ -126,6 +126,14 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         | "mcp__desktop__desktop_move" => v(Tier::Observe, "looks at the desktop"),
         "mcp__desktop__desktop_click"
         | "mcp__desktop__desktop_scroll"
+        | "mcp__desktop__desktop_key"
+        | "mcp__desktop__desktop_type"
+            if input.get("seat").and_then(Value::as_str) == Some("user") =>
+        {
+            v(Tier::Confirm, "takes over your mouse and keyboard briefly")
+        }
+        "mcp__desktop__desktop_click"
+        | "mcp__desktop__desktop_scroll"
         | "mcp__desktop__desktop_key" => {
             v(Tier::Reversible, "drives the desktop on the agent seat")
         }
@@ -774,6 +782,14 @@ sensitive = ["/srv/vault"]
         assert_eq!(
             classify("mcp__desktop__desktop_launch", &json!({"command": "foot"})).tier,
             Tier::Reversible
+        );
+        assert_eq!(
+            classify(
+                "mcp__desktop__desktop_type",
+                &json!({"text": "hi", "seat": "user"})
+            )
+            .tier,
+            Tier::Confirm
         );
     }
 }

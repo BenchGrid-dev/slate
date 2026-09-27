@@ -10,6 +10,17 @@ mod sway;
 mod wayland;
 
 use anyhow::{bail, Result};
+use wayland::Seat;
+
+/// Strip `--seat X` from args and return the seat.
+fn take_seat(args: &mut Vec<String>) -> Seat {
+    if let Some(i) = args.iter().position(|a| a == "--seat") {
+        let v = args.get(i + 1).cloned().unwrap_or_default();
+        args.drain(i..=(i + 1).min(args.len() - 1));
+        return Seat::parse(&v);
+    }
+    Seat::Agent
+}
 
 fn usage() -> ! {
     eprintln!(
@@ -23,6 +34,7 @@ usage:
   slate-desktop move X Y
   slate-desktop type TEXT
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
+      input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
   slate-desktop launch CMD [ARGS...]      start a program on this display
   slate-desktop probe                     report compositor capabilities",
         slate_proto::VERSION
@@ -31,7 +43,8 @@ usage:
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let seat = take_seat(&mut args);
     let cmd = args.first().map(String::as_str).unwrap_or("");
     match cmd {
         "serve" => mcp::serve(),
@@ -62,9 +75,15 @@ fn main() -> Result<()> {
             let y: f64 = args[2].parse()?;
             let mut d = wayland::Desktop::connect()?;
             if cmd == "click" {
-                d.click(x, y, args.get(3).map(String::as_str).unwrap_or("left"), 1)?;
+                d.click(
+                    seat,
+                    x,
+                    y,
+                    args.get(3).map(String::as_str).unwrap_or("left"),
+                    1,
+                )?;
             } else {
-                d.pointer_move(x, y)?;
+                d.pointer_move(seat, x, y)?;
             }
             // Keep the seat alive briefly so the compositor delivers the events.
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -73,14 +92,14 @@ fn main() -> Result<()> {
         "type" => {
             let text = args.get(1).cloned().unwrap_or_default();
             let mut d = wayland::Desktop::connect()?;
-            d.type_text(&text)?;
+            d.type_text(seat, &text)?;
             std::thread::sleep(std::time::Duration::from_millis(100));
             Ok(())
         }
         "key" => {
             let combo = args.get(1).cloned().unwrap_or_default();
             let mut d = wayland::Desktop::connect()?;
-            d.key(&combo)?;
+            d.key(seat, &combo)?;
             std::thread::sleep(std::time::Duration::from_millis(100));
             Ok(())
         }

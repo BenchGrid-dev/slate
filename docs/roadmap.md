@@ -20,8 +20,11 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [x] Unicode typing via generated keymaps, key combos
 - [ ] Demo: Claude Code (headless) fills a form in a GTK app via slate-desktop while the user types in a terminal
 - [ ] Demo: same with Codex
-- [ ] Ghost cursor rendering (may require a sway patch)
-- [ ] Human takeover: freeze / hand back / show me
+- [x] User-seat fallback for first-seat-only toolkits (GTK4), gated as Confirm
+- [ ] sway patch: security-context clients see only the agent seat (ADR 0007)
+- [ ] Ghost cursor rendering (sway patch)
+- [ ] Human takeover: freeze / hand back / show me (device attach on a patched sway)
+- [ ] Toolkit compatibility list: Qt, Chromium/Electron, GTK3
 
 ## M2: slated core (started; runs on the dev VM)
 

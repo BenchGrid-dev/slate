@@ -35,6 +35,27 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_manager_v1 as vp_mgr, zwlr_virtual_pointer_v1 as vp,
 };
 
+/// Which seat an input action uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Seat {
+    /// The agent's own transient seat. The human keeps their mouse and keyboard.
+    #[default]
+    Agent,
+    /// The human's seat (seat0). Needed for toolkits that only bind the first
+    /// seat (GTK4); takes over the user's input while the action runs.
+    User,
+}
+
+impl Seat {
+    pub fn parse(s: &str) -> Self {
+        if s.eq_ignore_ascii_case("user") {
+            Seat::User
+        } else {
+            Seat::Agent
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Toplevel {
     pub identifier: String,
@@ -86,7 +107,12 @@ pub struct Desktop {
     pub seat_name: Option<u32>,
     pointer: vp::ZwlrVirtualPointerV1,
     keyboard: vk::ZwpVirtualKeyboardV1,
+    /// Virtual devices on the user's own seat, for the GTK4 fallback.
+    user_pointer: vp::ZwlrVirtualPointerV1,
+    user_keyboard: vk::ZwpVirtualKeyboardV1,
     keymap: Option<Keymap>,
+    /// Keymap uploaded to the user-seat keyboard (tracked separately).
+    user_keymap: Option<Keymap>,
     started: Instant,
 }
 
@@ -151,6 +177,23 @@ impl Desktop {
         let pointer =
             vp_mgr.create_virtual_pointer_with_output(Some(&seat), output.as_ref(), &qh, ());
         let keyboard = vk_mgr.create_virtual_keyboard(&seat, &qh, ());
+        // The user's seat: the first wl_seat global that is not ours.
+        let mut user_seat_name = None;
+        globals.contents().with_list(|list| {
+            for g in list {
+                if g.interface == wl_seat::WlSeat::interface().name && g.name != seat_name {
+                    user_seat_name = Some(g.name);
+                    break;
+                }
+            }
+        });
+        let user_seat: wl_seat::WlSeat = match user_seat_name {
+            Some(n) => globals.registry().bind(n, 7, &qh, ()),
+            None => seat.clone(),
+        };
+        let user_pointer =
+            vp_mgr.create_virtual_pointer_with_output(Some(&user_seat), output.as_ref(), &qh, ());
+        let user_keyboard = vk_mgr.create_virtual_keyboard(&user_seat, &qh, ());
         queue.roundtrip(&mut state)?;
 
         let mut d = Self {
@@ -168,11 +211,14 @@ impl Desktop {
             seat_name: Some(seat_name),
             pointer,
             keyboard,
+            user_pointer,
+            user_keyboard,
             keymap: None,
+            user_keymap: None,
             started: Instant::now(),
         };
         // Upload a baseline keymap so key combos work before any text is typed.
-        d.ensure_keymap("")?;
+        d.ensure_keymap(Seat::Agent, "")?;
         Ok(d)
     }
 
@@ -183,6 +229,27 @@ impl Desktop {
 
     fn now_ms(&self) -> u32 {
         self.started.elapsed().as_millis() as u32
+    }
+
+    fn ptr(&self, seat: Seat) -> &vp::ZwlrVirtualPointerV1 {
+        match seat {
+            Seat::Agent => &self.pointer,
+            Seat::User => &self.user_pointer,
+        }
+    }
+
+    fn kbd(&self, seat: Seat) -> &vk::ZwpVirtualKeyboardV1 {
+        match seat {
+            Seat::Agent => &self.keyboard,
+            Seat::User => &self.user_keyboard,
+        }
+    }
+
+    fn keymap_slot(&mut self, seat: Seat) -> &mut Option<Keymap> {
+        match seat {
+            Seat::Agent => &mut self.keymap,
+            Seat::User => &mut self.user_keymap,
+        }
     }
 
     pub fn toplevels(&mut self) -> Result<Vec<Toplevel>> {
@@ -210,19 +277,19 @@ impl Desktop {
     // ---- input ---------------------------------------------------------
 
     /// Move the agent pointer to absolute output coordinates.
-    pub fn pointer_move(&mut self, x: f64, y: f64) -> Result<()> {
+    pub fn pointer_move(&mut self, seat: Seat, x: f64, y: f64) -> Result<()> {
         let (w, h) = self.extent()?;
         let t = self.now_ms();
-        self.pointer
-            .motion_absolute(t, x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32);
-        self.pointer.frame();
+        let p = self.ptr(seat);
+        p.motion_absolute(t, x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32);
+        p.frame();
         self.queue.flush()?;
         self.roundtrip()
     }
 
     /// Click at absolute coordinates. `button`: "left" | "right" | "middle".
-    pub fn click(&mut self, x: f64, y: f64, button: &str, count: u32) -> Result<()> {
-        self.pointer_move(x, y)?;
+    pub fn click(&mut self, seat: Seat, x: f64, y: f64, button: &str, count: u32) -> Result<()> {
+        self.pointer_move(seat, x, y)?;
         let code = match button {
             "right" => 0x111,
             "middle" => 0x112,
@@ -249,23 +316,24 @@ impl Desktop {
         self.roundtrip()
     }
 
-    pub fn scroll(&mut self, x: f64, y: f64, dx: f64, dy: f64) -> Result<()> {
+    pub fn scroll(&mut self, seat: Seat, x: f64, y: f64, dx: f64, dy: f64) -> Result<()> {
         use wayland_client::protocol::wl_pointer::Axis;
-        self.pointer_move(x, y)?;
+        self.pointer_move(seat, x, y)?;
         let t = self.now_ms();
+        let p = self.ptr(seat);
         if dy != 0.0 {
-            self.pointer.axis(t, Axis::VerticalScroll, dy);
+            p.axis(t, Axis::VerticalScroll, dy);
         }
         if dx != 0.0 {
-            self.pointer.axis(t, Axis::HorizontalScroll, dx);
+            p.axis(t, Axis::HorizontalScroll, dx);
         }
-        self.pointer.frame();
+        p.frame();
         self.queue.flush()?;
         self.roundtrip()
     }
 
-    fn ensure_keymap(&mut self, text: &str) -> Result<()> {
-        let needs = match &self.keymap {
+    fn ensure_keymap(&mut self, seat: Seat, text: &str) -> Result<()> {
+        let needs = match self.keymap_slot(seat) {
             None => true,
             Some(k) => text
                 .chars()
@@ -275,7 +343,7 @@ impl Desktop {
             return Ok(());
         }
         // Build a keymap that covers the new text plus everything typed so far.
-        let combined = match &self.keymap {
+        let combined = match self.keymap_slot(seat) {
             Some(k) => {
                 let mut s = k.text_chars();
                 s.push_str(text);
@@ -285,34 +353,36 @@ impl Desktop {
         };
         let km = Keymap::for_text(&combined);
         let fd = memfd("slate-keymap", km.text.as_bytes())?;
-        self.keyboard
+        self.kbd(seat)
             .keymap(1, fd.as_fd(), km.text.len() as u32 + 1);
         self.queue.flush()?;
-        self.keymap = Some(km);
+        *self.keymap_slot(seat) = Some(km);
         self.roundtrip()?;
         // Absorb the one key event that gets lost after a keymap change.
-        self.key_event(keymap::VOID_CODE, true);
-        self.key_event(keymap::VOID_CODE, false);
+        self.key_event(seat, keymap::VOID_CODE, true);
+        self.key_event(seat, keymap::VOID_CODE, false);
         self.queue.flush()?;
         std::thread::sleep(Duration::from_millis(20));
         self.roundtrip()
     }
 
-    fn key_event(&mut self, code: u32, pressed: bool) {
+    fn key_event(&mut self, seat: Seat, code: u32, pressed: bool) {
         let t = self.now_ms();
-        self.keyboard.key(t, code, if pressed { 1 } else { 0 });
+        self.kbd(seat).key(t, code, if pressed { 1 } else { 0 });
     }
 
     /// Type text on the agent keyboard.
-    pub fn type_text(&mut self, text: &str) -> Result<()> {
-        self.ensure_keymap(text)?;
-        let codes: Vec<u32> = text
-            .chars()
-            .filter_map(|c| self.keymap.as_ref().and_then(|k| k.code_for_char(c)))
-            .collect();
+    pub fn type_text(&mut self, seat: Seat, text: &str) -> Result<()> {
+        self.ensure_keymap(seat, text)?;
+        let codes: Vec<u32> = {
+            let km = self.keymap_slot(seat).as_ref();
+            text.chars()
+                .filter_map(|c| km.and_then(|k| k.code_for_char(c)))
+                .collect()
+        };
         for code in codes {
-            self.key_event(code, true);
-            self.key_event(code, false);
+            self.key_event(seat, code, true);
+            self.key_event(seat, code, false);
             self.queue.flush()?;
             std::thread::sleep(Duration::from_millis(6));
         }
@@ -320,7 +390,7 @@ impl Desktop {
     }
 
     /// Press a key combo like "ctrl+l", "Return", "alt+Tab", "shift+a".
-    pub fn key(&mut self, combo: &str) -> Result<()> {
+    pub fn key(&mut self, seat: Seat, combo: &str) -> Result<()> {
         let (mods, key) = keymap::parse_combo(combo);
         if key.is_empty() {
             bail!("empty key");
@@ -328,11 +398,11 @@ impl Desktop {
         // Single character keys go through the char table.
         let is_char = key.chars().count() == 1;
         if is_char {
-            self.ensure_keymap(&key)?;
+            self.ensure_keymap(seat, &key)?;
         } else {
-            self.ensure_keymap("")?;
+            self.ensure_keymap(seat, "")?;
         }
-        let km = self.keymap.as_ref().unwrap();
+        let km = self.keymap_slot(seat).as_ref().unwrap();
         let key_code = if is_char {
             km.code_for_char(key.chars().next().unwrap())
         } else {
@@ -349,18 +419,18 @@ impl Desktop {
             mod_codes.push(c);
         }
         for c in &mod_codes {
-            self.key_event(*c, true);
+            self.key_event(seat, *c, true);
         }
         if mask != 0 {
-            self.keyboard.modifiers(mask, 0, 0, 0);
+            self.kbd(seat).modifiers(mask, 0, 0, 0);
         }
-        self.key_event(key_code, true);
-        self.key_event(key_code, false);
+        self.key_event(seat, key_code, true);
+        self.key_event(seat, key_code, false);
         if mask != 0 {
-            self.keyboard.modifiers(0, 0, 0, 0);
+            self.kbd(seat).modifiers(0, 0, 0, 0);
         }
         for c in mod_codes.iter().rev() {
-            self.key_event(*c, false);
+            self.key_event(seat, *c, false);
         }
         self.queue.flush()?;
         self.roundtrip()
