@@ -18,8 +18,9 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [ ] slate-desktop: AT-SPI2 tree read and action
 - [x] slate-desktop: MCP server with windows/screenshot/click/move/scroll/type/key/launch
 - [x] Unicode typing via generated keymaps, key combos
-- [ ] Demo: Claude Code (headless) fills a form in a GTK app via slate-desktop while the user types in a terminal
-- [ ] Demo: same with Codex
+- [x] Demo: Claude Code (headless) drives a terminal app via slate-desktop from slash, reads the result from a screenshot
+- [x] Demo: same with Codex (MCP server passed via -c overrides)
+- [ ] Demo: fill a form in a GTK4 app (blocked on ADR 0007 compositor work or the user-seat fallback)
 - [x] User-seat fallback for first-seat-only toolkits (GTK4), gated as Confirm
 - [ ] sway patch: security-context clients see only the agent seat (ADR 0007)
 - [ ] Ghost cursor rendering (sway patch)

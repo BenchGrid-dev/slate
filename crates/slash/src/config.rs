@@ -118,13 +118,15 @@ impl Config {
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
-    /// The POSIX shell slash delegates to. Never resolves to slash itself.
+    /// The POSIX shell slash delegates to. Never resolves to slash itself, and
+    /// never to a path that does not exist (NixOS has no /bin/zsh).
     pub fn shell(&self) -> String {
+        let mut candidates: Vec<String> = vec![];
         if let Some(s) = &self.fallback_shell {
-            return s.clone();
+            candidates.push(s.clone());
         }
         if let Ok(s) = std::env::var("SLATE_FALLBACK_SHELL") {
-            return s;
+            candidates.push(s);
         }
         if let Ok(s) = std::env::var("SHELL") {
             let base = std::path::Path::new(&s)
@@ -132,9 +134,22 @@ impl Config {
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
             if base != "slash" {
-                return s;
+                candidates.push(s);
             }
         }
-        "/bin/zsh".into()
+        for s in [
+            "/bin/zsh",
+            "/usr/bin/zsh",
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/bin/sh",
+        ] {
+            candidates.push(s.into());
+        }
+        // Bare names (e.g. "zsh") are resolved through PATH by the OS; trust them.
+        candidates
+            .into_iter()
+            .find(|c| !c.contains('/') || std::path::Path::new(c).exists())
+            .unwrap_or_else(|| "/bin/sh".into())
     }
 }
