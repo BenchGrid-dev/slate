@@ -17,6 +17,7 @@ usage:
   slate audit [N]              last N audit entries (default 30)
   slate tasks [N]              recent tasks
   slate undo [--preview] [ID]  roll back the last (or given) task's file changes
+  slate remember TEXT          store a memory; slate memories [QUERY] lists them; slate forget ID
   slate skills install [DIR]   link OS Skills (default: the bundled base set) into ~/.claude/skills
   slate skills list
   slate hook pre-tool-use      Claude Code PreToolUse hook (reads stdin)
@@ -127,6 +128,39 @@ fn main() -> Result<()> {
                         println!("  nothing changed since the snapshot");
                     }
                 }
+                Reply::Error { message } => bail!("{message}"),
+                other => bail!("unexpected reply: {other:?}"),
+            }
+        }
+        "remember" => {
+            let text = args[1..].join(" ");
+            let mut c = Client::connect()?;
+            match c.call(Request::MemoryAdd {
+                text,
+                task_id: None,
+            })? {
+                Reply::MemoryAdded { memory_id } => println!("remembered ({memory_id})"),
+                Reply::Error { message } => bail!("{message}"),
+                other => bail!("unexpected reply: {other:?}"),
+            }
+        }
+        "memories" => {
+            let query = args.get(1).cloned();
+            let mut c = Client::connect()?;
+            match c.call(Request::MemoryList { n: 50, query })? {
+                Reply::Memories { memories } => {
+                    for m in memories {
+                        println!("{} {}  {}", fmt_ts(m.ts), m.id, m.text);
+                    }
+                }
+                other => bail!("unexpected reply: {other:?}"),
+            }
+        }
+        "forget" => {
+            let id = args.get(1).cloned().unwrap_or_default();
+            let mut c = Client::connect()?;
+            match c.call(Request::MemoryForget { id })? {
+                Reply::Ok => println!("forgotten"),
                 Reply::Error { message } => bail!("{message}"),
                 other => bail!("unexpected reply: {other:?}"),
             }

@@ -114,6 +114,22 @@ impl Daemon {
         });
     }
 
+    /// Recent memories as text for the agent's context (empty if none).
+    pub fn memories_for_context(&mut self, n: usize) -> String {
+        match self.call(Request::MemoryList { n, query: None }) {
+            Ok(Reply::Memories { memories }) if !memories.is_empty() => {
+                let mut s = String::from("\n\nThings the user asked to remember (use the slate remember/recall tools to add or search):\n");
+                for m in memories {
+                    s.push_str("- ");
+                    s.push_str(&m.text);
+                    s.push('\n');
+                }
+                s
+            }
+            _ => String::new(),
+        }
+    }
+
     pub fn snapshots_enabled(&mut self) -> bool {
         matches!(
             self.call(Request::Ping),

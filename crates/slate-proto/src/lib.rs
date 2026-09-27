@@ -120,6 +120,19 @@ pub enum Request {
     Tasks {
         n: usize,
     },
+    /// Store something the user asked to remember.
+    MemoryAdd {
+        text: String,
+        task_id: Option<String>,
+    },
+    /// Recent memories, newest last. `query` filters by substring when set.
+    MemoryList {
+        n: usize,
+        query: Option<String>,
+    },
+    MemoryForget {
+        id: String,
+    },
 }
 
 /// A request on the wire: `{"id": "...", "op": "...", ...}`.
@@ -168,6 +181,20 @@ pub enum Reply {
     Tasks {
         tasks: Vec<TaskSummary>,
     },
+    Memories {
+        memories: Vec<Memory>,
+    },
+    MemoryAdded {
+        memory_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Memory {
+    pub id: String,
+    pub ts: u64,
+    pub text: String,
+    pub task_id: Option<String>,
 }
 
 /// A reply on the wire: `{"id": "...", "result": "...", ...}`.
@@ -326,6 +353,31 @@ mod tests {
         let s = serde_json::to_string(&r).unwrap();
         assert!(s.contains("\"result\":\"tool_checked\""));
         assert!(s.contains("\"tier\":\"confirm\""));
+    }
+
+    #[test]
+    fn reply_envelopes_have_no_duplicate_keys() {
+        for reply in [
+            Reply::MemoryAdded {
+                memory_id: "m".into(),
+            },
+            Reply::TaskStarted {
+                task_id: "t".into(),
+            },
+            Reply::Pong {
+                version: "v".into(),
+                snapshots: false,
+            },
+        ] {
+            let s = serde_json::to_string(&ReplyEnvelope {
+                id: "7".into(),
+                reply,
+            })
+            .unwrap();
+            assert_eq!(s.matches("\"id\":").count(), 1, "{s}");
+            let back: ReplyEnvelope = serde_json::from_str(&s).unwrap();
+            assert_eq!(back.id, "7");
+        }
     }
 
     #[test]

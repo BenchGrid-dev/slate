@@ -193,6 +193,7 @@ impl App {
                 println!("  /undo [--preview]       roll back the last task's file changes (needs slated + btrfs)");
                 println!("  /audit [N]              recent audit entries");
                 println!("  /tasks                  recent tasks");
+                println!("  /remember <text>        store a memory; /memories [query] lists them");
                 println!("  /verbose                toggle raw event output");
                 println!("  /quit, /exit            leave slash");
                 println!();
@@ -379,6 +380,48 @@ impl App {
                 }
                 None
             }
+            "remember" => {
+                let Some(d) = self.daemon() else {
+                    println!("{} slated is not available", red("error:"));
+                    return None;
+                };
+                match d.call(slate_proto::Request::MemoryAdd {
+                    text: args.to_string(),
+                    task_id: None,
+                }) {
+                    Ok(slate_proto::Reply::MemoryAdded { .. }) => println!("{}", dim("remembered")),
+                    Ok(slate_proto::Reply::Error { message }) => {
+                        println!("{} {message}", red("error:"))
+                    }
+                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => println!("{} {e:#}", red("error:")),
+                }
+                None
+            }
+            "memories" => {
+                let Some(d) = self.daemon() else {
+                    println!("{} slated is not available", red("error:"));
+                    return None;
+                };
+                let query = if args.trim().is_empty() {
+                    None
+                } else {
+                    Some(args.trim().to_string())
+                };
+                match d.call(slate_proto::Request::MemoryList { n: 50, query }) {
+                    Ok(slate_proto::Reply::Memories { memories }) => {
+                        if memories.is_empty() {
+                            println!("{}", dim("no memories"));
+                        }
+                        for m in memories {
+                            println!("{} {}", dim(&m.id), m.text);
+                        }
+                    }
+                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => println!("{} {e:#}", red("error:")),
+                }
+                None
+            }
             "verbose" => {
                 self.verbose = !self.verbose;
                 println!(
@@ -405,7 +448,10 @@ impl App {
     }
 
     fn agent_turn(&mut self, prompt: &str) {
-        let context = self.session.context_for_agent(self.shell.cwd());
+        let mut context = self.session.context_for_agent(self.shell.cwd());
+        if let Some(d) = self.daemon() {
+            context.push_str(&d.memories_for_context(30));
+        }
         let cwd = self.shell.cwd().to_path_buf();
         let verbose = self.verbose;
         let backend_name = self.backend.name();

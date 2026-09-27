@@ -4,6 +4,7 @@
 //! Runs one instance per user, listening on `slate_proto::socket_path()`.
 
 mod audit;
+mod memory;
 mod policy;
 mod server;
 mod snapshot;
@@ -23,6 +24,7 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&state_dir)?;
     let audit = audit::Audit::open(&state_dir)?;
     let tasks = tasks::TaskStore::open(&state_dir)?;
+    let memories = memory::MemoryStore::open(&state_dir)?;
 
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -42,6 +44,8 @@ fn main() -> Result<()> {
             }
         };
 
-    let state = Arc::new(Mutex::new(server::State::new(audit, tasks, snapshots)));
+    let state = Arc::new(Mutex::new(server::State::new(
+        audit, tasks, memories, snapshots,
+    )));
     server::serve(slate_proto::socket_path(), state)
 }

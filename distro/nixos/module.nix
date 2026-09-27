@@ -49,6 +49,7 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents;
     environment.shells = [ "${pkg}/bin/slash" ];
+    environment.pathsToLink = [ "/share/slate" ];
 
     # slash finds its fallback shell through this variable when the user has not set one.
     environment.sessionVariables.SLATE_FALLBACK_SHELL = cfg.fallbackShell;

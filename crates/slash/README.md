@@ -59,6 +59,7 @@ When `slated` is reachable (slash starts it if needed), every agent turn is a ta
 - Confirm-tier calls go to the permission tool, and slash asks you at the terminal: `[y]` once, `[a]` always for this task, `[n]` deny.
 - `/undo` rolls back what the last task changed in the directories it worked in; `/undo --preview` shows the plan first. Needs the snapshot root (your home, or `SLATE_SNAPSHOT_ROOT`) to be a btrfs subvolume you own.
 - `/audit` and `/tasks` show what happened.
+- `/remember <text>` stores a memory; the agent also has `remember` / `recall` / `forget` tools. Memories are shown to the agent at the start of every task.
 
 Codex runs inside its own sandbox; slated audits its tasks but cannot yet approve individual calls.
 

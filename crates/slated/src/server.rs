@@ -1,6 +1,7 @@
 //! Unix-socket server: JSON lines, one thread per connection.
 
 use crate::audit::Audit;
+use crate::memory::MemoryStore;
 use crate::policy;
 use crate::snapshot::{SnapshotInfo, Snapshotter};
 use crate::tasks::{new_task_id, Task, TaskStore};
@@ -29,6 +30,7 @@ struct PendingApproval {
 pub struct State {
     pub audit: Audit,
     pub tasks: TaskStore,
+    pub memories: MemoryStore,
     pub snapshots: Option<Snapshotter>,
     approvals: HashMap<String, PendingApproval>,
     /// Attached UIs per task: writers that receive events.
@@ -38,10 +40,16 @@ pub struct State {
 pub type Shared = Arc<Mutex<State>>;
 
 impl State {
-    pub fn new(audit: Audit, tasks: TaskStore, snapshots: Option<Snapshotter>) -> Self {
+    pub fn new(
+        audit: Audit,
+        tasks: TaskStore,
+        memories: MemoryStore,
+        snapshots: Option<Snapshotter>,
+    ) -> Self {
         Self {
             audit,
             tasks,
+            memories,
             snapshots,
             approvals: HashMap::new(),
             uis: HashMap::new(),
@@ -510,6 +518,41 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             let st = state.lock().unwrap_or_else(|e| e.into_inner());
             Reply::Tasks {
                 tasks: st.tasks.recent(n),
+            }
+        }
+        Request::MemoryAdd { text, task_id } => {
+            let st = state.lock().unwrap_or_else(|e| e.into_inner());
+            if text.trim().is_empty() {
+                return Reply::Error {
+                    message: "nothing to remember".into(),
+                };
+            }
+            match st.memories.add(text, task_id) {
+                Ok(m) => Reply::MemoryAdded { memory_id: m.id },
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
+        Request::MemoryList { n, query } => {
+            let st = state.lock().unwrap_or_else(|e| e.into_inner());
+            match st.memories.list(n, query.as_deref()) {
+                Ok(memories) => Reply::Memories { memories },
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
+        Request::MemoryForget { id } => {
+            let st = state.lock().unwrap_or_else(|e| e.into_inner());
+            match st.memories.forget(&id) {
+                Ok(true) => Reply::Ok,
+                Ok(false) => Reply::Error {
+                    message: format!("no memory {id}"),
+                },
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
             }
         }
     }

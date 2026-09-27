@@ -36,8 +36,8 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [x] btrfs snapshot before the first non-observe call of a task, `/undo`, `/undo --preview`
 - [x] Snapshot pruning
 - [ ] Codex approvals (Codex exec has no approval channel yet; runs under its sandbox)
-- [ ] Session context MCP server
-- [ ] Memory MCP server (minimal)
+- [ ] Session context MCP server (context is injected per turn today)
+- [x] Memory: remember/recall/forget MCP tools, /remember and /memories in slash, injected into every task's context
 - [ ] Agent identity: separate uid / Landlock / cgroup
 - [ ] systemd user service for slated
 

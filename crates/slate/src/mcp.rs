@@ -35,19 +35,36 @@ pub fn serve() -> Result<()> {
             })),
             "notifications/initialized" | "notifications/cancelled" => None,
             "ping" => Some(json!({})),
-            "tools/list" => Some(json!({"tools": [{
-                "name": "approve",
-                "description": "Slate approval broker. Asks the human at the Slate UI whether a tool call may run.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "tool_name": {"type": "string"},
-                        "tool_input": {"type": "object"},
-                        "input": {"type": "object"},
-                        "tool_use_id": {"type": "string"}
+            "tools/list" => Some(json!({"tools": [
+                {
+                    "name": "approve",
+                    "description": "Slate approval broker. Asks the human at the Slate UI whether a tool call may run.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "tool_name": {"type": "string"},
+                            "tool_input": {"type": "object"},
+                            "input": {"type": "object"},
+                            "tool_use_id": {"type": "string"}
+                        }
                     }
+                },
+                {
+                    "name": "remember",
+                    "description": "Store a fact the user asked you to remember (preferences, people, recurring details). Persists across sessions and is shown to you at the start of every task. One short sentence per call.",
+                    "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+                },
+                {
+                    "name": "recall",
+                    "description": "Search the user's stored memories. Returns matching memories with ids (newest last). Use before assuming a preference.",
+                    "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}}
+                },
+                {
+                    "name": "forget",
+                    "description": "Delete a stored memory by id, when the user asks you to forget it.",
+                    "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}
                 }
-            }]})),
+            ]})),
             "tools/call" => Some(tools_call(&params)),
             _ => {
                 if id.is_some() {
@@ -70,8 +87,12 @@ pub fn serve() -> Result<()> {
 fn tools_call(params: &Value) -> Value {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-    if name != "approve" {
-        return json!({"content": [{"type": "text", "text": format!("unknown tool {name}")}], "isError": true});
+    match name {
+        "approve" => {}
+        "remember" | "recall" | "forget" => return memory_tool(name, &args),
+        _ => {
+            return json!({"content": [{"type": "text", "text": format!("unknown tool {name}")}], "isError": true});
+        }
     }
     let tool_name = args
         .get("tool_name")
@@ -116,4 +137,62 @@ fn tools_call(params: &Value) -> Value {
     );
 
     json!({"content": [{"type": "text", "text": decision.to_string()}]})
+}
+
+fn memory_tool(name: &str, args: &Value) -> Value {
+    let task_id = std::env::var(slate_proto::ENV_TASK)
+        .ok()
+        .filter(|s| !s.is_empty());
+    let r: Result<String> = (|| {
+        let mut client = Client::connect()?;
+        Ok(match name {
+            "remember" => {
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                match client.call(Request::MemoryAdd { text, task_id })? {
+                    Reply::MemoryAdded { memory_id } => format!("remembered (id {memory_id})"),
+                    Reply::Error { message } => anyhow::bail!("{message}"),
+                    other => anyhow::bail!("unexpected reply {other:?}"),
+                }
+            }
+            "recall" => {
+                let query = args
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let n = args.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+                match client.call(Request::MemoryList { n, query })? {
+                    Reply::Memories { memories } if memories.is_empty() => {
+                        "no matching memories".into()
+                    }
+                    Reply::Memories { memories } => memories
+                        .iter()
+                        .map(|m| format!("[{}] {}", m.id, m.text))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    Reply::Error { message } => anyhow::bail!("{message}"),
+                    other => anyhow::bail!("unexpected reply {other:?}"),
+                }
+            }
+            _ => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                match client.call(Request::MemoryForget { id })? {
+                    Reply::Ok => "forgotten".into(),
+                    Reply::Error { message } => anyhow::bail!("{message}"),
+                    other => anyhow::bail!("unexpected reply {other:?}"),
+                }
+            }
+        })
+    })();
+    match r {
+        Ok(t) => json!({"content": [{"type": "text", "text": t}]}),
+        Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
+    }
 }
