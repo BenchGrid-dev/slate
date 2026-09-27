@@ -40,7 +40,17 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// Store a memory. An exact duplicate (ignoring case and surrounding whitespace)
+    /// returns the existing memory instead of adding another.
     pub fn add(&self, text: String, task_id: Option<String>) -> Result<Memory> {
+        let norm = text.trim().to_lowercase();
+        if let Some(existing) = self
+            .all()?
+            .into_iter()
+            .find(|m| m.text.to_lowercase() == norm)
+        {
+            return Ok(existing);
+        }
         let m = Memory {
             id: format!("{:x}", now_millis()),
             ts: now_millis(),
@@ -103,5 +113,15 @@ mod tests {
         assert!(s.forget(&a.id).unwrap());
         assert_eq!(s.list(10, None).unwrap().len(), 1);
         assert!(!s.forget("nope").unwrap());
+    }
+
+    #[test]
+    fn duplicates_collapse() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = MemoryStore::open(dir.path()).unwrap();
+        let a = s.add("Likes tea".into(), None).unwrap();
+        let b = s.add("  likes tea ".into(), None).unwrap();
+        assert_eq!(a.id, b.id);
+        assert_eq!(s.list(10, None).unwrap().len(), 1);
     }
 }

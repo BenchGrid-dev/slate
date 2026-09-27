@@ -131,7 +131,7 @@ pub enum Request {
         query: Option<String>,
     },
     MemoryForget {
-        id: String,
+        memory_id: String,
     },
 }
 
@@ -353,6 +353,34 @@ mod tests {
         let s = serde_json::to_string(&r).unwrap();
         assert!(s.contains("\"result\":\"tool_checked\""));
         assert!(s.contains("\"tier\":\"confirm\""));
+    }
+
+    #[test]
+    fn request_envelopes_have_no_duplicate_keys() {
+        for request in [
+            Request::MemoryForget {
+                memory_id: "m".into(),
+            },
+            Request::TaskEnd {
+                task_id: "t".into(),
+                ok: true,
+            },
+            Request::ApprovalAnswer {
+                approval_id: "a".into(),
+                allow: true,
+                remember: false,
+            },
+            Request::Undo { task_id: None },
+        ] {
+            let s = serde_json::to_string(&Envelope {
+                id: "7".into(),
+                request,
+            })
+            .unwrap();
+            assert_eq!(s.matches("\"id\":").count(), 1, "{s}");
+            let back: Envelope = serde_json::from_str(&s).unwrap();
+            assert_eq!(back.id, "7");
+        }
     }
 
     #[test]

@@ -61,7 +61,10 @@ The user talks to you in natural language instead of using a shell. Answer first
 output out of the answer unless asked. Each user message may start with a <slash-context> block: \
 it lists the shell commands the user ran manually since your previous turn (with exit code, \
 directory and output) and new things they asked to remember. Treat it as ground truth about \
-what happened, not as part of the user's question."
+what happened, not as part of the user's question. Slate memories are per user, not per \
+directory: the ones listed at the start of this session stay valid wherever the user cds; \
+only new ones are listed later. They are unrelated to any project-level CLAUDE.md or \
+auto-memory that changes with the working directory."
     }
 
     /// Context to prepend to this turn's user message: the current directory, commands run

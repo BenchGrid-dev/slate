@@ -183,7 +183,7 @@ fn memory_tool(name: &str, args: &Value) -> Value {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                match client.call(Request::MemoryForget { id })? {
+                match client.call(Request::MemoryForget { memory_id: id })? {
                     Reply::Ok => "forgotten".into(),
                     Reply::Error { message } => anyhow::bail!("{message}"),
                     other => anyhow::bail!("unexpected reply {other:?}"),

@@ -159,7 +159,7 @@ fn main() -> Result<()> {
         "forget" => {
             let id = args.get(1).cloned().unwrap_or_default();
             let mut c = Client::connect()?;
-            match c.call(Request::MemoryForget { id })? {
+            match c.call(Request::MemoryForget { memory_id: id })? {
                 Reply::Ok => println!("forgotten"),
                 Reply::Error { message } => bail!("{message}"),
                 other => bail!("unexpected reply: {other:?}"),

@@ -184,10 +184,15 @@ fn handle_conn(stream: UnixStream, state: Shared) -> Result<()> {
         let env: Envelope = match serde_json::from_str(&line) {
             Ok(e) => e,
             Err(e) => {
+                // Echo the caller's id if we can find it, so clients do not wait forever.
+                let id = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|v| v.get("id").and_then(|i| i.as_str().map(str::to_string)))
+                    .unwrap_or_else(|| "?".into());
                 let r = ReplyEnvelope {
-                    id: "?".into(),
+                    id,
                     reply: Reply::Error {
-                        message: format!("bad request: {e}"),
+                        message: format!("bad request: {e} (is slated older than this client?)"),
                     },
                 };
                 write_line(&writer, &r)?;
@@ -543,12 +548,12 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 },
             }
         }
-        Request::MemoryForget { id } => {
+        Request::MemoryForget { memory_id } => {
             let st = state.lock().unwrap_or_else(|e| e.into_inner());
-            match st.memories.forget(&id) {
+            match st.memories.forget(&memory_id) {
                 Ok(true) => Reply::Ok,
                 Ok(false) => Reply::Error {
-                    message: format!("no memory {id}"),
+                    message: format!("no memory {memory_id}"),
                 },
                 Err(e) => Reply::Error {
                     message: format!("{e:#}"),

@@ -17,6 +17,7 @@ pub struct Daemon {
 impl Daemon {
     fn open() -> Result<Self> {
         let stream = UnixStream::connect(slate_proto::socket_path())?;
+        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
         let reader = BufReader::new(stream.try_clone()?);
         Ok(Self {
             stream,
@@ -83,7 +84,7 @@ impl Daemon {
                 bail!("slated closed the connection");
             }
             if let Ok(r) = serde_json::from_str::<ReplyEnvelope>(&line) {
-                if r.id == id {
+                if r.id == id || r.id == "?" {
                     return Ok(r.reply);
                 }
             }
