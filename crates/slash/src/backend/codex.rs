@@ -50,10 +50,29 @@ impl Codex {
             cmd.env(slate_proto::ENV_TASK, t);
         }
         if let Some(d) = req.desktop_bin {
-            // Codex reads MCP servers from config; pass it as an override.
+            // Codex reads MCP servers from config; pass overrides on the command line.
+            // It starts MCP servers with a minimal environment, so the display variables
+            // must be passed explicitly, and non-interactive runs auto-reject MCP calls
+            // unless the server is marked as pre-approved.
             cmd.arg("-c")
                 .arg(format!("mcp_servers.desktop.command=\"{}\"", d.display()));
             cmd.arg("-c").arg("mcp_servers.desktop.args=[\"serve\"]");
+            cmd.arg("-c")
+                .arg("mcp_servers.desktop.default_tools_approval_mode=\"approve\"");
+            let env_items: Vec<String> = ["WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "SWAYSOCK"]
+                .iter()
+                .filter_map(|k| {
+                    std::env::var(k)
+                        .ok()
+                        .map(|v| format!("{k}=\"{}\"", v.replace('"', "\\\"")))
+                })
+                .collect();
+            if !env_items.is_empty() {
+                cmd.arg("-c").arg(format!(
+                    "mcp_servers.desktop.env={{{}}}",
+                    env_items.join(",")
+                ));
+            }
         }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
