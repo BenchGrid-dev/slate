@@ -1,0 +1,30 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 32,
+    "spacing": 6,
+    "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
+    "modules-center": ["clock"],
+    "modules-right": ["tray", "wireplumber", "network", "custom/slate"],
+    "custom/launcher": {
+        "format": " ☰ Apps ",
+        "tooltip": false,
+        "on-click": "fuzzel"
+    },
+    "sway/workspaces": { "disable-scroll": true, "format": "{name}" },
+    "sway/window": { "max-length": 60 },
+    "clock": { "format": "{:%a %d %b  %H:%M}", "tooltip-format": "{calendar}" },
+    "tray": { "spacing": 8 },
+    "wireplumber": { "format": "🔊 {volume}%", "format-muted": "🔇", "on-click": "pavucontrol" },
+    "network": {
+        "format-wifi": "📶 {essid}",
+        "format-ethernet": "🌐 {ipaddr}",
+        "format-disconnected": "⚠ offline",
+        "tooltip-format": "{ifname} {ipaddr}"
+    },
+    "custom/slate": {
+        "format": " ◆ Slate ",
+        "tooltip": "Open the Slate shell",
+        "on-click": "foot -e slash"
+    }
+}

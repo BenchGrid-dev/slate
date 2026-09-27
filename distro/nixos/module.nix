@@ -39,6 +39,23 @@ in
       description = "Enable sway with the tools slate-desktop relies on. Slate needs a wlroots-based compositor.";
     };
 
+    desktop.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        The Slate desktop profile: sway configured as a conventional stacking desktop
+        (floating windows with title bars), waybar panel, fuzzel launcher, mako
+        notifications, wallpaper, fonts and icons, Firefox, Thunar, a text editor,
+        and a graphical login into sway.
+      '';
+    };
+
+    desktop.autologinUser = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "With desktop.enable, log this user straight into sway instead of showing a greeter.";
+    };
+
     snapshotRoot = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -57,7 +74,12 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents;
+    environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
+      ++ lib.optionals cfg.desktop.enable (with pkgs; [
+        waybar fuzzel mako swaybg grim slurp wl-clipboard
+        firefox xfce.thunar gnome-text-editor loupe pavucontrol
+        papirus-icon-theme adwaita-icon-theme
+      ]);
     environment.shells = [ "${pkg}/bin/slash" ];
     environment.pathsToLink = [ "/share/slate" ];
 
@@ -72,6 +94,35 @@ in
       enable = true;
       wrapperFeatures.gtk = true;
       extraPackages = with pkgs; [ foot grim slurp wl-clipboard wlr-randr swaybg ];
+    };
+
+    # The desktop profile.
+    fonts.packages = lib.mkIf cfg.desktop.enable (with pkgs; [ noto-fonts noto-fonts-cjk-sans noto-fonts-color-emoji dejavu_fonts ]);
+    programs.dconf.enable = lib.mkIf cfg.desktop.enable true;
+    services.gvfs.enable = lib.mkIf cfg.desktop.enable true;
+    xdg.portal = lib.mkIf cfg.desktop.enable {
+      enable = true;
+      wlr.enable = true;
+      extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+    };
+    environment.etc = lib.mkIf cfg.desktop.enable {
+      "sway/config".source = lib.mkForce ../desktop/sway/config;
+      "xdg/waybar/config.jsonc".source = ../desktop/waybar/config.jsonc;
+      "xdg/waybar/style.css".source = ../desktop/waybar/style.css;
+      "xdg/fuzzel/fuzzel.ini".source = ../desktop/fuzzel/fuzzel.ini;
+      "xdg/mako/config".source = ../desktop/mako/config;
+      "slate/wallpaper.png".source = ../desktop/wallpaper.png;
+    };
+    services.greetd = lib.mkIf cfg.desktop.enable {
+      enable = true;
+      settings.default_session =
+        if cfg.desktop.autologinUser != null then {
+          command = "${pkgs.sway}/bin/sway";
+          user = cfg.desktop.autologinUser;
+        } else {
+          command = "${pkgs.tuigreet}/bin/tuigreet --time --remember --cmd ${pkgs.sway}/bin/sway";
+          user = "greeter";
+        };
     };
 
     # slated per user session: approvals, audit, snapshots, undo.

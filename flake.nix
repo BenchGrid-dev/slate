@@ -19,7 +19,7 @@
             src = self;
             filter = path: type:
               let base = baseNameOf path; in
-              !(base == "target" || base == "docs" || base == "distro" || base == "skills" || base == ".github");
+              !(base == "target" || base == "docs" || base == "skills" || base == ".github" || base == "tests");
           };
           cargoLock.lockFile = ./Cargo.lock;
           postInstall = "mkdir -p $out/share/slate && cp -r ${./skills/base} $out/share/slate/skills";

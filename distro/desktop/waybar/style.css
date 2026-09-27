@@ -1,0 +1,8 @@
+* { font-family: "Noto Sans", "DejaVu Sans", sans-serif; font-size: 13px; min-height: 0; }
+window#waybar { background: rgba(29, 39, 51, 0.96); color: #e6edf3; border-bottom: 1px solid #2b3a4a; }
+#custom-launcher { background: #4c8bf5; color: #ffffff; border-radius: 6px; margin: 4px 6px; padding: 0 6px; font-weight: bold; }
+#custom-slate { background: #2b3a4a; color: #e6edf3; border-radius: 6px; margin: 4px 6px; padding: 0 6px; }
+#workspaces button { color: #8b98a5; padding: 0 8px; border-radius: 6px; margin: 4px 1px; }
+#workspaces button.focused { background: #2b3a4a; color: #ffffff; }
+#window { color: #c9d1d9; margin-left: 10px; }
+#clock, #tray, #wireplumber, #network { padding: 0 10px; }

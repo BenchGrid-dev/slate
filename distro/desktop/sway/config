@@ -1,0 +1,64 @@
+# Slate desktop profile for sway (phase 1: conventional desktop feel on a wlroots compositor).
+# Mod = Super.  Mod+Return terminal · Mod+Space launcher · Mod+w browser · Mod+e files
+# Mod+q close · Mod+1..5 workspaces · Mod+Shift+1..5 move window · Mod+f fullscreen · Mod+Shift+e exit
+set $mod Mod4
+set $term foot
+set $menu fuzzel
+set $browser firefox
+set $files thunar
+
+font pango:Noto Sans 10
+output HEADLESS-1 resolution 1280x800
+output * bg /etc/slate/wallpaper.png fill
+
+# Conventional stacking desktop: every app window floats with a title bar.
+for_window [app_id=".*"] floating enable
+for_window [class=".*"] floating enable
+for_window [app_id="foot"] resize set 1000 640
+for_window [app_id="firefox"] resize set 1180 740
+default_border normal 2
+default_floating_border normal 2
+titlebar_padding 8 4
+client.focused          #4c8bf5 #4c8bf5 #ffffff #4c8bf5 #4c8bf5
+client.focused_inactive #2b3a4a #2b3a4a #c9d1d9 #2b3a4a #2b3a4a
+client.unfocused        #1d2733 #1d2733 #8b98a5 #1d2733 #1d2733
+focus_follows_mouse no
+floating_modifier $mod normal
+
+bindsym $mod+Return exec $term
+bindsym $mod+space exec $menu
+bindsym $mod+w exec $browser
+bindsym $mod+e exec $files
+bindsym $mod+t exec gnome-text-editor
+bindsym $mod+q kill
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+e exec swaymsg exit
+bindsym $mod+f fullscreen
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+Tab focus next
+bindsym $mod+Shift+Tab focus prev
+bindsym $mod+Left focus left
+bindsym $mod+Right focus right
+bindsym $mod+Up focus up
+bindsym $mod+Down focus down
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+bindsym Print exec grim -g "$(slurp)" - | wl-copy
+bindsym XF86AudioRaiseVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+
+bindsym XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+
+bar {
+    swaybar_command waybar
+}
+
+exec mako
+exec foot
