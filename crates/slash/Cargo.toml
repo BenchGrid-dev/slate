@@ -1,0 +1,11 @@
+[package]
+name = "slash"
+description = "The Slate shell. Natural language by default, /commands for control, !commands for raw zsh/bash."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+slate-proto.workspace = true

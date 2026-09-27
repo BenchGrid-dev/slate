@@ -1,0 +1,5 @@
+name = "audio-volume"
+description = "Change output volume, mute, or switch the default audio sink."
+tiers = { default = "reversible" }
+requires = ["wpctl"]
+applies_to = { audio = ["pipewire"] }

@@ -1,0 +1,11 @@
+[package]
+name = "slate-desktop"
+description = "Background computer use for Linux: gives agents their own Wayland seat, per-window capture and input, exposed over MCP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+slate-proto.workspace = true

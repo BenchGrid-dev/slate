@@ -1,0 +1,11 @@
+[package]
+name = "slated"
+description = "The Slate daemon: agent identity, approval broker, audit log, snapshots and undo, memory, skills registry."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+slate-proto.workspace = true
