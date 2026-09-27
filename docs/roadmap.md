@@ -21,14 +21,19 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [ ] Demo: same with Codex
 - [ ] Ghost cursor rendering (may require a sway patch)
 
-## M2: slated core
+## M2: slated core (started; runs on the dev VM)
 
-- [ ] Approval broker serving Claude Code's permission-prompt tool and Codex approvals
-- [ ] Tier policy file, default policy
-- [ ] Audit log, `slate audit`
-- [ ] Btrfs snapshot before task, `/undo`
+- [x] Approval broker serving Claude Code's permission-prompt tool
+- [x] Tier policy in code (Observe / Reversible / Confirm) with a shell classifier
+- [ ] Tier policy file (`~/.config/slate/policy.toml`) and per-skill tiers
+- [x] Audit log, `slate audit`, `/audit`
+- [x] btrfs snapshot before the first non-observe call of a task, `/undo`, `/undo --preview`
+- [x] Snapshot pruning
+- [ ] Codex approvals (Codex exec has no approval channel yet; runs under its sandbox)
 - [ ] Session context MCP server
 - [ ] Memory MCP server (minimal)
+- [ ] Agent identity: separate uid / Landlock / cgroup
+- [ ] systemd user service for slated
 
 ## M3: slash (started first; it needs no Wayland)
 

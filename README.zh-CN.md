@@ -94,8 +94,8 @@ zsh 和 bash 还在。只是你会慢慢不再打开它们。
 | Crate | 是什么 | 状态 |
 |---|---|---|
 | `crates/slash` | shell。终端视图和桌面面板视图共享同一个会话。 | v0：Claude Code 和 Codex 都能用，见 [crates/slash](crates/slash) |
-| `crates/slated` | 守护进程。身份、审批、审计、快照、记忆、skills、MCP server。 | 占位 |
-| `crates/slate` | 查看和控制 `slated` 的 CLI。 | 占位 |
+| `crates/slated` | 守护进程。审批、分级策略、审计、快照与撤销。身份、记忆、skills 待做。 | v0：审批、审计、撤销可用 |
+| `crates/slate` | `slated` 的 CLI，也是 Claude Code 调用的 hook 和 MCP 入口。 | v0 |
 | `crates/slate-desktop` | 后台 computer use：agent seat、截图、输入、a11y，通过 MCP 暴露。 | 占位 |
 | `crates/slate-proto` | 跨进程边界的共享类型。 | 占位 |
 | `skills/` | OS Skills：给机器读的系统手册。 | 仅示例 |

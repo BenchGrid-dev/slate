@@ -59,7 +59,7 @@ Responsibilities:
 - **Identity.** Agent tasks run as a separate Linux user (or a dedicated session under the user's uid with its own cgroup, Landlock ruleset and polkit identity). **Open:** separate uid vs same uid with sandboxing; trade-offs are file ownership friction vs weaker isolation.
 - **Approval broker.** Implements Claude Code's permission-prompt MCP tool and Codex's approval flow. Classifies every requested action into a tier (below) and either allows, snapshots-then-allows, or surfaces a prompt to the user via slash or the desktop shell.
 - **Audit log.** Append-only log of every tool call: backend, session, what the agent saw (hash of screenshot / a11y snapshot), what it did, tier, outcome. Queryable via `slate audit`.
-- **Snapshots and undo.** Before each task, snapshot the relevant state. Filesystem via btrfs subvolume snapshots or NixOS generations (**open**, see `decisions/0004-base-distribution.md`). `/undo` and "undo that" roll back the last task. Non-filesystem side effects (emails sent, network calls) are unrecoverable and are therefore always tier Confirm.
+- **Snapshots and undo.** On the first non-observe tool call of a task, take a read-only btrfs snapshot of the user's home (which must be a user-owned subvolume; see `decisions/0006-privilege-free-snapshots.md`). `/undo` diffs the snapshot against the live tree inside the directories the task touched and restores, deletes or recreates files accordingly. No privileges are needed. Non-filesystem side effects (emails sent, network calls) are unrecoverable and are therefore always tier Confirm. System-level state on NixOS (generations) is a separate, later concern.
 - **Memory.** User preferences, task history, things the user explicitly asked to remember. Exposed to backends as an MCP server and injected into CLAUDE.md / AGENTS.md as summaries.
 - **Session context.** Recent slash history, cwd, last outputs, active windows. Given to the backend at session start and refreshed via MCP.
 - **Skills registry.** Loads OS Skills (below), makes them discoverable to backends.
@@ -73,7 +73,9 @@ Approval tiers:
 | Reversible | snapshot, then run silently; undo available | edit config, move files, change settings, install a package |
 | Confirm | stop and ask | delete outside a snapshot's reach, send email/message, network POST, anything touching credentials or payment |
 
-Classification comes from a policy file that skills and users can extend. Unknown actions default to Confirm.
+Classification lives in `slated/src/policy.rs` today and will move to a policy file that skills and users can extend. Unknown actions default to Confirm.
+
+How it is wired for Claude Code: slash launches `claude` with `--permission-mode default`, a PreToolUse hook (`slate hook pre-tool-use`) that asks slated for the tier and answers `allow` / `ask`, and `--permission-prompt-tool mcp__slate__approve`, an MCP tool served by `slate mcp` that forwards Confirm-tier calls to slated, which asks the human through whichever slash session started the task. The agent binary never sees anything but its own documented extension points.
 
 ### 2.4 slate-desktop: background computer use for Linux
 

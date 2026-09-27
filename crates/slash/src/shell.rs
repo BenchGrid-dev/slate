@@ -101,6 +101,9 @@ impl ShellRunner {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("running {}", self.shell))?;
+        // The Command still holds our copies of the slave fd. Drop them now, or the
+        // master never reports hangup when the child exits (Linux blocks forever).
+        drop(cmd);
 
         let stdin = io::stdin();
         let stdin_is_tty = stdin.is_terminal();
