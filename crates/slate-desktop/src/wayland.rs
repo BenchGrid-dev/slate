@@ -113,7 +113,19 @@ pub struct Desktop {
     keymap: Option<Keymap>,
     /// Keymap uploaded to the user-seat keyboard (tracked separately).
     user_keymap: Option<Keymap>,
+    /// Which keymap each seat's keyboard currently holds.
+    active: Option<Active>,
+    user_active: Option<Active>,
     started: Instant,
+}
+
+/// The keymap currently uploaded to a virtual keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Active {
+    /// The standard US keymap: real keycodes, Shift for capitals and symbols.
+    Us,
+    /// Our generated keymap: one keycode per non-ASCII character.
+    Custom,
 }
 
 impl Desktop {
@@ -215,10 +227,12 @@ impl Desktop {
             user_keyboard,
             keymap: None,
             user_keymap: None,
+            active: None,
+            user_active: None,
             started: Instant::now(),
         };
-        // Upload a baseline keymap so key combos work before any text is typed.
-        d.ensure_keymap(Seat::Agent, "")?;
+        // Start with the standard keymap so key combos work before any text is typed.
+        d.ensure_us(Seat::Agent)?;
         Ok(d)
     }
 
@@ -259,6 +273,79 @@ impl Desktop {
             Seat::Agent => &mut self.keymap,
             Seat::User => &mut self.user_keymap,
         }
+    }
+
+    fn active_slot(&mut self, seat: Seat) -> &mut Option<Active> {
+        match seat {
+            Seat::Agent => &mut self.active,
+            Seat::User => &mut self.user_active,
+        }
+    }
+
+    fn upload_keymap(&mut self, seat: Seat, text: &str, absorb_code: u32) -> Result<()> {
+        let fd = memfd("slate-keymap", text.as_bytes())?;
+        self.kbd(seat).keymap(1, fd.as_fd(), text.len() as u32 + 1);
+        self.queue.flush()?;
+        self.roundtrip()?;
+        // The first key event after a keymap change is dropped on the way to the client;
+        // spend it on a harmless key.
+        self.key_event(seat, absorb_code, true);
+        self.key_event(seat, absorb_code, false);
+        self.queue.flush()?;
+        std::thread::sleep(Duration::from_millis(20));
+        self.roundtrip()
+    }
+
+    /// Make sure the seat's keyboard has the standard US keymap.
+    fn ensure_us(&mut self, seat: Seat) -> Result<()> {
+        if *self.active_slot(seat) == Some(Active::Us) {
+            return Ok(());
+        }
+        self.upload_keymap(seat, keymap::US_KEYMAP, keymap::US_ABSORB_CODE)?;
+        *self.active_slot(seat) = Some(Active::Us);
+        Ok(())
+    }
+
+    /// Make sure the seat's keyboard has a generated keymap covering `text`.
+    fn ensure_custom(&mut self, seat: Seat, text: &str) -> Result<()> {
+        let have = self.keymap_slot(seat).as_ref();
+        let covers = have
+            .map(|k| text.chars().all(|c| k.code_for_char(c).is_some()))
+            .unwrap_or(false);
+        if covers && *self.active_slot(seat) == Some(Active::Custom) {
+            return Ok(());
+        }
+        if !covers {
+            let combined = match self.keymap_slot(seat) {
+                Some(k) => {
+                    let mut s = k.text_chars();
+                    s.push_str(text);
+                    s
+                }
+                None => text.to_string(),
+            };
+            *self.keymap_slot(seat) = Some(Keymap::for_text(&combined));
+        }
+        let km_text = self.keymap_slot(seat).as_ref().unwrap().text.clone();
+        self.upload_keymap(seat, &km_text, keymap::VOID_CODE)?;
+        *self.active_slot(seat) = Some(Active::Custom);
+        Ok(())
+    }
+
+    fn press(&mut self, seat: Seat, code: u32, shift: bool) -> Result<()> {
+        if shift {
+            self.key_event(seat, keymap::US_ABSORB_CODE, true);
+            self.kbd(seat).modifiers(1, 0, 0, 0);
+        }
+        self.key_event(seat, code, true);
+        self.key_event(seat, code, false);
+        if shift {
+            self.kbd(seat).modifiers(0, 0, 0, 0);
+            self.key_event(seat, keymap::US_ABSORB_CODE, false);
+        }
+        self.queue.flush()?;
+        std::thread::sleep(Duration::from_millis(6));
+        Ok(())
     }
 
     pub fn toplevels(&mut self) -> Result<Vec<Toplevel>> {
@@ -341,91 +428,62 @@ impl Desktop {
         self.roundtrip()
     }
 
-    fn ensure_keymap(&mut self, seat: Seat, text: &str) -> Result<()> {
-        let needs = match self.keymap_slot(seat) {
-            None => true,
-            Some(k) => text
-                .chars()
-                .any(|c| k.code_for_char(c).is_none() && !c.is_control()),
-        };
-        if !needs {
-            return Ok(());
-        }
-        // Build a keymap that covers the new text plus everything typed so far.
-        let combined = match self.keymap_slot(seat) {
-            Some(k) => {
-                let mut s = k.text_chars();
-                s.push_str(text);
-                s
-            }
-            None => text.to_string(),
-        };
-        let km = Keymap::for_text(&combined);
-        let fd = memfd("slate-keymap", km.text.as_bytes())?;
-        self.kbd(seat)
-            .keymap(1, fd.as_fd(), km.text.len() as u32 + 1);
-        self.queue.flush()?;
-        *self.keymap_slot(seat) = Some(km);
-        self.roundtrip()?;
-        // Absorb the one key event that gets lost after a keymap change.
-        self.key_event(seat, keymap::VOID_CODE, true);
-        self.key_event(seat, keymap::VOID_CODE, false);
-        self.queue.flush()?;
-        std::thread::sleep(Duration::from_millis(20));
-        self.roundtrip()
-    }
-
     fn key_event(&mut self, seat: Seat, code: u32, pressed: bool) {
         let t = self.now_ms();
         self.kbd(seat).key(t, code, if pressed { 1 } else { 0 });
     }
 
-    /// Type text on the agent keyboard.
+    /// Type text. ASCII goes through the standard US keymap with real keycodes;
+    /// anything else through a generated keymap, switching as needed.
     pub fn type_text(&mut self, seat: Seat, text: &str) -> Result<()> {
-        self.ensure_keymap(seat, text)?;
-        let codes: Vec<u32> = {
-            let km = self.keymap_slot(seat).as_ref();
-            text.chars()
-                .filter_map(|c| km.and_then(|k| k.code_for_char(c)))
-                .collect()
-        };
-        for code in codes {
-            self.key_event(seat, code, true);
-            self.key_event(seat, code, false);
-            self.queue.flush()?;
-            std::thread::sleep(Duration::from_millis(6));
+        for c in text.chars() {
+            if let Some((code, shift)) = keymap::us_key(c) {
+                self.ensure_us(seat)?;
+                self.press(seat, code, shift)?;
+            } else if c.is_control() {
+                continue;
+            } else {
+                let one = c.to_string();
+                self.ensure_custom(seat, &one)?;
+                let code = self
+                    .keymap_slot(seat)
+                    .as_ref()
+                    .and_then(|k| k.code_for_char(c))
+                    .ok_or_else(|| anyhow!("no keycode for {c:?}"))?;
+                self.press(seat, code, false)?;
+            }
         }
         self.roundtrip()
     }
 
-    /// Press a key combo like "ctrl+l", "Return", "alt+Tab", "shift+a".
+    /// Press a key combo like "ctrl+l", "Return", "alt+Tab", "shift+a", using the
+    /// standard US keymap so apps see real keycodes.
     pub fn key(&mut self, seat: Seat, combo: &str) -> Result<()> {
         let (mods, key) = keymap::parse_combo(combo);
         if key.is_empty() {
             bail!("empty key");
         }
-        // Single character keys go through the char table.
-        let is_char = key.chars().count() == 1;
-        if is_char {
-            self.ensure_keymap(seat, &key)?;
+        self.ensure_us(seat)?;
+        let (key_code, key_shift) = if key.chars().count() == 1 {
+            let c = key.chars().next().unwrap();
+            keymap::us_key(c)
+                .ok_or_else(|| anyhow!("key {key:?} is not on the US layout; use type for text"))?
         } else {
-            self.ensure_keymap(seat, "")?;
-        }
-        let km = self.keymap_slot(seat).as_ref().unwrap();
-        let key_code = if is_char {
-            km.code_for_char(key.chars().next().unwrap())
-        } else {
-            km.code_for_named(&key)
-        }
-        .ok_or_else(|| anyhow!("unknown key {key:?}"))?;
+            (
+                keymap::us_named(&key).ok_or_else(|| anyhow!("unknown key {key:?}"))?,
+                false,
+            )
+        };
         let mut mod_codes = vec![];
         let mut mask = 0u32;
         for m in &mods {
-            let c = km
-                .code_for_named(m)
-                .ok_or_else(|| anyhow!("unknown modifier {m:?}"))?;
+            let c = keymap::us_named(m).ok_or_else(|| anyhow!("unknown modifier {m:?}"))?;
             mask |= keymap::modifier_mask(m).unwrap_or(0);
             mod_codes.push(c);
+        }
+        if key_shift && !mods.iter().any(|m| m == "shift") {
+            mod_codes.push(keymap::US_ABSORB_CODE);
+            mask |= 1;
         }
         for c in &mod_codes {
             self.key_event(seat, *c, true);
