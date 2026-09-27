@@ -39,6 +39,16 @@ in
       description = "Enable sway with the tools slate-desktop relies on. Slate needs a wlroots-based compositor.";
     };
 
+    snapshotRoot = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/home/alice";
+      description = ''
+        A user-owned btrfs subvolume slated snapshots for undo. Defaults to the user's home,
+        which must itself be a subvolume owned by the user. Set this when home is not one.
+      '';
+    };
+
     agents = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = [ pkgs.claude-code ];
@@ -68,6 +78,7 @@ in
     systemd.user.services.slated = {
       description = "Slate daemon: approval broker, audit log, snapshots and undo";
       wantedBy = [ "default.target" ];
+      environment = lib.mkIf (cfg.snapshotRoot != null) { SLATE_SNAPSHOT_ROOT = cfg.snapshotRoot; };
       serviceConfig = {
         ExecStart = "${pkg}/bin/slated";
         Restart = "on-failure";
