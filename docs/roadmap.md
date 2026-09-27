@@ -56,6 +56,7 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 
 ## M4: Slate OS image
 
+- [x] NixOS module + flake: `services.slate.enable`, slash as login shell, slated user service
 - [ ] Base distribution decided
 - [ ] Compositor decided, patches upstreamed or carried
 - [ ] Shell layer: panel, approval toasts, agent status, takeover controls

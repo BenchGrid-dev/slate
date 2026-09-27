@@ -1,0 +1,48 @@
+{
+  description = "Slate: an AI-native Linux where humans and agents share the same desktop";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+    in
+    {
+      packages = forAll (pkgs: rec {
+        slate = pkgs.rustPlatform.buildRustPackage {
+          pname = "slate";
+          version = "0.0.1";
+          src = pkgs.lib.cleanSourceWith {
+            src = self;
+            filter = path: type:
+              let base = baseNameOf path; in
+              !(base == "target" || base == "docs" || base == "distro" || base == "skills" || base == ".github");
+          };
+          cargoLock.lockFile = ./Cargo.lock;
+          # Pure Rust; wayland-client uses its Rust backend, so no libwayland is needed.
+          doCheck = true;
+          # The pty tests need /bin/sh and a tty-less environment; both are fine in the sandbox.
+          meta = with pkgs.lib; {
+            description = "Slate agent runtime: slash, slated, slate, slate-desktop";
+            homepage = "https://github.com/BenchGrid-dev/slate";
+            license = licenses.gpl3Plus;
+            mainProgram = "slash";
+            platforms = platforms.linux;
+          };
+        };
+        default = slate;
+      });
+
+      nixosModules.default = import ./distro/nixos/module.nix { inherit self; };
+      nixosModules.slate = self.nixosModules.default;
+
+      devShells = forAll (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [ rustup gcc pkg-config sway foot grim wl-clipboard python3 ];
+        };
+      });
+    };
+}
