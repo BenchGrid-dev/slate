@@ -20,6 +20,8 @@ pub struct App {
     verbose: bool,
     daemon: Option<Daemon>,
     slate_bin: PathBuf,
+    /// `slate-desktop`, when we are on a Wayland desktop and the binary exists.
+    desktop_bin: Option<PathBuf>,
 }
 
 impl App {
@@ -51,6 +53,9 @@ impl App {
             verbose: false,
             daemon,
             slate_bin: daemon::sibling_bin("slate"),
+            desktop_bin: std::env::var_os("WAYLAND_DISPLAY")
+                .map(|_| daemon::sibling_bin("slate-desktop"))
+                .filter(|p| p.is_absolute() && p.exists()),
         })
     }
 
@@ -88,12 +93,17 @@ impl App {
             }
             None => "slated: off",
         };
+        let desktop_note = if self.desktop_bin.is_some() {
+            "  ·  desktop: on"
+        } else {
+            ""
+        };
         println!(
             "{} {}  {}",
             bold("slash"),
             dim(slate_proto::VERSION),
             dim(&format!(
-                "backend: {}{}  ·  {slated_note}  ·  /help",
+                "backend: {}{}  ·  {slated_note}{desktop_note}  ·  /help",
                 self.backend.name(),
                 self.backend
                     .model()
@@ -411,6 +421,7 @@ impl App {
         };
         let attachment = task_id.as_deref().and_then(|id| Attachment::start(id).ok());
         let slate_bin = self.slate_bin.clone();
+        let desktop_bin = self.desktop_bin.clone();
         let mut last_text: Option<String> = None;
         let mut streamed = 0usize;
         let mut on_event = |ev: Event| {
@@ -478,6 +489,7 @@ impl App {
             cwd: &cwd,
             task_id: task_id.as_deref(),
             slate_bin: task_id.as_ref().map(|_| slate_bin.as_path()),
+            desktop_bin: desktop_bin.as_deref(),
         };
         let result = self.backend.run_turn(req, &mut on_event);
         let ok = result.is_ok();

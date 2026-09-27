@@ -9,17 +9,19 @@ Dates are intentions, not promises. Everything here is open for discussion.
 - [ ] RFCs opened for each open question in `architecture.md`
 - [ ] OS Skills manifest format v0
 
-## M1: the agent seat (the thing nobody has)
+## M1: the agent seat (the thing nobody has) — mechanism proven on the dev VM
 
 Goal: on stock sway, an agent drives a GTK app through its own transient seat while a human uses the same desktop, with a visible ghost cursor.
 
-- [ ] slate-desktop: create transient seat, bind virtual pointer and keyboard
-- [ ] slate-desktop: per-window capture via ext-image-copy-capture
+- [x] slate-desktop: create transient seat, bind virtual pointer and keyboard
+- [x] slate-desktop: per-window capture via ext-image-copy-capture
 - [ ] slate-desktop: AT-SPI2 tree read and action
-- [ ] slate-desktop: MCP server with list/capture/tree/click/type/key/scroll
+- [x] slate-desktop: MCP server with windows/screenshot/click/move/scroll/type/key/launch
+- [x] Unicode typing via generated keymaps, key combos
 - [ ] Demo: Claude Code (headless) fills a form in a GTK app via slate-desktop while the user types in a terminal
 - [ ] Demo: same with Codex
 - [ ] Ghost cursor rendering (may require a sway patch)
+- [ ] Human takeover: freeze / hand back / show me
 
 ## M2: slated core (started; runs on the dev VM)
 

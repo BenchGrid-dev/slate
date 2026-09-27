@@ -49,6 +49,12 @@ impl Codex {
         if let Some(t) = req.task_id {
             cmd.env(slate_proto::ENV_TASK, t);
         }
+        if let Some(d) = req.desktop_bin {
+            // Codex reads MCP servers from config; pass it as an override.
+            cmd.arg("-c")
+                .arg(format!("mcp_servers.desktop.command=\"{}\"", d.display()));
+            cmd.arg("-c").arg("mcp_servers.desktop.args=[\"serve\"]");
+        }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

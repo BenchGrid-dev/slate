@@ -49,6 +49,30 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
             classify_shell(cmd)
         }
         name if name.starts_with("mcp__slate__") => v(Tier::Observe, "slate's own tool"),
+        "mcp__desktop__desktop_windows"
+        | "mcp__desktop__desktop_screenshot"
+        | "mcp__desktop__desktop_move" => v(Tier::Observe, "looks at the desktop"),
+        "mcp__desktop__desktop_click"
+        | "mcp__desktop__desktop_scroll"
+        | "mcp__desktop__desktop_key" => {
+            v(Tier::Reversible, "drives the desktop on the agent seat")
+        }
+        "mcp__desktop__desktop_type" => {
+            let t = input.get("text").and_then(Value::as_str).unwrap_or("");
+            if t.len() > 2000 {
+                v(Tier::Confirm, "types a very large text")
+            } else {
+                v(Tier::Reversible, "types on the agent seat")
+            }
+        }
+        "mcp__desktop__desktop_launch" => {
+            let c = input.get("command").and_then(Value::as_str).unwrap_or("");
+            if DANGEROUS_PATTERNS.iter().any(|p| c.contains(p.trim())) {
+                v(Tier::Confirm, "launches a sensitive program")
+            } else {
+                v(Tier::Reversible, "launches a desktop program")
+            }
+        }
         name if name.starts_with("mcp__") => v(Tier::Confirm, "unknown MCP tool"),
         _ => v(Tier::Confirm, "unknown tool"),
     }
@@ -606,6 +630,18 @@ mod tests {
         assert_eq!(
             classify("mcp__slate__approve", &json!({})).tier,
             Tier::Observe
+        );
+        assert_eq!(
+            classify("mcp__desktop__desktop_screenshot", &json!({})).tier,
+            Tier::Observe
+        );
+        assert_eq!(
+            classify("mcp__desktop__desktop_click", &json!({"x": 1, "y": 2})).tier,
+            Tier::Reversible
+        );
+        assert_eq!(
+            classify("mcp__desktop__desktop_launch", &json!({"command": "foot"})).tier,
+            Tier::Reversible
         );
     }
 }

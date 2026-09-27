@@ -49,9 +49,12 @@ impl ClaudeCode {
                         "PostToolUse": [{"hooks": [{"type": "command", "command": format!("{slate} hook post-tool-use")}]}]
                     }
                 });
-                let mcp = serde_json::json!({
-                    "mcpServers": {"slate": {"command": slate, "args": ["mcp"]}}
-                });
+                let mut servers = serde_json::json!({"slate": {"command": slate, "args": ["mcp"]}});
+                if let Some(d) = req.desktop_bin {
+                    servers["desktop"] =
+                        serde_json::json!({"command": d.display().to_string(), "args": ["serve"]});
+                }
+                let mcp = serde_json::json!({ "mcpServers": servers });
                 cmd.env(slate_proto::ENV_TASK, task_id)
                     .arg("--permission-mode")
                     .arg("default")

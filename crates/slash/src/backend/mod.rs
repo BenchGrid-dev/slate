@@ -47,6 +47,8 @@ pub struct TurnRequest<'a> {
     pub task_id: Option<&'a str>,
     /// Path to the `slate` binary for hooks and the MCP permission server.
     pub slate_bin: Option<&'a Path>,
+    /// Path to `slate-desktop`, when a Wayland display is available.
+    pub desktop_bin: Option<&'a Path>,
 }
 
 pub trait Backend {
