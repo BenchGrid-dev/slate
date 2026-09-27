@@ -1,3 +1,8 @@
+---
+name: slate-undo
+description: How Slate snapshots, undo, and the audit log work. Use when the user asks to undo, revert, or wants to know what the agent changed.
+---
+
 # Undo, snapshots and audit in Slate
 
 Slate takes a read-only btrfs snapshot of the user's home before the first change a task makes. The user can say "undo" at any time.

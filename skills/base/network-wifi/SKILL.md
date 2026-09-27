@@ -1,3 +1,8 @@
+---
+name: slate-network-wifi
+description: List, connect to, or disconnect from Wi-Fi with nmcli. Use for any request about Wi-Fi, wireless networks, or being offline.
+---
+
 # Wi-Fi
 
 Use `nmcli` (NetworkManager). Do not open a settings GUI for this.

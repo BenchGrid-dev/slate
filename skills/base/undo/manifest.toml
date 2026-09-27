@@ -1,4 +1,4 @@
-name = "slate-undo"
+name = "undo"
 description = "How undo, snapshots and the audit log work in Slate, and how to use them."
 tiers = { default = "observe" }
 requires = ["slate"]
