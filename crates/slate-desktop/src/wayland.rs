@@ -222,6 +222,15 @@ impl Desktop {
         Ok(d)
     }
 
+    /// Give clients time to bind a freshly created seat before injecting input.
+    /// Heavy clients (browsers) need a few hundred milliseconds; the MCP server
+    /// calls this once at startup, the CLI before every action.
+    pub fn settle(&mut self) -> Result<()> {
+        self.roundtrip()?;
+        std::thread::sleep(Duration::from_millis(400));
+        self.roundtrip()
+    }
+
     pub fn roundtrip(&mut self) -> Result<()> {
         self.queue.roundtrip(&mut self.state)?;
         Ok(())
@@ -540,10 +549,14 @@ impl Desktop {
         file.read_exact(&mut raw)?;
         let (raw, w, h) = match crop_to {
             Some((cw, ch)) if cw > 0 && ch > 0 && (cw < w || ch < h) => {
-                let cw = cw.min(w);
-                let ch = ch.min(h);
-                let ox = (w - cw) / 2;
-                let oy = (h - ch) / 2;
+                // CSD shadow margins are symmetric, so the vertical excess gives the margin.
+                // Horizontally the surface may also simply be wider than its slot (minimum
+                // window sizes), in which case the compositor shows it from the left edge.
+                let margin = if h > ch { (h - ch) / 2 } else { 0 };
+                let oy = margin.min(h.saturating_sub(1));
+                let ox = if w > cw { margin.min(w - cw) } else { 0 };
+                let cw = cw.min(w - ox);
+                let ch = ch.min(h - oy);
                 let mut out = Vec::with_capacity((cw * ch * 4) as usize);
                 for row in oy..oy + ch {
                     let start = ((row * w + ox) * 4) as usize;

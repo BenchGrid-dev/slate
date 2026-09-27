@@ -84,6 +84,7 @@ fn main() -> Result<()> {
             let x: f64 = args[1].parse()?;
             let y: f64 = args[2].parse()?;
             let mut d = wayland::Desktop::connect()?;
+            d.settle()?;
             if cmd == "click" {
                 d.click(
                     seat,
@@ -96,21 +97,23 @@ fn main() -> Result<()> {
                 d.pointer_move(seat, x, y)?;
             }
             // Keep the seat alive briefly so the compositor delivers the events.
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(300));
             Ok(())
         }
         "type" => {
             let text = args.get(1).cloned().unwrap_or_default();
             let mut d = wayland::Desktop::connect()?;
+            d.settle()?;
             d.type_text(seat, &text)?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(300));
             Ok(())
         }
         "key" => {
             let combo = args.get(1).cloned().unwrap_or_default();
             let mut d = wayland::Desktop::connect()?;
+            d.settle()?;
             d.key(seat, &combo)?;
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(300));
             Ok(())
         }
         "launch" => {

@@ -269,6 +269,7 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
 
 pub fn serve() -> Result<()> {
     let mut desktop = Desktop::connect()?;
+    desktop.settle()?;
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {
