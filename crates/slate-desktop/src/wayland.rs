@@ -549,15 +549,11 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
             wl_output::Event::Mode {
                 width,
                 height,
-                flags,
+                flags: WEnum::Value(f),
                 ..
-            } => {
-                if let WEnum::Value(f) = flags {
-                    if f.contains(wl_output::Mode::Current) {
-                        o.width = width;
-                        o.height = height;
-                    }
-                }
+            } if f.contains(wl_output::Mode::Current) => {
+                o.width = width;
+                o.height = height;
             }
             wl_output::Event::Scale { factor } => o.scale = factor,
             wl_output::Event::Name { name } => o.name = name,
@@ -665,21 +661,19 @@ impl Dispatch<session::ExtImageCopyCaptureSessionV1, ()> for State {
                 st.capture.width = width;
                 st.capture.height = height;
             }
-            session::Event::ShmFormat { format } => {
-                if let WEnum::Value(f) = format {
-                    // Prefer the first 32-bit format offered.
-                    if st.capture.format.is_none()
-                        && matches!(
-                            f,
-                            wl_shm::Format::Xrgb8888
-                                | wl_shm::Format::Argb8888
-                                | wl_shm::Format::Xbgr8888
-                                | wl_shm::Format::Abgr8888
-                        )
-                    {
-                        st.capture.format = Some(f);
-                    }
-                }
+            // Prefer the first 32-bit format offered.
+            session::Event::ShmFormat {
+                format: WEnum::Value(f),
+            } if st.capture.format.is_none()
+                && matches!(
+                    f,
+                    wl_shm::Format::Xrgb8888
+                        | wl_shm::Format::Argb8888
+                        | wl_shm::Format::Xbgr8888
+                        | wl_shm::Format::Abgr8888
+                ) =>
+            {
+                st.capture.format = Some(f);
             }
             session::Event::Done => st.capture.session_done = true,
             session::Event::Stopped => st.capture.frame_failed = Some("session stopped".into()),
