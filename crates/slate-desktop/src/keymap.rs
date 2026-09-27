@@ -118,8 +118,23 @@ impl Keymap {
             named.insert((*name).to_string(), code);
         }
         let max = next + 8;
+        // Bind the modifier keysyms to real modifiers, or clients computing state from key
+        // events (rather than our modifiers request) would never see Control/Shift held.
+        let mut modmap = String::new();
+        for (sym, modname) in [
+            ("Control_L", "Control"),
+            ("Shift_L", "Shift"),
+            ("Alt_L", "Mod1"),
+            ("Super_L", "Mod4"),
+        ] {
+            if let Some(code) = by_sym.get(sym) {
+                modmap.push_str(&format!(
+                    "        modifier_map {modname} {{ <K{code}> }};\n"
+                ));
+            }
+        }
         let text = format!(
-            "xkb_keymap {{\n    xkb_keycodes \"slate\" {{\n        minimum = 8;\n        maximum = {max};\n{codes}    }};\n    xkb_types \"slate\" {{ include \"complete\" }};\n    xkb_compatibility \"slate\" {{ include \"complete\" }};\n    xkb_symbols \"slate\" {{\n{symbols}    }};\n}};\n"
+            "xkb_keymap {{\n    xkb_keycodes \"slate\" {{\n        minimum = 8;\n        maximum = {max};\n{codes}    }};\n    xkb_types \"slate\" {{ include \"complete\" }};\n    xkb_compatibility \"slate\" {{ include \"complete\" }};\n    xkb_symbols \"slate\" {{\n{symbols}{modmap}    }};\n}};\n"
         );
         Self { text, chars, named }
     }
@@ -165,6 +180,7 @@ mod tests {
         let k = Keymap::for_text("hi 你");
         assert!(k.text.contains("U4F60"));
         assert!(k.text.contains("[ space ]"));
+        assert!(k.text.contains("modifier_map Control"));
         assert!(k.code_for_char('h').is_some());
         assert!(k.code_for_named("Return").is_some());
         assert_eq!(k.code_for_named("enter"), k.code_for_named("return"));

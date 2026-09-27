@@ -10,7 +10,7 @@ Run on the desktop machine (needs WAYLAND_DISPLAY, sway IPC, foot, firefox):
 """
 import base64, json, os, subprocess, sys, tempfile, time
 
-BIN = sys.argv[1] if len(sys.argv) > 1 else "slate-desktop"
+BIN = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else "slate-desktop"
 FAILS = []
 
 class Mcp:
@@ -110,6 +110,10 @@ def main():
     if ff:
         time.sleep(2)  # let it finish starting
         m.tool("desktop_click", window=ff["id"], x=ff["width"] // 2, y=ff["height"] // 2)
+        if ff["width"] < 700:
+            m.tool("desktop_key", combo="super+f")  # sway: fullscreen, so the UI is not clipped
+            time.sleep(1)
+            ff = find(m, "firefox", before_ff) or ff
         m.tool("desktop_key", combo="ctrl+l")
         m.tool("desktop_type", text=f"file://{page}")
         m.tool("desktop_key", combo="Return")

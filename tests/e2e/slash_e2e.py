@@ -8,7 +8,7 @@ and socket so the user's own memories and audit log are untouched.
 """
 import os, pty, re, select, sys, tempfile, time
 
-BIN = sys.argv[1] if len(sys.argv) > 1 else "slash"
+BIN = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else "slash"
 FAILS = []
 PROMPT = "❯"  # ❯
 
