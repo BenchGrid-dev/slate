@@ -24,7 +24,7 @@ impl App {
         let backend = backend::by_name(&cfg.backend, &cfg)
             .ok_or_else(|| anyhow::anyhow!("unknown backend {:?} in config", cfg.backend))?;
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-        let shell = ShellRunner::new(cfg.shell(), cwd);
+        let shell = ShellRunner::new(cfg.shell(), cfg.shell_interactive, cwd);
         let session = Session::new(cfg.context_commands);
         Ok(Self {
             cfg,
@@ -133,6 +133,9 @@ impl App {
                 );
                 println!();
                 println!("  /agent [claude|codex]   show or switch backend (starts a new session)");
+                println!(
+                    "  /model [name|default]   show or switch model (sonnet, opus, or a full id)"
+                );
                 println!("  /new                    start a new agent session");
                 println!("  /session                show the backend session id");
                 println!(
@@ -163,6 +166,21 @@ impl App {
                             red("error:")
                         ),
                     }
+                }
+                None
+            }
+            "model" => {
+                if args.is_empty() {
+                    match self.backend.model() {
+                        Some(m) => println!("model: {m}"),
+                        None => println!("model: {}", dim("backend default")),
+                    }
+                } else if args == "default" {
+                    self.backend.set_model(None);
+                    println!("model: {}", dim("backend default"));
+                } else {
+                    self.backend.set_model(Some(args.to_string()));
+                    println!("model: {args}");
                 }
                 None
             }
@@ -247,15 +265,26 @@ impl App {
         let cwd = self.shell.cwd().to_path_buf();
         let verbose = self.verbose;
         let mut last_text: Option<String> = None;
+        let mut streamed = 0usize;
         let mut on_event = |ev: Event| {
             match ev {
+                Event::TextDelta(t) => {
+                    print!("{t}");
+                    streamed += t.len();
+                }
                 Event::SessionStarted(id) => {
                     if verbose {
                         println!("{}", dim(&format!("session {id}")));
                     }
                 }
                 Event::Text(t) => {
-                    println!("{t}");
+                    if streamed > 0 {
+                        // Already printed incrementally; just end the line.
+                        println!();
+                        streamed = 0;
+                    } else {
+                        println!("{t}");
+                    }
                     last_text = Some(t);
                 }
                 Event::ToolStart { name, detail } => {

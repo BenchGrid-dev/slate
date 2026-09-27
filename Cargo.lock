@@ -346,6 +346,8 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "dirs",
+ "libc",
+ "nix",
  "rustyline",
  "serde",
  "serde_json",

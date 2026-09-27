@@ -12,7 +12,9 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     SessionStarted(String),
-    /// Assistant prose.
+    /// A streamed fragment of assistant prose. A `Text` with the full block follows.
+    TextDelta(String),
+    /// Assistant prose (complete block).
     Text(String),
     /// A tool call began. `detail` is a one-line summary (the command, the path…).
     ToolStart {
@@ -47,6 +49,9 @@ pub trait Backend {
     fn session_id(&self) -> Option<&str>;
     /// Forget the current session; the next turn starts fresh.
     fn reset(&mut self);
+    fn model(&self) -> Option<&str>;
+    /// Change the model for subsequent turns. None restores the backend default.
+    fn set_model(&mut self, model: Option<String>);
     /// Run one turn, calling `on_event` as events arrive.
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()>;
 }

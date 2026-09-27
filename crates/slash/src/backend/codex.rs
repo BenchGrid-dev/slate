@@ -34,6 +34,9 @@ impl Codex {
             .arg(&self.cfg.sandbox)
             .arg("-C")
             .arg(req.cwd);
+        if let Some(m) = &self.cfg.model {
+            cmd.arg("-m").arg(m);
+        }
         cmd.args(&self.cfg.extra_args);
         if let Some(id) = &self.thread_id {
             cmd.arg("resume").arg(id);
@@ -61,6 +64,14 @@ impl Backend for Codex {
 
     fn reset(&mut self) {
         self.thread_id = None;
+    }
+
+    fn model(&self) -> Option<&str> {
+        self.cfg.model.as_deref()
+    }
+
+    fn set_model(&mut self, model: Option<String>) {
+        self.cfg.model = model;
     }
 
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()> {

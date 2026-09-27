@@ -34,6 +34,7 @@ impl ClaudeCode {
             .arg("--output-format")
             .arg("stream-json")
             .arg("--verbose")
+            .arg("--include-partial-messages")
             .arg("--permission-mode")
             .arg(&self.cfg.permission_mode)
             .arg("--append-system-prompt")
@@ -41,6 +42,9 @@ impl ClaudeCode {
             .current_dir(req.cwd);
         if let Some(id) = &self.session_id {
             cmd.arg("--resume").arg(id);
+        }
+        if let Some(m) = &self.cfg.model {
+            cmd.arg("--model").arg(m);
         }
         if !self.cfg.allowed_tools.is_empty() {
             cmd.arg("--allowedTools")
@@ -65,6 +69,14 @@ impl Backend for ClaudeCode {
 
     fn reset(&mut self) {
         self.session_id = None;
+    }
+
+    fn model(&self) -> Option<&str> {
+        self.cfg.model.as_deref()
+    }
+
+    fn set_model(&mut self, model: Option<String>) {
+        self.cfg.model = model;
     }
 
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()> {
@@ -127,6 +139,14 @@ pub fn parse_line(line: &str, tools: &mut std::collections::HashMap<String, Stri
     };
     let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
     match ty {
+        "stream_event" => {
+            if v.pointer("/event/type").and_then(Value::as_str) == Some("content_block_delta") {
+                if let Some(t) = v.pointer("/event/delta/text").and_then(Value::as_str) {
+                    return vec![Event::TextDelta(t.to_string())];
+                }
+            }
+            vec![]
+        }
         "system" => {
             if v.get("subtype").and_then(Value::as_str) == Some("init") {
                 if let Some(id) = v.get("session_id").and_then(Value::as_str) {
@@ -292,6 +312,21 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_text_delta() {
+        let mut t = HashMap::new();
+        let ev = parse_line(
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}}"#,
+            &mut t,
+        );
+        assert_eq!(ev, vec![Event::TextDelta("Hel".into())]);
+        let ev = parse_line(
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{"}}}"#,
+            &mut t,
+        );
+        assert_eq!(ev, vec![]);
     }
 
     #[test]

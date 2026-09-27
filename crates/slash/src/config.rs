@@ -11,6 +11,8 @@ pub struct Config {
     pub backend: String,
     /// Shell used for `!` lines and for non-interactive fallback. Defaults to $SHELL, then /bin/zsh.
     pub fallback_shell: Option<String>,
+    /// Run `!` lines with `-i` so rc files (aliases, functions) load. Slower per command.
+    pub shell_interactive: bool,
     /// How many manual shell commands to keep as context for the agent.
     pub context_commands: usize,
     pub claude: ClaudeConfig,
@@ -21,6 +23,8 @@ pub struct Config {
 #[serde(default)]
 pub struct ClaudeConfig {
     pub bin: String,
+    /// Passed as --model. An alias like "sonnet" or "opus", or a full model id.
+    pub model: Option<String>,
     /// Passed as --permission-mode. Until slated's approval broker exists this is the
     /// only permission control in headless mode. "default" will deny most tool calls.
     pub permission_mode: String,
@@ -34,6 +38,8 @@ pub struct ClaudeConfig {
 #[serde(default)]
 pub struct CodexConfig {
     pub bin: String,
+    /// Passed as -m. None keeps Codex's own default.
+    pub model: Option<String>,
     /// Passed as --sandbox.
     pub sandbox: String,
     pub extra_args: Vec<String>,
@@ -44,6 +50,7 @@ impl Default for Config {
         Self {
             backend: "claude".into(),
             fallback_shell: None,
+            shell_interactive: false,
             context_commands: 20,
             claude: ClaudeConfig::default(),
             codex: CodexConfig::default(),
@@ -55,6 +62,7 @@ impl Default for ClaudeConfig {
     fn default() -> Self {
         Self {
             bin: "claude".into(),
+            model: Some("sonnet".into()),
             permission_mode: "acceptEdits".into(),
             allowed_tools: vec![],
             extra_args: vec![],
@@ -66,6 +74,7 @@ impl Default for CodexConfig {
     fn default() -> Self {
         Self {
             bin: "codex".into(),
+            model: None,
             sandbox: "workspace-write".into(),
             extra_args: vec![],
         }
