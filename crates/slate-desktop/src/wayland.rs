@@ -448,7 +448,15 @@ impl Desktop {
     // ---- capture -------------------------------------------------------
 
     /// Capture a toplevel (by identifier) or, with `None`, the first output. Returns PNG bytes and size.
-    pub fn capture(&mut self, ident: Option<&str>) -> Result<(Vec<u8>, u32, u32)> {
+    /// `crop_to` trims the capture to the given content size, centred: toolkits with client-side
+    /// decorations (GTK, Firefox) render invisible shadow margins around the window, and the
+    /// compositor reports the window geometry without them. Cropping keeps screenshot pixels
+    /// aligned with window-relative click coordinates.
+    pub fn capture(
+        &mut self,
+        ident: Option<&str>,
+        crop_to: Option<(u32, u32)>,
+    ) -> Result<(Vec<u8>, u32, u32)> {
         self.roundtrip()?;
         let src: source::ExtImageCaptureSourceV1 = match ident {
             Some(id) => {
@@ -530,6 +538,21 @@ impl Desktop {
         file.seek(SeekFrom::Start(0))?;
         let mut raw = vec![0u8; size];
         file.read_exact(&mut raw)?;
+        let (raw, w, h) = match crop_to {
+            Some((cw, ch)) if cw > 0 && ch > 0 && (cw < w || ch < h) => {
+                let cw = cw.min(w);
+                let ch = ch.min(h);
+                let ox = (w - cw) / 2;
+                let oy = (h - ch) / 2;
+                let mut out = Vec::with_capacity((cw * ch * 4) as usize);
+                for row in oy..oy + ch {
+                    let start = ((row * w + ox) * 4) as usize;
+                    out.extend_from_slice(&raw[start..start + (cw * 4) as usize]);
+                }
+                (out, cw, ch)
+            }
+            _ => (raw, w, h),
+        };
         let png = encode_png(&raw, w, h, format)?;
         Ok((png, w, h))
     }

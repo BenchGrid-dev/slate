@@ -195,11 +195,20 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
         Ok(match name {
             "desktop_windows" => text(serde_json::to_string_pretty(&windows(d)?)?),
             "desktop_screenshot" => {
-                let ident = match args.get("window").and_then(Value::as_str) {
-                    Some(w) if !w.is_empty() => Some(resolve(d, w)?.id),
-                    _ => None,
+                let (ident, crop) = match args.get("window").and_then(Value::as_str) {
+                    Some(w) if !w.is_empty() => {
+                        let win = resolve(d, w)?;
+                        let crop = match (win.width, win.height) {
+                            (Some(cw), Some(ch)) if cw > 0 && ch > 0 => {
+                                Some((cw as u32, ch as u32))
+                            }
+                            _ => None,
+                        };
+                        (Some(win.id), crop)
+                    }
+                    _ => (None, None),
                 };
-                let (png, w, h) = d.capture(ident.as_deref())?;
+                let (png, w, h) = d.capture(ident.as_deref(), crop)?;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
                 json!({"content": [
                     {"type": "text", "text": format!("{w}x{h} px{}", ident.map(|i| format!(", window {i}")).unwrap_or_else(|| ", full screen".into()))},

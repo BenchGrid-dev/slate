@@ -62,7 +62,17 @@ fn main() -> Result<()> {
                 _ => usage(),
             };
             let mut d = wayland::Desktop::connect()?;
-            let (png, w, h) = d.capture(ident.as_deref())?;
+            let crop = match ident.as_deref() {
+                Some(id) => mcp::windows(&mut d)?
+                    .into_iter()
+                    .find(|w| w.id == id)
+                    .and_then(|w| match (w.width, w.height) {
+                        (Some(cw), Some(ch)) if cw > 0 && ch > 0 => Some((cw as u32, ch as u32)),
+                        _ => None,
+                    }),
+                None => None,
+            };
+            let (png, w, h) = d.capture(ident.as_deref(), crop)?;
             std::fs::write(&out, png)?;
             println!("{out}: {w}x{h}");
             Ok(())
