@@ -39,6 +39,30 @@ pub struct State {
 
 pub type Shared = Arc<Mutex<State>>;
 
+/// Best-effort desktop notification through notify-send (mako etc). Silent if unavailable
+/// or disabled with SLATE_NOTIFY=0.
+fn notify(summary: &str, body: &str, urgency: &str) {
+    if std::env::var("SLATE_NOTIFY")
+        .map(|v| v == "0")
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let _ = std::process::Command::new("notify-send")
+        .arg("-a")
+        .arg("Slate")
+        .arg("-u")
+        .arg(urgency)
+        .arg("-t")
+        .arg("6000")
+        .arg(summary)
+        .arg(body)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
 impl State {
     pub fn new(
         audit: Audit,
@@ -269,6 +293,11 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                     message: format!("{e:#}"),
                 };
             }
+            notify(
+                "Slate is working",
+                task.prompt.lines().next().unwrap_or(""),
+                "low",
+            );
             st.log(AuditEntry {
                 ts: now_millis(),
                 task_id: Some(task_id.clone()),
@@ -305,6 +334,18 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 }
             }
             st.uis.remove(&task_id);
+            let calls = st.tasks.get(&task_id).map(|t| t.tool_calls).unwrap_or(0);
+            if calls > 0 {
+                notify(
+                    if ok {
+                        "Slate finished"
+                    } else {
+                        "Slate stopped with an error"
+                    },
+                    &format!("{calls} action(s); say \"undo\" in slash to roll back file changes"),
+                    "low",
+                );
+            }
             st.log(AuditEntry {
                 ts: now_millis(),
                 task_id: Some(task_id),
@@ -465,6 +506,11 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                     reason: verdict.reason.clone(),
                 };
                 st.send_event(&tid, &ev);
+                notify(
+                    "Slate needs your approval",
+                    &format!("{tool_name}: {summary}\nAnswer in the slash window."),
+                    "critical",
+                );
             }
             let (allow, remember) = rx.recv_timeout(APPROVAL_TIMEOUT).unwrap_or((false, false));
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());

@@ -23,8 +23,10 @@
         "tooltip-format": "{ifname} {ipaddr}"
     },
     "custom/slate": {
-        "format": " ◆ Slate ",
-        "tooltip": "Open the Slate shell",
+        "exec": "slate agent-status",
+        "return-type": "json",
+        "interval": 2,
+        "format": " {} ",
         "on-click": "foot -e slash"
     }
 }

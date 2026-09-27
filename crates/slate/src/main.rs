@@ -18,6 +18,7 @@ usage:
   slate tasks [N]              recent tasks
   slate undo [--preview] [ID]  roll back the last (or given) task's file changes
   slate remember TEXT          store a memory; slate memories [QUERY] lists them; slate forget ID
+  slate agent-status           one-line JSON for a panel module (waybar custom module)
   slate skills install [DIR]   link OS Skills (default: the bundled base set) into ~/.claude/skills
   slate skills list
   slate hook pre-tool-use      Claude Code PreToolUse hook (reads stdin)
@@ -131,6 +132,34 @@ fn main() -> Result<()> {
                 Reply::Error { message } => bail!("{message}"),
                 other => bail!("unexpected reply: {other:?}"),
             }
+        }
+        "agent-status" => {
+            // {"text","tooltip","class"} for waybar's custom module; never fails.
+            let (text, tooltip, class) =
+                match Client::connect().and_then(|mut c| c.call(Request::Tasks { n: 1 })) {
+                    Ok(Reply::Tasks { tasks }) => match tasks.first() {
+                        Some(t) if t.ended.is_none() => (
+                            "◆ working".to_string(),
+                            t.prompt.lines().next().unwrap_or("").to_string(),
+                            "working".to_string(),
+                        ),
+                        Some(t) => (
+                            "◆ Slate".to_string(),
+                            format!("last task: {}", t.prompt.lines().next().unwrap_or("")),
+                            "idle".to_string(),
+                        ),
+                        None => ("◆ Slate".into(), "no tasks yet".into(), "idle".into()),
+                    },
+                    _ => (
+                        "◇ Slate".into(),
+                        "slated is not running".into(),
+                        "off".into(),
+                    ),
+                };
+            println!(
+                "{}",
+                serde_json::json!({"text": text, "tooltip": tooltip, "class": class})
+            );
         }
         "remember" => {
             let text = args[1..].join(" ");

@@ -76,7 +76,7 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        waybar fuzzel mako swaybg grim slurp wl-clipboard
+        waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         firefox xfce.thunar gnome-text-editor loupe pavucontrol
         papirus-icon-theme adwaita-icon-theme
       ]);
