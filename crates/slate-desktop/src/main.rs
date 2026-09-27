@@ -1,19 +1,102 @@
 //! slate-desktop: background computer use for Linux.
-//! Placeholder main while the Wayland layer is being built; see probe.rs.
+//!
+//! `slate-desktop serve` is an MCP server (stdio) that holds one Wayland
+//! connection with the agent's own transient seat. The other subcommands are
+//! for testing the same operations from a shell.
 
-#[allow(dead_code)]
-mod probe;
+mod keymap;
+mod mcp;
+mod sway;
+mod wayland;
 
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(String::as_str) {
-        Some("probe") => probe::run(),
-        _ => {
-            println!("slate-desktop {} (pre-alpha)", slate_proto::VERSION);
-            println!(
-                "usage: slate-desktop probe   # connect to the compositor and report capabilities"
-            );
+use anyhow::{bail, Result};
+
+fn usage() -> ! {
+    eprintln!(
+        "slate-desktop {}
+
+usage:
+  slate-desktop serve                     MCP server on stdio
+  slate-desktop windows                   list windows (JSON)
+  slate-desktop shot [IDENT] OUT.png      capture a window (or the output) to PNG
+  slate-desktop click X Y [left|right|middle]
+  slate-desktop move X Y
+  slate-desktop type TEXT
+  slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
+  slate-desktop launch CMD [ARGS...]      start a program on this display
+  slate-desktop probe                     report compositor capabilities",
+        slate_proto::VERSION
+    );
+    std::process::exit(2)
+}
+
+fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cmd = args.first().map(String::as_str).unwrap_or("");
+    match cmd {
+        "serve" => mcp::serve(),
+        "probe" => mcp::probe(),
+        "windows" => {
+            let mut d = wayland::Desktop::connect()?;
+            let wins = mcp::windows(&mut d)?;
+            println!("{}", serde_json::to_string_pretty(&wins)?);
             Ok(())
         }
+        "shot" => {
+            let (ident, out) = match args.len() {
+                2 => (None, args[1].clone()),
+                3 => (Some(args[1].clone()), args[2].clone()),
+                _ => usage(),
+            };
+            let mut d = wayland::Desktop::connect()?;
+            let (png, w, h) = d.capture(ident.as_deref())?;
+            std::fs::write(&out, png)?;
+            println!("{out}: {w}x{h}");
+            Ok(())
+        }
+        "click" | "move" => {
+            if args.len() < 3 {
+                usage();
+            }
+            let x: f64 = args[1].parse()?;
+            let y: f64 = args[2].parse()?;
+            let mut d = wayland::Desktop::connect()?;
+            if cmd == "click" {
+                d.click(x, y, args.get(3).map(String::as_str).unwrap_or("left"), 1)?;
+            } else {
+                d.pointer_move(x, y)?;
+            }
+            // Keep the seat alive briefly so the compositor delivers the events.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Ok(())
+        }
+        "type" => {
+            let text = args.get(1).cloned().unwrap_or_default();
+            let mut d = wayland::Desktop::connect()?;
+            d.type_text(&text)?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Ok(())
+        }
+        "key" => {
+            let combo = args.get(1).cloned().unwrap_or_default();
+            let mut d = wayland::Desktop::connect()?;
+            d.key(&combo)?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Ok(())
+        }
+        "launch" => {
+            if args.len() < 2 {
+                usage();
+            }
+            let child = mcp::launch(&args[1], &args[2..])?;
+            println!("pid {child}");
+            Ok(())
+        }
+        "" | "-h" | "--help" => usage(),
+        "--version" | "-V" => {
+            println!("slate-desktop {}", slate_proto::VERSION);
+            Ok(())
+        }
+        other => bail!("unknown command {other:?}"),
     }
 }

@@ -17,5 +17,5 @@ wayland-protocols = { version = "0.32", features = ["client", "staging", "unstab
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 png = "0.17"
-nix = { version = "0.29", features = ["fs"] }
+base64 = "0.22"
 libc = "0.2"
