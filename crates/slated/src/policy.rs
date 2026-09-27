@@ -35,7 +35,16 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         | "ReadMcpResourceTool"
         | "NotebookRead"
         | "BashOutput"
-        | "KillShell" => v(Tier::Observe, "read-only tool"),
+        | "KillShell"
+        | "ToolSearch"
+        | "Skill"
+        | "SlashCommand"
+        | "EnterPlanMode"
+        | "ExitPlanMode"
+        | "TaskOutput"
+        | "TaskStop"
+        | "Monitor"
+        | "ScheduleWakeup" => v(Tier::Observe, "agent-internal or read-only tool"),
         "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => {
             let path = input.get("file_path").and_then(Value::as_str).unwrap_or("");
             if is_sensitive_path(path) {
