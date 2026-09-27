@@ -104,8 +104,11 @@ def main():
     page = os.path.join(tempfile.gettempdir(), "slate-e2e-page.html")
     open(page, "w").write("<html><head><title>SLATE-E2E-TITLE</title></head><body><h1>ok</h1></body></html>")
     before_ff = {w["id"] for w in m.windows()}
-    m.tool("desktop_launch", command="firefox", args=["--new-window", "about:blank"])
-    ff = wait_for(lambda: find(m, "firefox", before_ff), 30)
+    # A private profile and --no-remote guarantee a fresh instance: plain `firefox` would
+    # hand the request to an already running Firefox and exit.
+    profile = tempfile.mkdtemp(prefix="slate-e2e-ff-")
+    m.tool("desktop_launch", command="firefox", args=["--no-remote", "--profile", profile, "about:blank"])
+    ff = wait_for(lambda: find(m, "firefox", before_ff), 40)
     check("launch firefox appears in windows", ff is not None)
     if ff:
         time.sleep(2)  # let it finish starting
@@ -124,9 +127,9 @@ def main():
         if images and w:
             pw, ph = png_size(images[0])
             check("firefox screenshot cropped to window geometry", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
-        m.tool("desktop_key", combo="ctrl+shift+w")
+        m.tool("desktop_key", combo="ctrl+q")
         gone = wait_for(lambda: find(m, "firefox", before_ff) is None, 15)
-        check("ctrl+shift+w closes the firefox window", bool(gone))
+        check("ctrl+q quits the firefox instance", bool(gone))
 
     m.close()
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall passed")
