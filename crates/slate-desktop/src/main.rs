@@ -1,11 +1,19 @@
-//! Background computer use for Linux: gives agents their own Wayland seat, per-window capture and input, exposed over MCP.
-//!
-//! This is a placeholder. The design lives in docs/architecture.md; pick an
-//! issue labelled `good first issue` or open an RFC in docs/rfcs to get involved.
+//! slate-desktop: background computer use for Linux.
+//! Placeholder main while the Wayland layer is being built; see probe.rs.
 
-fn main() {
-    println!(
-        "slate-desktop {} (pre-alpha, not yet functional)",
-        slate_proto::VERSION
-    );
+#[allow(dead_code)]
+mod probe;
+
+fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("probe") => probe::run(),
+        _ => {
+            println!("slate-desktop {} (pre-alpha)", slate_proto::VERSION);
+            println!(
+                "usage: slate-desktop probe   # connect to the compositor and report capabilities"
+            );
+            Ok(())
+        }
+    }
 }
