@@ -2,6 +2,10 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- slash: identity and behaviour in the system prompt (it is slash, the Slate shell; answers first; no unprompted repo chatter; lets Slate handle approvals).
+
 ## 0.0.2 — 2026-09-27
 
 Everything since the initial skeleton. Verified end to end on NixOS 26.05 / sway 1.12 with both Claude Code and Codex.
