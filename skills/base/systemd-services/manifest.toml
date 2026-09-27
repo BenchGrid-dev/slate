@@ -1,0 +1,4 @@
+name = "systemd-services"
+description = "Inspect, start, stop, and read logs of systemd services."
+tiers = { status = "observe", logs = "observe", control = "confirm" }
+requires = ["systemctl", "journalctl"]

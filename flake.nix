@@ -22,6 +22,7 @@
               !(base == "target" || base == "docs" || base == "distro" || base == "skills" || base == ".github");
           };
           cargoLock.lockFile = ./Cargo.lock;
+          postInstall = "mkdir -p $out/share/slate && cp -r ${./skills/base} $out/share/slate/skills";
           # Pure Rust; wayland-client uses its Rust backend, so no libwayland is needed.
           doCheck = true;
           # The pty tests need /bin/sh and a tty-less environment; both are fine in the sandbox.

@@ -1,0 +1,4 @@
+name = "display-brightness"
+description = "Read or set screen brightness."
+tiers = { default = "reversible" }
+requires = ["brightnessctl"]

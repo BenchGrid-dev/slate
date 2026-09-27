@@ -1,0 +1,4 @@
+name = "network-wifi"
+description = "List, connect to, or disconnect from Wi-Fi networks with NetworkManager."
+tiers = { list = "observe", connect = "confirm", disconnect = "reversible" }
+requires = ["nmcli"]
