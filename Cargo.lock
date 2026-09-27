@@ -525,11 +525,13 @@ name = "slated"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "dirs",
  "libc",
  "serde",
  "serde_json",
  "slate-proto",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

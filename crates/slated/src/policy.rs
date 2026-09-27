@@ -3,8 +3,68 @@
 //! Unknown things default to Confirm. This is deliberately conservative and
 //! will grow a policy file; for now the rules live here so they are testable.
 
+use serde::Deserialize;
 use serde_json::Value;
 use slate_proto::Tier;
+use std::sync::OnceLock;
+
+/// User overrides from `~/.config/slate/policy.toml`. Loaded once at startup.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct PolicyFile {
+    /// Exact tool name -> tier. Wins over everything else.
+    pub tools: std::collections::BTreeMap<String, Tier>,
+    pub shell: ShellPolicy,
+    pub paths: PathPolicy,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct ShellPolicy {
+    /// Extra command names treated as read-only.
+    pub read_only: Vec<String>,
+    /// Extra substrings that force Confirm.
+    pub confirm_patterns: Vec<String>,
+    /// Substrings that are trusted: a command containing one is Reversible even if
+    /// it matches a confirm pattern. Use sparingly, e.g. "git push origin feature/".
+    pub trusted_patterns: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct PathPolicy {
+    /// Extra path substrings whose writes need Confirm.
+    pub sensitive: Vec<String>,
+}
+
+static POLICY: OnceLock<PolicyFile> = OnceLock::new();
+
+pub fn policy() -> &'static PolicyFile {
+    POLICY.get_or_init(|| {
+        let Some(path) = dirs::config_dir().map(|d| d.join("slate").join("policy.toml")) else {
+            return PolicyFile::default();
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match toml::from_str(&text) {
+                Ok(p) => {
+                    eprintln!("slated: loaded policy from {}", path.display());
+                    p
+                }
+                Err(e) => {
+                    eprintln!("slated: ignoring {}: {e}", path.display());
+                    PolicyFile::default()
+                }
+            },
+            Err(_) => PolicyFile::default(),
+        }
+    })
+}
+
+/// For tests and embedding: install a policy instead of reading the file.
+#[cfg(test)]
+pub fn set_policy_for_tests(p: PolicyFile) {
+    let _ = POLICY.set(p);
+}
 
 pub struct Verdict {
     pub tier: Tier,
@@ -19,6 +79,9 @@ fn v(tier: Tier, reason: impl Into<String>) -> Verdict {
 }
 
 pub fn classify(tool_name: &str, input: &Value) -> Verdict {
+    if let Some(t) = policy().tools.get(tool_name) {
+        return v(*t, "policy.toml [tools]");
+    }
     match tool_name {
         "Read"
         | "Glob"
@@ -429,6 +492,14 @@ const DANGEROUS_PATTERNS: &[&str] = &[
 
 fn is_sensitive_path(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
+    if policy()
+        .paths
+        .sensitive
+        .iter()
+        .any(|s| p.contains(&s.to_ascii_lowercase()))
+    {
+        return true;
+    }
     [
         "/.ssh/",
         "/.gnupg/",
@@ -457,10 +528,22 @@ pub fn classify_shell(cmd: &str) -> Verdict {
         return v(Tier::Observe, "empty command");
     }
     let lower = trimmed.to_ascii_lowercase();
-    for pat in DANGEROUS_PATTERNS {
-        let pat_l = pat.to_ascii_lowercase();
-        if lower.contains(&pat_l) {
-            return v(Tier::Confirm, format!("matches {:?}", pat.trim()));
+    let pol = &policy().shell;
+    let trusted = pol
+        .trusted_patterns
+        .iter()
+        .any(|t| lower.contains(&t.to_ascii_lowercase()));
+    if !trusted {
+        for pat in pol
+            .confirm_patterns
+            .iter()
+            .map(String::as_str)
+            .chain(DANGEROUS_PATTERNS.iter().copied())
+        {
+            let pat_l = pat.to_ascii_lowercase();
+            if lower.contains(&pat_l) {
+                return v(Tier::Confirm, format!("matches {:?}", pat.trim()));
+            }
         }
     }
     // Writes via redirection or in-place edits are reversible, not observe.
@@ -536,6 +619,9 @@ fn segment_is_read_only(seg: &str) -> bool {
         return true;
     };
     let base = cmd.rsplit('/').next().unwrap_or(cmd);
+    if policy().shell.read_only.iter().any(|c| c == base) {
+        return true;
+    }
     if !READ_ONLY_CMDS.contains(&base) {
         return false;
     }
@@ -590,8 +676,42 @@ mod tests {
         classify_shell(cmd).tier
     }
 
+    fn install_test_policy() {
+        let p: PolicyFile = toml::from_str(
+            r#"
+[tools]
+"mcp__foo__safe" = "observe"
+
+[shell]
+read_only = ["mytool"]
+confirm_patterns = ["deploy "]
+trusted_patterns = ["git push origin feature/"]
+
+[paths]
+sensitive = ["/srv/vault"]
+"#,
+        )
+        .unwrap();
+        set_policy_for_tests(p);
+    }
+
+    #[test]
+    fn policy_file_overrides() {
+        install_test_policy();
+        assert_eq!(classify("mcp__foo__safe", &json!({})).tier, Tier::Observe);
+        assert_eq!(tier("mytool --list"), Tier::Observe);
+        assert_eq!(tier("./deploy prod"), Tier::Confirm);
+        assert_eq!(tier("git push origin feature/x"), Tier::Reversible);
+        assert_eq!(tier("git push origin main"), Tier::Confirm);
+        assert_eq!(
+            classify("Write", &json!({"file_path": "/srv/vault/key"})).tier,
+            Tier::Confirm
+        );
+    }
+
     #[test]
     fn read_only_shell() {
+        install_test_policy();
         assert_eq!(tier("ls -la"), Tier::Observe);
         assert_eq!(tier("git status && git diff"), Tier::Observe);
         assert_eq!(tier("cat foo | grep bar | wc -l"), Tier::Observe);
@@ -602,6 +722,7 @@ mod tests {
 
     #[test]
     fn reversible_shell() {
+        install_test_policy();
         assert_eq!(tier("mkdir -p build"), Tier::Reversible);
         assert_eq!(tier("echo hi > out.txt"), Tier::Reversible);
         assert_eq!(tier("git commit -m x"), Tier::Reversible);
@@ -613,6 +734,7 @@ mod tests {
 
     #[test]
     fn confirm_shell() {
+        install_test_policy();
         assert_eq!(tier("rm -rf /"), Tier::Confirm);
         assert_eq!(tier("git push origin main"), Tier::Confirm);
         assert_eq!(tier("curl -X POST https://x -d @f"), Tier::Confirm);
@@ -623,6 +745,7 @@ mod tests {
 
     #[test]
     fn tools() {
+        install_test_policy();
         assert_eq!(
             classify("Read", &json!({"file_path": "/x"})).tier,
             Tier::Observe
