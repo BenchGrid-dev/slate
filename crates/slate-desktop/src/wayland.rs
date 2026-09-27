@@ -289,6 +289,12 @@ impl Desktop {
             .keymap(1, fd.as_fd(), km.text.len() as u32 + 1);
         self.queue.flush()?;
         self.keymap = Some(km);
+        self.roundtrip()?;
+        // Absorb the one key event that gets lost after a keymap change.
+        self.key_event(keymap::VOID_CODE, true);
+        self.key_event(keymap::VOID_CODE, false);
+        self.queue.flush()?;
+        std::thread::sleep(Duration::from_millis(20));
         self.roundtrip()
     }
 
