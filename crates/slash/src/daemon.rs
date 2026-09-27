@@ -114,19 +114,11 @@ impl Daemon {
         });
     }
 
-    /// Recent memories as text for the agent's context (empty if none).
-    pub fn memories_for_context(&mut self, n: usize) -> String {
+    /// Recent memories, oldest first.
+    pub fn memories(&mut self, n: usize) -> Vec<String> {
         match self.call(Request::MemoryList { n, query: None }) {
-            Ok(Reply::Memories { memories }) if !memories.is_empty() => {
-                let mut s = String::from("\n\nThings the user asked to remember (use the slate remember/recall tools to add or search):\n");
-                for m in memories {
-                    s.push_str("- ");
-                    s.push_str(&m.text);
-                    s.push('\n');
-                }
-                s
-            }
-            _ => String::new(),
+            Ok(Reply::Memories { memories }) => memories.into_iter().map(|m| m.text).collect(),
+            _ => vec![],
         }
     }
 

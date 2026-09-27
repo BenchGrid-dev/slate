@@ -210,6 +210,7 @@ impl App {
                     match backend::by_name(args, &self.cfg) {
                         Some(b) => {
                             self.backend = b;
+                            self.session.reset_sent();
                             println!("backend: {} (new session)", self.backend.name());
                         }
                         None => println!(
@@ -237,6 +238,7 @@ impl App {
             }
             "new" => {
                 self.backend.reset();
+                self.session.reset_sent();
                 println!("{}", dim("new session"));
                 None
             }
@@ -448,10 +450,25 @@ impl App {
     }
 
     fn agent_turn(&mut self, prompt: &str) {
-        let mut context = self.session.context_for_agent(self.shell.cwd());
-        if let Some(d) = self.daemon() {
-            context.push_str(&d.memories_for_context(30));
+        let context = Session::instructions().to_string();
+        let first_turn = self.backend.session_id().is_none();
+        if first_turn {
+            self.session.reset_sent();
         }
+        let memories = match self.daemon() {
+            Some(d) => d.memories(30),
+            None => vec![],
+        };
+        let cwd_now = self.shell.cwd().to_path_buf();
+        let delta = self
+            .session
+            .delta_for_agent(&cwd_now, &memories, first_turn);
+        let full_prompt = if delta.is_empty() {
+            prompt.to_string()
+        } else {
+            format!("<slash-context>\n{delta}</slash-context>\n\n{prompt}")
+        };
+        let prompt = full_prompt.as_str();
         let cwd = self.shell.cwd().to_path_buf();
         let verbose = self.verbose;
         let backend_name = self.backend.name();

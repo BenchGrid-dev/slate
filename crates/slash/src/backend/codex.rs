@@ -41,10 +41,14 @@ impl Codex {
         if let Some(id) = &self.thread_id {
             cmd.arg("resume").arg(id);
         }
-        let prompt = format!(
-            "<slash-context>\n{}\n</slash-context>\n\n{}",
-            req.context, req.prompt
-        );
+        // Session context already travels inside the prompt (see slash's agent_turn);
+        // Codex has no system-prompt flag, so give it the static instructions on the
+        // first turn only.
+        let prompt = if self.thread_id.is_none() {
+            format!("{}\n\n{}", req.context, req.prompt)
+        } else {
+            req.prompt.to_string()
+        };
         cmd.arg(prompt);
         if let Some(t) = req.task_id {
             cmd.env(slate_proto::ENV_TASK, t);
