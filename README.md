@@ -104,9 +104,14 @@ Full detail, including the open questions, is in [docs/architecture.md](docs/arc
 
 ## Status
 
-**Pre-alpha, design phase.** The code compiles and does nothing. What exists is the architecture, the decisions we have already made (`docs/decisions/`), and the questions we have not (`docs/architecture.md#open-questions`).
+**Pre-alpha, but real.** As of 2026-09-27 everything below runs on the dev machine (NixOS 26.05, sway 1.12) and is exercised end to end with both Claude Code and Codex:
 
-The first milestone is a working prototype of the piece nobody else has: an agent driving a GUI app on sway through its own seat while a human uses the same desktop. See [docs/roadmap.md](docs/roadmap.md).
+- **slash**: natural-language shell with `/` and `!`, pty-backed `!` commands whose output the agent can see, Claude Code (stream-json, session resume) and Codex (exec --json) backends, streaming output.
+- **slated**: tier policy (Observe / Reversible / Confirm) with a `policy.toml`, approvals routed through Claude Code's permission tool to the human at the terminal, audit log, privilege-free btrfs snapshots with `/undo`, memories (`remember` / `recall` / `forget`).
+- **slate-desktop**: an agent seat on Wayland with its own pointer and keyboard, per-window screenshots, Unicode typing, MCP tools that both backends use. Verified: an agent drives a terminal window through its own seat and reads the result from a screenshot. Known gap: GTK4 apps only listen to the first seat (ADR 0007).
+- **NixOS module**: `services.slate.enable` installs everything, registers slash as a login shell, and runs slated as a user service.
+
+Not built yet: the desktop shell layer, ghost cursor and human takeover (need compositor patches), accessibility-tree input, agent identity isolation, the installer. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Contribute
 

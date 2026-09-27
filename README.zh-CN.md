@@ -103,9 +103,14 @@ zsh 和 bash 还在。只是你会慢慢不再打开它们。
 
 ## 当前状态
 
-**Pre-alpha，设计阶段。** 代码能编译，但什么都不做。已有的是架构、已经做出的决定（`docs/decisions/`）和还没做出的决定（`docs/architecture.md#open-questions`）。
+**Pre-alpha，但是真的能跑。** 截至 2026-09-27，下面这些都在开发机（NixOS 26.05，sway 1.12）上跑通，并且用 Claude Code 和 Codex 两个后端做过端到端验证：
 
-第一个里程碑是做出别人都没有的那一块的原型：在 sway 上，一个 agent 通过自己的 seat 操作 GUI 应用，同时一个人在用同一张桌面。见 [docs/roadmap.md](docs/roadmap.md)。
+- **slash**：自然语言 shell，`/` 和 `!` 前缀，`!` 命令跑在 pty 里所以 agent 能看到输出，Claude Code（stream-json、会话续接）和 Codex（exec --json）后端，流式输出。
+- **slated**：三级策略（Observe / Reversible / Confirm）加 `policy.toml`，审批通过 Claude Code 的 permission tool 送到终端前的人，审计日志，无需特权的 btrfs 快照和 `/undo`，记忆（`remember` / `recall` / `forget`）。
+- **slate-desktop**：Wayland 上的 agent seat，自己的指针和键盘，按窗口截图，Unicode 输入，两个后端都能用的 MCP 工具。已验证：agent 通过自己的 seat 操作终端窗口并从截图读回结果。已知缺口：GTK4 应用只监听第一个 seat（ADR 0007）。
+- **NixOS 模块**：`services.slate.enable` 装好全部组件，把 slash 注册为登录 shell，slated 作为用户服务运行。
+
+还没做的：桌面壳层、幽灵光标和人工接管（需要 compositor 补丁）、无障碍树输入、agent 身份隔离、安装器。见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 贡献
 
