@@ -126,12 +126,18 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # The system presents itself as SlateOS. It stays NixOS underneath: os-release keeps
+    # ID_LIKE=nixos, and nixos-rebuild and friends are unchanged.
+    system.nixos.distroName = "SlateOS";
+    system.nixos.distroId = "slateos";
+    networking.hostName = lib.mkDefault "slateos";
+
     environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         firefox xfce.thunar gnome-text-editor loupe pavucontrol
-        papirus-icon-theme adwaita-icon-theme
+        papirus-icon-theme adwaita-icon-theme gnome-themes-extra
       ]);
     # A stable path, not the store path: a logged-in session keeps $SHELL from login
     # time, and /run/current-system always resolves to the current build, so new
@@ -140,7 +146,14 @@ in
     environment.pathsToLink = [ "/share/slate" ];
 
     # slash finds its fallback shell through this variable when the user has not set one.
-    environment.sessionVariables.SLATE_FALLBACK_SHELL = cfg.fallbackShell;
+    environment.sessionVariables = lib.mkMerge [
+      { SLATE_FALLBACK_SHELL = cfg.fallbackShell; }
+      (lib.mkIf cfg.desktop.enable {
+        XCURSOR_THEME = "Adwaita";
+        XCURSOR_SIZE = "24";
+        QT_QPA_PLATFORMTHEME = "gtk3";
+      })
+    ];
 
     users.users = lib.genAttrs cfg.loginShellUsers (_: {
       shell = "/run/current-system/sw/bin/slash";
@@ -153,8 +166,27 @@ in
     };
 
     # The desktop profile.
-    fonts.packages = lib.mkIf cfg.desktop.enable (with pkgs; [ noto-fonts noto-fonts-cjk-sans noto-fonts-color-emoji dejavu_fonts ]);
-    programs.dconf.enable = lib.mkIf cfg.desktop.enable true;
+    fonts.packages = lib.mkIf cfg.desktop.enable (with pkgs; [ inter jetbrains-mono font-awesome noto-fonts noto-fonts-cjk-sans noto-fonts-color-emoji dejavu_fonts ]);
+    fonts.fontconfig.defaultFonts = lib.mkIf cfg.desktop.enable {
+      sansSerif = [ "Inter" "Noto Sans" "Noto Sans CJK SC" ];
+      monospace = [ "JetBrains Mono" "Noto Sans Mono CJK SC" ];
+      emoji = [ "Noto Color Emoji" ];
+    };
+    # Dark, one accent, everywhere: GTK3 reads these from dconf, GTK4/libadwaita through the portal.
+    programs.dconf = lib.mkIf cfg.desktop.enable {
+      enable = true;
+      profiles.user.databases = [{
+        settings."org/gnome/desktop/interface" = {
+          color-scheme = "prefer-dark";
+          gtk-theme = "Adwaita-dark";
+          icon-theme = "Papirus-Dark";
+          cursor-theme = "Adwaita";
+          font-name = "Inter 10";
+          document-font-name = "Inter 11";
+          monospace-font-name = "JetBrains Mono 10";
+        };
+      }];
+    };
     services.gvfs.enable = lib.mkIf cfg.desktop.enable true;
     xdg.portal = lib.mkIf cfg.desktop.enable {
       enable = true;
@@ -167,6 +199,7 @@ in
       "xdg/waybar/style.css".source = ../desktop/waybar/style.css;
       "xdg/fuzzel/fuzzel.ini".source = ../desktop/fuzzel/fuzzel.ini;
       "xdg/mako/config".source = ../desktop/mako/config;
+      "xdg/foot/foot.ini".source = ../desktop/foot/foot.ini;
       "slate/wallpaper.png".source = ../desktop/wallpaper.png;
     };
     services.greetd = lib.mkIf cfg.desktop.enable {

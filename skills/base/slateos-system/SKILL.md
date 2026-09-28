@@ -1,11 +1,11 @@
 ---
-name: slate-nixos-system
-description: Install packages, change settings, rebuild, and roll back on NixOS by editing configuration.nix. Use whenever the user wants software installed or a system setting changed on a NixOS machine. NixOS only.
+name: slate-system
+description: Install packages, change system settings, rebuild, and roll back on SlateOS (a NixOS-based system) by editing configuration.nix. Use whenever the user wants software installed or a system setting changed. SlateOS or NixOS only.
 ---
 
-# NixOS system changes
+# SlateOS system changes
 
-On NixOS the system is described by `/etc/nixos/configuration.nix` (or a flake). Installing software or changing a setting means editing that file and rebuilding. Never use `nix-env -i` for system software; it bypasses the configuration.
+SlateOS is built on NixOS, so the system is described by `/etc/nixos/configuration.nix` (or a flake). Installing software or changing a setting means editing that file and rebuilding. Never use `nix-env -i` for system software; it bypasses the configuration.
 
 ## Try a package without installing it
 

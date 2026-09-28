@@ -1,4 +1,4 @@
-# Slate desktop profile for sway (phase 1: conventional desktop feel on a wlroots compositor).
+# SlateOS desktop profile for sway (a conventional stacking desktop on a wlroots compositor).
 # Mod = Super.  Mod+Return terminal · Mod+Space launcher · Mod+s Slate panel · Mod+w browser · Mod+e files
 # Mod+q close · Mod+1..5 workspaces · Mod+Shift+1..5 move window · Mod+f fullscreen · Mod+Shift+e exit
 set $mod Mod4
@@ -7,7 +7,7 @@ set $menu fuzzel
 set $browser firefox
 set $files thunar
 
-font pango:Noto Sans 10
+font pango:Inter Medium 10
 output HEADLESS-1 resolution 1280x800
 output * bg /etc/slate/wallpaper.png fill
 
@@ -20,12 +20,16 @@ for_window [app_id=".*"] floating enable
 for_window [class=".*"] floating enable
 for_window [app_id="foot"] resize set 1000 640
 for_window [app_id="firefox"] resize set 1180 740
-default_border normal 2
-default_floating_border normal 2
-titlebar_padding 8 4
-client.focused          #4c8bf5 #4c8bf5 #ffffff #4c8bf5 #4c8bf5
-client.focused_inactive #2b3a4a #2b3a4a #c9d1d9 #2b3a4a #2b3a4a
-client.unfocused        #1d2733 #1d2733 #8b98a5 #1d2733 #1d2733
+default_border normal 1
+default_floating_border normal 1
+titlebar_padding 12 6
+titlebar_border_thickness 0
+# border · background · text · indicator · child_border
+client.focused          #2a2e3a #2a2e3a #e8eaf0 #7c9cf5 #3a3f4e
+client.focused_inactive #1c1f27 #1c1f27 #9ba1b0 #1c1f27 #262a36
+client.unfocused        #1c1f27 #1c1f27 #6b7080 #1c1f27 #262a36
+client.urgent           #e5a35a #e5a35a #13151b #e5a35a #e5a35a
+seat * xcursor_theme Adwaita 24
 focus_follows_mouse no
 floating_modifier $mod normal
 

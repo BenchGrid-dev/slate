@@ -279,9 +279,16 @@ fn skill_unsupported_reason(skill_dir: &std::path::Path) -> Option<String> {
         .and_then(|v| v.as_array())
     {
         let want: Vec<&str> = distros.iter().filter_map(|v| v.as_str()).collect();
-        let have = os_id();
-        if !want.is_empty() && !want.iter().any(|d| d.eq_ignore_ascii_case(&have)) {
-            return Some(format!("only for {} (this is {have})", want.join("/")));
+        let have = os_ids();
+        let matches = want
+            .iter()
+            .any(|d| have.iter().any(|h| d.eq_ignore_ascii_case(h)));
+        if !want.is_empty() && !matches {
+            return Some(format!(
+                "only for {} (this is {})",
+                want.join("/"),
+                have.first().cloned().unwrap_or_default()
+            ));
         }
     }
     None
@@ -304,20 +311,30 @@ fn command_exists(name: &str) -> bool {
     std::env::split_paths(&path).any(|dir| dir.join(name).is_file())
 }
 
-/// `ID` from /etc/os-release, or "macos"/"unknown".
-fn os_id() -> String {
+/// `ID` then `ID_LIKE` from /etc/os-release (SlateOS reports `ID=slateos ID_LIKE=nixos`),
+/// or "macos"/"unknown".
+fn os_ids() -> Vec<String> {
+    let mut ids = Vec::new();
     if let Ok(text) = std::fs::read_to_string("/etc/os-release") {
         for line in text.lines() {
             if let Some(v) = line.strip_prefix("ID=") {
-                return v.trim_matches('"').to_string();
+                ids.insert(0, v.trim_matches('"').to_string());
+            } else if let Some(v) = line.strip_prefix("ID_LIKE=") {
+                ids.extend(v.trim_matches('"').split_whitespace().map(String::from));
             }
         }
     }
-    if cfg!(target_os = "macos") {
-        "macos".into()
-    } else {
-        "unknown".into()
+    if ids.is_empty() {
+        ids.push(
+            if cfg!(target_os = "macos") {
+                "macos"
+            } else {
+                "unknown"
+            }
+            .into(),
+        );
     }
+    ids
 }
 
 fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {

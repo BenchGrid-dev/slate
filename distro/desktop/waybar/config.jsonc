@@ -1,32 +1,43 @@
 {
     "layer": "top",
     "position": "top",
-    "height": 32,
-    "spacing": 6,
+    "height": 30,
+    "spacing": 0,
     "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
     "modules-center": ["clock"],
-    "modules-right": ["tray", "wireplumber", "network", "custom/slate"],
+    "modules-right": ["tray", "network", "wireplumber", "custom/slate"],
     "custom/launcher": {
-        "format": " ☰ Apps ",
-        "tooltip": false,
+        "format": "◆",
+        "tooltip-format": "Applications (Super+Space)",
         "on-click": "fuzzel"
     },
     "sway/workspaces": { "disable-scroll": true, "format": "{name}" },
-    "sway/window": { "max-length": 60 },
-    "clock": { "format": "{:%a %d %b  %H:%M}", "tooltip-format": "{calendar}" },
-    "tray": { "spacing": 8 },
-    "wireplumber": { "format": "🔊 {volume}%", "format-muted": "🔇", "on-click": "pavucontrol" },
+    "sway/window": { "max-length": 48, "tooltip": false },
+    "clock": { "format": "{:%a %-d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
+    "tray": { "spacing": 10 },
+    "wireplumber": {
+        "format": "{icon}",
+        "format-muted": "",
+        "format-icons": ["", "", ""],
+        "tooltip-format": "{volume}% · {node_name}",
+        "on-click": "pavucontrol",
+        "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
+        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"
+    },
     "network": {
-        "format-wifi": "📶 {essid}",
-        "format-ethernet": "🌐 {ipaddr}",
-        "format-disconnected": "⚠ offline",
-        "tooltip-format": "{ifname} {ipaddr}"
+        "format-wifi": "",
+        "format-ethernet": "",
+        "format-disconnected": "",
+        "tooltip-format-wifi": "{essid} · {ipaddr}",
+        "tooltip-format-ethernet": "{ifname} · {ipaddr}",
+        "tooltip-format-disconnected": "offline",
+        "on-click": "slate-settings"
     },
     "custom/slate": {
         "exec": "slate agent-status",
         "return-type": "json",
         "interval": 1,
-        "format": " {} ",
+        "format": "{}",
         "on-click": "slate-shell",
         "on-click-middle": "sh -c \"swaymsg '[title=^slash] focus' | grep -q true || foot -e slash\"",
         "on-click-right": "slate-settings"

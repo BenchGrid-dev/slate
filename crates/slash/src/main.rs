@@ -79,7 +79,7 @@ fn install_sigint_noop() {
     extern "C" fn noop(_: libc::c_int) {}
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
-        sa.sa_sigaction = noop as usize;
+        sa.sa_sigaction = noop as *const () as usize;
         sa.sa_flags = libc::SA_RESTART;
         libc::sigemptyset(&mut sa.sa_mask);
         libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut());

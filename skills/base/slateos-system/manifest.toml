@@ -1,0 +1,5 @@
+name = "slateos-system"
+description = "Install packages, change system settings, and roll back on SlateOS (NixOS underneath)."
+tiers = { edit = "reversible", rebuild = "confirm", rollback = "confirm" }
+requires = ["nixos-rebuild"]
+applies_to = { distro = ["slateos", "nixos"] }

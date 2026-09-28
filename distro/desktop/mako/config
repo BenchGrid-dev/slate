@@ -1,13 +1,19 @@
-font=Noto Sans 11
-background-color=#1d2733f2
-text-color=#e6edf3
-border-color=#4c8bf5
-border-radius=8
-border-size=2
+font=Inter 11
+background-color=#161820f5
+text-color=#d7dae2
+border-color=#ffffff1a
+border-radius=12
+border-size=1
 default-timeout=6000
 anchor=top-right
-margin=12
-padding=10
+margin=10
+padding=12,14
+width=360
+max-icon-size=32
+progress-color=over #7c9cf5
+
+[urgency=critical]
+border-color=#e5a35a
 
 # Clicking a Slate notification brings the slash window (approval, task result) back.
 [app-name=Slate]

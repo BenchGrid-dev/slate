@@ -1,12 +1,23 @@
-* { font-family: "Noto Sans", "DejaVu Sans", sans-serif; font-size: 13px; min-height: 0; }
-window#waybar { background: rgba(29, 39, 51, 0.96); color: #e6edf3; border-bottom: 1px solid #2b3a4a; }
-#custom-launcher { background: #4c8bf5; color: #ffffff; border-radius: 6px; margin: 4px 6px; padding: 0 6px; font-weight: bold; }
-#custom-slate { background: #2b3a4a; color: #e6edf3; border-radius: 6px; margin: 4px 6px; padding: 0 6px; }
-#custom-slate.working { background: #4c8bf5; color: #ffffff; }
-@keyframes slate-blink { 0% { background: #4c8bf5; } 50% { background: #1d2733; } 100% { background: #4c8bf5; } }
-#custom-slate.controlling { background: #4c8bf5; color: #ffffff; animation: slate-blink 1s ease-in-out infinite; }
-#custom-slate.off { color: #8b98a5; }
-#workspaces button { color: #8b98a5; padding: 0 8px; border-radius: 6px; margin: 4px 1px; }
-#workspaces button.focused { background: #2b3a4a; color: #ffffff; }
-#window { color: #c9d1d9; margin-left: 10px; }
-#clock, #tray, #wireplumber, #network { padding: 0 10px; }
+/* SlateOS panel: quiet, translucent, one accent. */
+* { font-family: "Inter", "Noto Sans", "Font Awesome 6 Free", sans-serif; font-size: 13px; font-weight: 500; min-height: 0; }
+window#waybar { background: rgba(14, 16, 22, 0.78); color: #d7dae2; }
+#custom-launcher { color: #8fa7f0; font-size: 15px; padding: 0 14px 0 16px; }
+#custom-launcher:hover { color: #ffffff; }
+#workspaces { margin-right: 6px; }
+#workspaces button { color: #6b7080; padding: 0 9px; margin: 6px 1px; border-radius: 6px; border: none; }
+#workspaces button.focused { color: #ffffff; background: rgba(255, 255, 255, 0.10); }
+#workspaces button:hover { color: #ffffff; background: rgba(255, 255, 255, 0.06); box-shadow: none; }
+#window { color: #9ba1b0; font-weight: 400; }
+#clock { color: #e8eaf0; font-weight: 500; }
+#tray, #network, #wireplumber { padding: 0 9px; color: #b3b8c6; }
+#network, #wireplumber { font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 13px; }
+#network.disconnected { color: #6b7080; }
+#wireplumber.muted { color: #6b7080; }
+#custom-slate { color: #d7dae2; background: rgba(255, 255, 255, 0.07); border-radius: 8px; margin: 5px 10px 5px 4px; padding: 0 11px; }
+#custom-slate:hover { background: rgba(255, 255, 255, 0.12); }
+#custom-slate.working { color: #ffffff; background: rgba(124, 156, 245, 0.55); }
+@keyframes slate-blink { 0% { background: rgba(124, 156, 245, 0.85); } 50% { background: rgba(124, 156, 245, 0.25); } 100% { background: rgba(124, 156, 245, 0.85); } }
+#custom-slate.controlling { color: #ffffff; animation: slate-blink 1.1s ease-in-out infinite; }
+#custom-slate.off { color: #6b7080; }
+tooltip { background: rgba(22, 24, 32, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 8px; }
+tooltip label { color: #d7dae2; }

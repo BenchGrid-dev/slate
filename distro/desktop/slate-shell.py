@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Slate Shell: the desktop's floating Slate panel.
+"""Slate Shell: the desktop's floating Slate prompt.
 
-A layer-shell window anchored top-right (click the panel's Slate button or press
-Mod+s to toggle). It runs `slash --serve` and shows the conversation, streamed
-answers, tool activity, approvals as buttons, and the agent's status. Esc hides it.
+A layer-shell surface anchored top-right, in the spirit of Siri on macOS: a pill
+you type into, and below it one exchange at a time (your request, the answer,
+what Slate is doing, approvals as buttons). It appears on the panel's Slate
+button or Mod+s, and goes away when you press Esc or click anywhere else. While
+Slate works it keeps going in the background; the result and any approval show
+up in the same place without stealing your keyboard.
+
+It drives `slash --serve`; the conversation itself continues across exchanges
+(the agent remembers the session), only the display is one exchange at a time.
 """
 import json
 import os
@@ -20,23 +26,33 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
+WIDTH = 460
+PASSIVE_HIDE_SECONDS = 18
+
 CSS = b"""
-window.slate-window, .slate-window { background-color: #1d2733; border: 1px solid #4c8bf5; border-radius: 12px; }
-.slate-root { background-color: #1d2733; }
-.slate-title { font-weight: bold; font-size: 15px; color: #e6edf3; }
-.slate-status { color: #8b98a5; font-size: 12px; }
-.slate-status.working { color: #4c8bf5; }
-.slate-status.controlling { color: #ffb454; font-weight: bold; }
-.msg-user { background: #2b3a4a; color: #e6edf3; border-radius: 10px; padding: 8px 10px; }
-.msg-agent { background: #22303f; color: #e6edf3; border-radius: 10px; padding: 8px 10px; }
-.msg-tool { color: #8b98a5; font-size: 12px; padding: 0 6px; }
-.msg-tool.failed { color: #ff7b72; }
-.msg-note { color: #8b98a5; font-size: 12px; font-style: italic; padding: 0 6px; }
-.msg-error { color: #ff7b72; }
-.approval { background: #3a2f1a; border: 1px solid #ffb454; border-radius: 10px; padding: 10px; }
-.approval-title { font-weight: bold; color: #ffb454; }
-.approval-detail { font-family: monospace; color: #e6edf3; }
-.entry { background: #0f1720; color: #e6edf3; border: 1px solid #2b3a4a; border-radius: 10px; padding: 8px; }
+window.slate { background: transparent; }
+.pill { background: rgba(24, 26, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 24px;
+        padding: 6px 14px 6px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.glyph { color: #8fa7f0; font-size: 17px; margin-right: 8px; }
+@keyframes slate-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
+.glyph.working { animation: slate-pulse 1.2s ease-in-out infinite; }
+.glyph.controlling { color: #e5a35a; animation: slate-pulse 0.7s ease-in-out infinite; }
+entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #e8eaf0; font-size: 15px;
+                            caret-color: #8fa7f0; min-height: 0; padding: 4px 0; }
+entry.ask placeholder, entry.ask text placeholder { color: #6b7080; }
+.hint { color: #6b7080; font-size: 12px; margin-left: 8px; }
+.hint.controlling { color: #e5a35a; font-weight: 600; }
+.card { background: rgba(24, 26, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 18px;
+        padding: 12px 16px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.query { color: #9ba1b0; font-size: 13px; }
+.reply { color: #e8eaf0; font-size: 14px; }
+.reply.error { color: #ff8a80; }
+.activity { color: #6b7080; font-size: 12px; }
+.activity.failed { color: #ff8a80; }
+.approval { background: rgba(229, 163, 90, 0.10); border: 1px solid rgba(229, 163, 90, 0.45); border-radius: 12px; padding: 10px 12px; }
+.approval-title { color: #e5a35a; font-weight: 600; font-size: 13px; }
+.approval-detail { font-family: monospace; color: #d7dae2; font-size: 12px; }
+.approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
 """
 
 
@@ -78,144 +94,231 @@ class Session:
 class ShellWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Slate")
-        self.set_default_size(440, 620)
-        self.add_css_class("slate-window")
+        self.set_default_size(WIDTH, -1)
+        self.set_resizable(False)
+        self.add_css_class("slate")
 
         LayerShell.init_for_window(self)
-        LayerShell.set_layer(self, LayerShell.Layer.TOP)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
         LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
         LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
-        LayerShell.set_margin(self, LayerShell.Edge.TOP, 40)
-        LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 8)
+        LayerShell.set_margin(self, LayerShell.Edge.TOP, 8)
+        LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 10)
         LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
         LayerShell.set_namespace(self, "slate-shell")
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=12, margin_end=12, css_classes=["slate-root"])
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=4, margin_bottom=12, margin_start=12, margin_end=4)
         self.set_child(root)
 
-        header = Gtk.Box(spacing=8)
-        title = Gtk.Label(label="◆ Slate", xalign=0, css_classes=["slate-title"], hexpand=True)
-        self.status = Gtk.Label(label="starting…", xalign=1, css_classes=["slate-status"])
-        settings_btn = Gtk.Button(icon_name="preferences-system-symbolic", css_classes=["flat"], tooltip_text="Settings")
-        settings_btn.connect("clicked", lambda *_: subprocess.Popen(["slate-settings"]))
-        close_btn = Gtk.Button(icon_name="window-close-symbolic", css_classes=["flat"], tooltip_text="Hide (Esc)")
-        close_btn.connect("clicked", lambda *_: self.set_visible(False))
-        for w in (title, self.status, settings_btn, close_btn):
-            header.append(w)
-        root.append(header)
-
-        self.scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-        self.messages = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.scroller.set_child(self.messages)
-        root.append(self.scroller)
-
-        entry_row = Gtk.Box(spacing=6)
-        self.entry = Gtk.Entry(hexpand=True, placeholder_text="Ask Slate… (/undo, /auto on, /memories)", css_classes=["entry"])
+        # The pill: status glyph, the prompt, a small hint.
+        pill = Gtk.Box(css_classes=["pill"], width_request=WIDTH)
+        self.glyph = Gtk.Label(label="◆", css_classes=["glyph"])
+        self.entry = Gtk.Entry(hexpand=True, placeholder_text="Ask Slate", css_classes=["ask"])
         self.entry.connect("activate", self.on_send)
-        send_btn = Gtk.Button(icon_name="mail-send-symbolic", css_classes=["suggested-action"])
-        send_btn.connect("clicked", self.on_send)
-        entry_row.append(self.entry)
-        entry_row.append(send_btn)
-        root.append(entry_row)
+        self.hint = Gtk.Label(label="", css_classes=["hint"])
+        for w in (self.glyph, self.entry, self.hint):
+            pill.append(w)
+        root.append(pill)
+
+        # The card: this exchange only.
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["card"], width_request=WIDTH, visible=False)
+        self.query = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, css_classes=["query"], visible=False)
+        self.reply = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True, css_classes=["reply"], visible=False)
+        self.activity = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, css_classes=["activity"], visible=False)
+        self.approval_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for w in (self.query, self.reply, self.activity, self.approval_box):
+            self.card.append(w)
+        root.append(self.card)
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
+        # A click anywhere on the surface claims the keyboard (after a passive show).
+        click = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", lambda *_: self.claim_focus())
+        self.add_controller(click)
+        self.connect("notify::is-active", self.on_active_changed)
 
-        self.current_agent = None  # the label being streamed into
-        self.approvals = {}
         self.busy = False
+        self.passive = False  # shown without keyboard focus (result or approval arrived)
+        self.had_focus = False
+        self.hide_timer = None
+        self.approvals = {}
+        self.auto = False
         self.session = Session(self.on_event)
         GLib.timeout_add_seconds(2, self.poll_control)
 
-    # ---- UI helpers
-    def add(self, widget):
-        self.messages.append(widget)
-        GLib.idle_add(self._scroll_to_end)
+    # ---- showing and hiding
+    def show_active(self):
+        """Open for typing: takes the keyboard, goes away when focus leaves."""
+        self.cancel_hide_timer()
+        self.passive = False
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
+        self.present()
+        self.entry.grab_focus()
 
-    def _scroll_to_end(self):
-        adj = self.scroller.get_vadjustment()
-        adj.set_value(adj.get_upper() - adj.get_page_size())
+    def show_passive(self):
+        """Show a result or an approval without taking the keyboard from what the user is doing."""
+        if self.get_visible() and not self.passive:
+            return
+        self.passive = True
+        self.had_focus = False
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.NONE)
+        self.set_visible(True)
+        self.arm_hide_timer()
+
+    def claim_focus(self):
+        if self.passive:
+            self.passive = False
+            self.cancel_hide_timer()
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
+            # Re-map so the compositor hands us the keyboard under the new mode.
+            self.set_visible(False)
+            self.set_visible(True)
+            self.entry.grab_focus()
+
+    def hide(self):
+        self.cancel_hide_timer()
+        self.set_visible(False)
+        self.passive = False
+        self.had_focus = False
+        if not self.busy and not self.approvals:
+            self.clear_card()
+
+    def toggle(self):
+        if self.get_visible() and not self.passive:
+            self.hide()
+        else:
+            self.show_active()
+
+    def arm_hide_timer(self):
+        self.cancel_hide_timer()
+        if not self.approvals:
+            self.hide_timer = GLib.timeout_add_seconds(PASSIVE_HIDE_SECONDS, self.on_hide_timer)
+
+    def cancel_hide_timer(self):
+        if self.hide_timer:
+            GLib.source_remove(self.hide_timer)
+            self.hide_timer = None
+
+    def on_hide_timer(self):
+        self.hide_timer = None
+        if self.passive and not self.approvals:
+            self.hide()
         return False
 
-    def label(self, text, css):
-        lbl = Gtk.Label(label=text, xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True, css_classes=[css])
-        return lbl
+    def on_active_changed(self, *_):
+        active = self.is_active()
+        if active:
+            self.had_focus = True
+        elif self.had_focus and self.get_visible() and not self.passive:
+            # The user clicked somewhere else: that is the dismiss gesture.
+            self.hide()
 
-    def set_status(self, text, css=None):
-        self.status.set_text(text)
+    # ---- the card
+    def clear_card(self):
+        for w in (self.query, self.reply, self.activity):
+            w.set_text("")
+            w.set_visible(False)
+        self.reply.remove_css_class("error")
+        self.card.set_visible(False)
+
+    def show_reply(self, text, error=False):
+        self.reply.set_text(text)
+        self.reply.set_visible(bool(text))
+        if error:
+            self.reply.add_css_class("error")
+        self.card.set_visible(True)
+
+    def show_activity(self, text, failed=False):
+        self.activity.set_text(text)
+        self.activity.set_visible(bool(text))
+        if failed:
+            self.activity.add_css_class("failed")
+        else:
+            self.activity.remove_css_class("failed")
+        self.card.set_visible(True)
+
+    def set_state(self, state, hint=None):
         for c in ("working", "controlling"):
-            self.status.remove_css_class(c)
-        if css:
-            self.status.add_css_class(css)
+            self.glyph.remove_css_class(c)
+            self.hint.remove_css_class(c)
+        if state in ("working", "controlling"):
+            self.glyph.add_css_class(state)
+            self.hint.add_css_class(state)
+        if hint is None:
+            hint = "auto" if self.auto else ""
+        self.hint.set_text(hint)
 
     # ---- events from slash
     def on_event(self, ev):
         kind = ev.get("event")
         if kind == "ready":
-            self.set_status(f"{ev.get('backend')} · ready" + (" · ⚡ auto" if ev.get("auto_approve") else ""))
-            self.add(self.label("Ready. Talk to your computer here; approvals show up as buttons.", "msg-note"))
+            self.auto = bool(ev.get("auto_approve"))
+            self.set_state("idle")
         elif kind == "turn_start":
             self.busy = True
-            self.current_agent = None
-            self.set_status("working…", "working")
+            self.set_state("working", "working")
+            self.show_activity("thinking…")
         elif kind == "text_delta":
-            if self.current_agent is None:
-                self.current_agent = self.label("", "msg-agent")
-                self.add(self.current_agent)
-            self.current_agent.set_text(self.current_agent.get_text() + ev.get("text", ""))
-            self._scroll_to_end()
+            self.show_reply(self.reply.get_text() + ev.get("text", ""))
         elif kind == "text":
-            if self.current_agent is None:
-                self.add(self.label(ev.get("text", ""), "msg-agent"))
-            else:
-                self.current_agent.set_text(ev.get("text", ""))
-            self.current_agent = None
+            self.show_reply(ev.get("text", ""))
         elif kind == "tool_start":
-            self.add(self.label(f"▸ {ev.get('name')}: {ev.get('detail', '')[:120]}", "msg-tool"))
+            self.show_activity(f"▸ {ev.get('name')}  {ev.get('detail', '')}")
         elif kind == "tool_end":
             if not ev.get("ok", True):
-                lbl = self.label(f"✗ {ev.get('name')}: {ev.get('detail', '')[:160]}", "msg-tool")
-                lbl.add_css_class("failed")
-                self.add(lbl)
+                self.show_activity(f"✗ {ev.get('name')}  {ev.get('detail', '')}", failed=True)
         elif kind == "approval_needed":
             self.add_approval(ev)
         elif kind == "approval_resolved":
             card = self.approvals.pop(ev.get("id"), None)
             if card:
-                self.messages.remove(card)
+                self.approval_box.remove(card)
+            if self.passive:
+                self.arm_hide_timer()
         elif kind == "note":
             text = ev.get("text", "").strip()
             if text:
-                self.add(self.label(text, "msg-note"))
+                if "auto" in text.lower():
+                    self.auto = "on" in text.lower() and "off" not in text.lower()
+                self.show_activity(text)
         elif kind == "error":
-            self.add(self.label(ev.get("text", ""), "msg-error"))
+            self.show_reply(ev.get("text", ""), error=True)
         elif kind == "done":
             self.busy = False
-            self.current_agent = None
-            stats = ev.get("stats")
-            self.set_status(("done · " + stats) if stats else "ready")
-            if ev.get("summary") and ev.get("ok") is False:
-                self.add(self.label(ev["summary"], "msg-error"))
+            self.set_state("idle")
+            if ev.get("summary") and ev.get("ok") is False and not self.reply.get_text():
+                self.show_reply(ev["summary"], error=True)
+            self.show_activity(ev.get("stats") or "")
+            if not self.get_visible():
+                self.show_passive()
+            elif self.passive:
+                self.arm_hide_timer()
         elif kind == "exited":
-            self.set_status("slash exited")
-            self.add(self.label("slash exited; reopen the panel to start a new session.", "msg-error"))
+            self.busy = False
+            self.set_state("idle", "offline")
+            self.show_reply("slash exited; press Mod+s to start a new session.", error=True)
         return False
 
     def add_approval(self, ev):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["approval"])
-        card.append(Gtk.Label(label=f"Approval needed · {ev.get('tool')} ({ev.get('tier')})", xalign=0, css_classes=["approval-title"]))
-        card.append(Gtk.Label(label=ev.get("summary", ""), xalign=0, wrap=True, css_classes=["approval-detail"]))
-        card.append(Gtk.Label(label=ev.get("reason", ""), xalign=0, wrap=True, css_classes=["msg-note"]))
+        card.append(Gtk.Label(label=f"{ev.get('tool')} · {ev.get('tier')} · needs your OK", xalign=0, css_classes=["approval-title"]))
+        card.append(Gtk.Label(label=ev.get("summary", ""), xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, css_classes=["approval-detail"]))
+        if ev.get("reason"):
+            card.append(Gtk.Label(label=ev["reason"], xalign=0, wrap=True, css_classes=["activity"]))
         row = Gtk.Box(spacing=6)
-        for text, allow, remember, css in (("Allow once", True, False, "suggested-action"), ("Always this task", True, True, ""), ("Deny", False, False, "destructive-action")):
+        for text, allow, remember, css in (("Allow", True, False, "suggested-action"), ("Always this task", True, True, ""), ("Deny", False, False, "destructive-action")):
             b = Gtk.Button(label=text, css_classes=[css] if css else [])
             b.connect("clicked", lambda _b, a=allow, r=remember, i=ev["id"]: self.answer(i, a, r))
             row.append(b)
         card.append(row)
         self.approvals[ev["id"]] = card
-        self.add(card)
-        self.present()
+        self.approval_box.append(card)
+        self.card.set_visible(True)
+        self.cancel_hide_timer()
+        if not self.get_visible():
+            self.show_passive()
 
     def answer(self, approval_id, allow, remember):
         self.session.send({"op": "approve", "id": approval_id, "allow": allow, "remember": remember})
@@ -226,29 +329,25 @@ class ShellWindow(Gtk.ApplicationWindow):
         if not text:
             return
         self.entry.set_text("")
-        self.add(self.label(text, "msg-user"))
+        self.clear_card()
+        self.query.set_text(text)
+        self.query.set_visible(True)
+        self.card.set_visible(True)
         self.session.send({"op": "prompt", "text": text})
 
     def on_key(self, _ctrl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
-            self.set_visible(False)
+            self.hide()
             return True
         return False
 
     def poll_control(self):
         st = run(["slate-desktop", "status"])
         if '"controlling":true' in st.replace(" ", ""):
-            self.set_status("controlling your mouse/keyboard · Esc takes it back", "controlling")
-        elif self.status.has_css_class("controlling"):
-            self.set_status("ready")
+            self.set_state("controlling", "using your mouse and keyboard · Esc takes them back")
+        elif self.glyph.has_css_class("controlling"):
+            self.set_state("working" if self.busy else "idle")
         return True
-
-    def toggle(self):
-        if self.get_visible():
-            self.set_visible(False)
-        else:
-            self.present()
-            self.entry.grab_focus()
 
 
 class App(Adw.Application):
@@ -260,7 +359,6 @@ class App(Adw.Application):
     def do_command_line(self, _cmdline):
         self.activate()
         return 0
-        self.win = None
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -269,15 +367,14 @@ class App(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def do_activate(self):
-        # First launch shows the panel (or starts it hidden with --hidden, as the
+        # First launch shows the prompt (or starts hidden with --hidden, as the
         # session does at login); every later `slate-shell` invocation toggles it.
         if self.win is None:
             self.win = ShellWindow(self)
             if "--hidden" in sys.argv:
                 self.win.set_visible(False)
             else:
-                self.win.present()
-                self.win.entry.grab_focus()
+                self.win.show_active()
         else:
             self.win.toggle()
 
