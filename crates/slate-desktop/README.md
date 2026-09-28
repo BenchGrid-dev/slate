@@ -13,6 +13,10 @@ v0, verified on sway 1.12 (headless and normal). Needs a compositor that impleme
 
 That is wlroots-based compositors today. GNOME and KDE do not expose these to clients. Window geometry (for window-relative clicks) comes from sway IPC; on other compositors screenshots and absolute coordinates still work.
 
+## The daemon
+
+`slate-desktop daemon` owns the agent seat for the whole session and must start before any application: toolkits only accept input from seats that existed when they started. The Slate sway profile runs it first (`exec slate-desktop daemon`). `slate-desktop serve` (MCP) and the CLI use the daemon when it is running and fall back to a private seat otherwise.
+
 ## MCP tools
 
 `desktop_windows`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_launch`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. Screenshots come back as PNG image content.

@@ -2,6 +2,12 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- slate-desktop: a long-lived `daemon` owns the agent seat for the session (apps only accept input from seats present at their start); MCP and CLI proxy to it; sway profile starts it first.
+- slate-desktop: click/type/key return a post-action screenshot; arrange positions are workspace-relative; `desktop_window_set` converges on the requested content geometry.
+- slash: installed builds resolve companion binaries via PATH and warn when a newer Slate is installed; login shell is `/run/current-system/sw/bin/slash`.
+
 ## 0.0.4 — 2026-09-28
 
 - slash: plain `exit` / `quit` / `退出` leaves slash; stdin is flushed before an approval prompt so stray keys cannot turn `y` into a denial.

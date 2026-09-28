@@ -25,6 +25,10 @@ Longer term, the compositor closes the gap without client cooperation: apps the 
 
 Measured: with `seat: "user"`, keyboard events reach GTK4; on a headless sway whose seat0 has no physical pointer, `wl_pointer.button` events from the virtual pointer were not delivered to any client (enter/leave were). Whether a real desktop with a physical mouse behaves differently is an open item.
 
+Measured later the same day (Firefox 156, GTK3): an app accepts pointer and keyboard input from the agent seat only if that seat already existed when the app started. Seats created later are bound (the protocol log shows the bind) but their input is ignored. This is why per-turn transient seats failed on the user's Firefox while the e2e suite, whose Firefox is a child of the seat owner, passed.
+
+**Amendment:** the agent seat is owned by one long-lived `slate-desktop daemon` per session, started by the compositor before any application. The MCP server and the CLI proxy to it. Apps started before the daemon (or before login) still need the user-seat fallback.
+
 ## Consequences
 
 - The clean "agent never touches your input" story holds for well-behaved clients and for anything the agent launches on a patched compositor, not for pre-existing GTK4 windows on stock sway.
