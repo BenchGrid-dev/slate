@@ -2,7 +2,7 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.10 — 2026-09-28
 
 - Slate prompt: no more desktop freeze while Slate thinks. The takeover poll ran on the UI thread and could block for seconds behind a busy desktop daemon; with the overlay holding the keyboard that froze everything. The poll is off the main loop, and as soon as a prompt is sent the overlay drops to its panel-sized shape (no keyboard grab, no full-screen surface), so the agent's own clicks reach the apps and the user keeps their screen.
 - Slate prompt: live activity while working: the model's reasoning tail when the backend streams it (new `thinking` event from Claude's `thinking_delta` and Codex `reasoning` items), the current tool, and an elapsed timer in the pill.
