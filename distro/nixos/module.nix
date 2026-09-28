@@ -31,6 +31,47 @@ let
     '';
     meta.mainProgram = "slate-settings";
   };
+  # SlateOS names for the system tools. The nixos-* originals stay (ID_LIKE=nixos, and
+  # scripts expect them); these front ends add the SlateOS configuration directory,
+  # /etc/slateos, and fall back to /etc/nixos when it does not exist.
+  slateosTools = pkgs.runCommand "slateos-tools" { } ''
+    mkdir -p $out/bin
+    cat > $out/bin/slateos-config-args <<'EOF'
+    #!/bin/sh
+    # Prints the arguments that point a nixos-* tool at the SlateOS configuration.
+    cfg=/etc/slateos
+    if [ -e "$cfg/flake.nix" ]; then printf -- '--flake
+%s
+' "$cfg"
+    elif [ -e "$cfg/configuration.nix" ]; then printf -- '-I
+nixos-config=%s/configuration.nix
+' "$cfg"
+    fi
+    EOF
+    for tool in rebuild option install; do
+      cat > $out/bin/slateos-$tool <<EOF
+    #!/bin/sh
+    # SlateOS front end for nixos-$tool: the system configuration lives in /etc/slateos.
+    case " \$* " in *" --flake "*|*" -I "*|*" --file "*|*" -f "*) exec nixos-$tool "\$@" ;; esac
+    set -- \$(slateos-config-args) "\$@"
+    exec nixos-$tool "\$@"
+    EOF
+    done
+    cat > $out/bin/slateos-generate-config <<'EOF'
+    #!/bin/sh
+    case " $* " in *" --dir "*) exec nixos-generate-config "$@" ;; esac
+    exec nixos-generate-config --dir /etc/slateos "$@"
+    EOF
+    cat > $out/bin/slateos-version <<'EOF'
+    #!/bin/sh
+    if [ $# -eq 0 ]; then echo "SlateOS $(nixos-version)"; else exec nixos-version "$@"; fi
+    EOF
+    cat > $out/bin/slateos-enter <<'EOF'
+    #!/bin/sh
+    exec nixos-enter "$@"
+    EOF
+    chmod +x $out/bin/*
+  '';
   # The floating Slate panel: layer-shell window driving `slash --serve`.
   slateShell = pkgs.stdenv.mkDerivation {
     pname = "slate-shell";
@@ -132,7 +173,7 @@ in
     system.nixos.distroId = "slateos";
     networking.hostName = lib.mkDefault "slateos";
 
-    environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
+    environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify

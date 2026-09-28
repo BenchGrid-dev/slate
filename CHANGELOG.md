@@ -2,6 +2,10 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- SlateOS system tools: `slateos-rebuild`, `slateos-option`, `slateos-install`, `slateos-generate-config`, `slateos-enter`, `slateos-version`, thin front ends for the `nixos-*` originals that use `/etc/slateos` (falling back to `/etc/nixos`). The system skill and slash's identity prompt use them. Licensing note in `distro/README.md` (nixpkgs is MIT; the NixOS name is used only descriptively).
+
 ## 0.0.10 — 2026-09-28
 
 - Slate prompt: no more desktop freeze while Slate thinks. The takeover poll ran on the UI thread and could block for seconds behind a busy desktop daemon; with the overlay holding the keyboard that froze everything. The poll is off the main loop, and as soon as a prompt is sent the overlay drops to its panel-sized shape (no keyboard grab, no full-screen surface), so the agent's own clicks reach the apps and the user keeps their screen.

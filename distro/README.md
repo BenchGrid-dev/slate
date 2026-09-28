@@ -27,7 +27,8 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 - Installs `slash`, `slated`, `slate` and `slate-desktop`, `btrfs-progs`, and the agents in `services.slate.agents` (default: Claude Code from nixpkgs; Codex is not in nixpkgs, `npm i -g @openai/codex` works and the settings app finds it in `~/.npm-global/bin`).
 - Registers `/run/current-system/sw/bin/slash` as a login shell and sets it for `loginShellUsers`. The stable path means a new terminal picks up an updated slash without logging out.
 - Runs `slated` as a per-user systemd service (approvals, audit, snapshots, memories).
-- Presents the system as SlateOS: `/etc/os-release` says `NAME=SlateOS`, `ID=slateos`, `ID_LIKE=nixos`; boot entries and the getty greeting follow; the default hostname is `slateos`. `nixos-rebuild` and every other NixOS tool are unchanged.
+- Presents the system as SlateOS: `/etc/os-release` says `NAME=SlateOS`, `ID=slateos`, `ID_LIKE=nixos`; boot entries and the getty greeting follow; the default hostname is `slateos`.
+- Adds the `slateos-*` system tools: `slateos-rebuild`, `slateos-option`, `slateos-install`, `slateos-generate-config`, `slateos-enter`, `slateos-version`. They are thin front ends for the `nixos-*` originals that point them at `/etc/slateos` (a `configuration.nix` or a flake there) and fall back to `/etc/nixos` when that directory does not exist. The originals stay installed; scripts and documentation written for NixOS keep working.
 - Enables sway with the tools slate-desktop needs.
 
 ## What `services.slate.desktop.enable` adds
@@ -52,6 +53,18 @@ Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `
 Per-user settings written by the settings app and by agents (display modes, keys) go to `~/.config/slate/sway.d/*.conf`; slash reads `~/.config/slate/slash.toml`; slated reads `~/.config/slate/policy.toml`.
 
 Building the package alone: `nix build github:BenchGrid-dev/slate`.
+
+## Moving an existing configuration to /etc/slateos
+
+```
+sudo mv /etc/nixos /etc/slateos && sudo ln -s /etc/slateos /etc/nixos
+```
+
+The symlink keeps `nixos-rebuild` and channel-based tooling working; `slateos-rebuild` uses the new path directly.
+
+## What stays NixOS underneath, and why that is fine
+
+The base system, its modules and the `nixos-*` tools come from nixpkgs, which is MIT-licensed: modifying, renaming and redistributing them is permitted as long as the copyright notice travels with the code (SlateOS consumes nixpkgs as a flake input and does not copy it). Nix itself (LGPL 2.1) is used unmodified. "NixOS" is a trademark of the NixOS Foundation (registered in 2026, policy in preparation); SlateOS uses the name only to say what it is built on, ships no NixOS logos, and does not call itself NixOS. Internal markers such as `/etc/NIXOS`, the `nixos` channel name and `ID_LIKE=nixos` stay, because the tooling depends on them.
 
 ## What the installer will have to do
 

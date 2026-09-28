@@ -124,7 +124,7 @@ The prompt and settings app are Python/GTK4 (quick to iterate on). **Open:** whe
 
 The distribution exists so the compositor, slated, slash, the desktop and the skills are installed, configured and privileged correctly out of the box. Nothing in Slate requires the distribution; every component runs on any wlroots-based Wayland desktop with reduced guarantees.
 
-SlateOS is built on NixOS. The flake's NixOS module installs everything, makes slash the login shell, runs the daemons as user services, ships the desktop profile, and presents the system as SlateOS (`ID=slateos`, `ID_LIKE=nixos`; `nixos-rebuild` and friends are unchanged). Declarative, diffable, rollback-able system state is a natural fit for an agent that changes the system. ADR 0004 records the alternatives; an Arch base is possible if someone wants to build it. No installable image exists yet.
+SlateOS is built on NixOS. The flake's NixOS module installs everything, makes slash the login shell, runs the daemons as user services, ships the desktop profile, and presents the system as SlateOS (`ID=slateos`, `ID_LIKE=nixos`; the system configuration lives in `/etc/slateos` and the `slateos-*` tools front the `nixos-*` ones, which stay available). Declarative, diffable, rollback-able system state is a natural fit for an agent that changes the system. ADR 0004 records the alternatives; an Arch base is possible if someone wants to build it. No installable image exists yet.
 
 ## 3. A task, end to end
 
