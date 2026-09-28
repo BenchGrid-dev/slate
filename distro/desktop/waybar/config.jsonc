@@ -27,6 +27,7 @@
         "return-type": "json",
         "interval": 2,
         "format": " {} ",
-        "on-click": "foot -e slash"
+        "on-click": "foot -e slash",
+        "on-click-right": "slate-settings"
     }
 }

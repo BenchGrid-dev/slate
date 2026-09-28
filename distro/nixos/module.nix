@@ -7,6 +7,30 @@
 let
   cfg = config.services.slate;
   pkg = cfg.package;
+  # The settings app: Python + GTK4 + libadwaita, no build step, quick to iterate on.
+  slateSettings = pkgs.stdenv.mkDerivation {
+    pname = "slate-settings";
+    version = pkg.version;
+    src = ../desktop/slate-settings.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    installPhase = ''
+      mkdir -p $out/bin $out/share/applications
+      cp $src $out/bin/slate-settings
+      chmod +x $out/bin/slate-settings
+      cat > $out/share/applications/slate-settings.desktop <<EOF
+      [Desktop Entry]
+      Type=Application
+      Name=Settings
+      Comment=Slate desktop settings
+      Exec=slate-settings
+      Icon=preferences-system
+      Categories=Settings;System;
+      EOF
+    '';
+    meta.mainProgram = "slate-settings";
+  };
 in
 {
   options.services.slate = {
@@ -76,6 +100,7 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
+        slateSettings
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         firefox xfce.thunar gnome-text-editor loupe pavucontrol
         papirus-icon-theme adwaita-icon-theme

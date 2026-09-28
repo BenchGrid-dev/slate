@@ -11,6 +11,10 @@ font pango:Noto Sans 10
 output HEADLESS-1 resolution 1280x800
 output * bg /etc/slate/wallpaper.png fill
 
+# Per-user overrides written by the settings app and by agents (display, keys…).
+# Kept outside /etc so the system profile stays pristine and a bad setting is one file.
+include ~/.config/slate/sway.d/*.conf
+
 # Conventional stacking desktop: every app window floats with a title bar.
 for_window [app_id=".*"] floating enable
 for_window [class=".*"] floating enable
@@ -30,6 +34,7 @@ bindsym $mod+space exec $menu
 bindsym $mod+w exec $browser
 bindsym $mod+e exec $files
 bindsym $mod+t exec gnome-text-editor
+bindsym $mod+comma exec slate-settings
 bindsym $mod+q kill
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+e exec swaymsg exit

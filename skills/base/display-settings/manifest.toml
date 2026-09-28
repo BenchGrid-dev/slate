@@ -1,0 +1,4 @@
+name = "display-settings"
+description = "Change screen resolution, scale (HiDPI), and output layout on the Slate desktop (sway), safely and reversibly."
+tiers = { query = "observe", apply = "reversible" }
+requires = ["swaymsg", "slate-desktop"]
