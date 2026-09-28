@@ -20,12 +20,14 @@ Note each output's `name` (e.g. `Virtual-1`), `current_mode`, `scale`, and the `
 Everything is one command, applied live:
 
 ```
-swaymsg output <NAME> mode <W>x<H> scale <S>
+swaymsg 'output <NAME> mode <W>x<H> scale <S>'
 ```
+
+Quote the whole command as one argument, otherwise swaymsg parses `--custom` itself and fails.
 
 Rules:
 - **Scale changes the logical size.** `scale 2` on a 1280x800 output leaves 640x400 logical pixels: everything becomes huge and windows no longer fit. That is almost never what the user wants.
-- **HiDPI / "retina" / "crisper":** keep the logical size and double the physical one: `mode --custom 2560x1600 scale 2` (a custom mode; the VM or monitor must accept it). In a UTM VM, the user must also enable "Retina Mode" in the VM's display settings.
+- **HiDPI / "retina" / "crisper":** keep the logical size and double the physical one: `swaymsg 'output <NAME> mode --custom 2560x1600 scale 2'` (a custom mode; the VM or monitor must accept it). In a UTM VM, the user must also enable "Retina Mode" in the VM's display settings.
 - **Bigger text only:** prefer a fractional scale like `scale 1.25` over a lower resolution.
 - Never apply more than one change before verifying.
 
@@ -36,7 +38,7 @@ Take a full-screen screenshot with `desktop_screenshot` (no window). Check that 
 ## 4. Roll back
 
 ```
-swaymsg output <NAME> scale 1 mode <previous WxH>
+swaymsg 'output <NAME> scale 1 mode <previous WxH>'
 ```
 
 Say what you rolled back to.

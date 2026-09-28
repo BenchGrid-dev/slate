@@ -33,8 +33,13 @@ def swaysock():
 
 
 def swaymsg(*args, as_json=False):
+    """Run a sway IPC query (`-t ...`) or command. Commands are passed as one string so
+    that words like `--custom` reach sway instead of being parsed by swaymsg."""
     sock = swaysock()
-    cmd = ["swaymsg"] + (["-s", sock] if sock else []) + list(args)
+    args = list(args)
+    if args and args[0] != "-t":
+        args = [" ".join(args)]
+    cmd = ["swaymsg"] + (["-s", sock] if sock else []) + args
     out = subprocess.run(cmd, capture_output=True, text=True)
     if as_json:
         return json.loads(out.stdout or "null")
