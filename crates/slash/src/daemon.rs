@@ -235,15 +235,46 @@ fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, 
     }
 }
 
-/// Path of a sibling binary (same directory as this executable), else the bare name.
+/// Path of a companion binary. Development builds (under a `target/` directory) use
+/// the sibling next to this executable. Installed builds prefer the one on PATH: on
+/// NixOS the store path this slash was started from keeps existing after an update,
+/// while PATH points at the current system, so this is how a running slash picks up
+/// updated tools.
 pub fn sibling_bin(name: &str) -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join(name);
-            if p.exists() {
-                return p;
-            }
+    let exe = std::env::current_exe().ok();
+    let sibling = exe
+        .as_ref()
+        .and_then(|e| e.parent())
+        .map(|d| d.join(name))
+        .filter(|p| p.exists());
+    let is_dev = exe
+        .as_ref()
+        .map(|e| e.components().any(|c| c.as_os_str() == "target"))
+        .unwrap_or(false);
+    if is_dev {
+        if let Some(p) = sibling {
+            return p;
         }
     }
-    PathBuf::from(name)
+    if let Some(p) = path_lookup(name) {
+        return p;
+    }
+    sibling.unwrap_or_else(|| PathBuf::from(name))
+}
+
+fn path_lookup(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
+}
+
+/// The version string of a companion binary (`X.Y.Z`), if it runs.
+pub fn binary_version(bin: &Path) -> Option<String> {
+    let out = std::process::Command::new(bin)
+        .arg("--version")
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    s.split_whitespace().nth(1).map(str::to_string)
 }
