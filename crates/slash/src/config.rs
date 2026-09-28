@@ -17,6 +17,8 @@ pub struct Config {
     pub context_commands: usize,
     /// Start with approvals bypassed (`/auto on`). Confirm-tier actions run without asking.
     pub auto_approve: bool,
+    /// Start in verbose mode (`/verbose`): raw backend events, tool details, session ids.
+    pub verbose: bool,
     pub claude: ClaudeConfig,
     pub codex: CodexConfig,
     pub slated: SlatedConfig,
@@ -74,6 +76,7 @@ impl Default for Config {
             shell_interactive: false,
             context_commands: 20,
             auto_approve: false,
+            verbose: false,
             claude: ClaudeConfig::default(),
             codex: CodexConfig::default(),
             slated: SlatedConfig::default(),

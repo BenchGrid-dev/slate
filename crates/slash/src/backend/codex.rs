@@ -199,6 +199,9 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             summary: v.get("message").and_then(Value::as_str).map(str::to_string),
             stats: None,
         }],
+        ("item.completed", "reasoning") => s("text")
+            .map(|t| vec![Event::Thinking(t)])
+            .unwrap_or_default(),
         ("item.completed", "agent_message") => s("text")
             .filter(|t| !t.trim().is_empty())
             .map(|t| vec![Event::Text(t)])

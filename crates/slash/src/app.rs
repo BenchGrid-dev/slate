@@ -83,6 +83,7 @@ impl App {
             None
         };
         let auto_approve = cfg.auto_approve;
+        let verbose = cfg.verbose;
         Ok(Self {
             json: false,
             pending_approvals: Default::default(),
@@ -91,7 +92,7 @@ impl App {
             backend,
             shell,
             session,
-            verbose: false,
+            verbose,
             daemon,
             slate_bin: daemon::sibling_bin("slate"),
             desktop_bin: std::env::var_os("WAYLAND_DISPLAY")
@@ -776,6 +777,7 @@ impl App {
                     Event::SessionStarted(id) => serde_json::json!({"event": "session", "id": id}),
                     Event::TextDelta(t) => serde_json::json!({"event": "text_delta", "text": t}),
                     Event::Text(t) => serde_json::json!({"event": "text", "text": t}),
+                    Event::Thinking(t) => serde_json::json!({"event": "thinking", "text": t}),
                     Event::ToolStart { name, detail } => {
                         serde_json::json!({"event": "tool_start", "name": name, "detail": detail})
                     }
@@ -838,6 +840,11 @@ impl App {
                     match stats {
                         Some(st) => println!("{} {}", mark, dim(&st)),
                         None => println!("{mark}"),
+                    }
+                }
+                Event::Thinking(t) => {
+                    if verbose {
+                        print!("{}", dim(&t));
                     }
                 }
                 Event::Other(s) => {

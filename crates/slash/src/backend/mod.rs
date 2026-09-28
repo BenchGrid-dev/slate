@@ -16,6 +16,9 @@ pub enum Event {
     TextDelta(String),
     /// Assistant prose (complete block).
     Text(String),
+    /// A fragment of the model's reasoning, when the backend streams it. Shown as
+    /// live activity; never part of the answer.
+    Thinking(String),
     /// A tool call began. `detail` is a one-line summary (the command, the path…).
     ToolStart {
         name: String,

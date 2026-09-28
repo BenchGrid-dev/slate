@@ -173,6 +173,9 @@ pub fn parse_line(line: &str, tools: &mut std::collections::HashMap<String, Stri
                 if let Some(t) = v.pointer("/event/delta/text").and_then(Value::as_str) {
                     return vec![Event::TextDelta(t.to_string())];
                 }
+                if let Some(t) = v.pointer("/event/delta/thinking").and_then(Value::as_str) {
+                    return vec![Event::Thinking(t.to_string())];
+                }
             }
             vec![]
         }
@@ -341,6 +344,16 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_thinking_delta() {
+        let mut tools = Default::default();
+        let ev = parse_line(
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me check"}}}"#,
+            &mut tools,
+        );
+        assert_eq!(ev, vec![Event::Thinking("Let me check".into())]);
     }
 
     #[test]

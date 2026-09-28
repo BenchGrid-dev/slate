@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 
 import gi
 
@@ -33,8 +34,8 @@ PASSIVE_HIDE_SECONDS = 18
 
 CSS = b"""
 window.slate { background: transparent; }
-.pill { background: rgba(24, 26, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 24px;
-        padding: 6px 14px 6px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.pill { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 24px;
+        padding: 6px 14px 6px 12px; }
 .glyph { color: #8fa7f0; font-size: 17px; margin-right: 8px; }
 @keyframes slate-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
 .glyph.working { animation: slate-pulse 1.2s ease-in-out infinite; }
@@ -44,12 +45,13 @@ entry.ask, entry.ask text { background: none; border: none; box-shadow: none; ou
 entry.ask placeholder, entry.ask text placeholder { color: #6b7080; }
 .hint { color: #6b7080; font-size: 12px; margin-left: 8px; }
 .hint.controlling { color: #e5a35a; font-weight: 600; }
-.card { background: rgba(24, 26, 34, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 18px;
-        padding: 12px 16px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.card { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 18px;
+        padding: 12px 16px; }
 .query { color: #9ba1b0; font-size: 13px; }
 .reply { color: #e8eaf0; font-size: 14px; }
 .reply.error { color: #ff8a80; }
 .activity { color: #6b7080; font-size: 12px; }
+.thought { color: #7a8091; font-size: 12px; font-style: italic; }
 .activity.failed { color: #ff8a80; }
 .approval { background: rgba(229, 163, 90, 0.10); border: 1px solid rgba(229, 163, 90, 0.45); border-radius: 12px; padding: 10px 12px; }
 .approval-title { color: #e5a35a; font-weight: 600; font-size: 13px; }
@@ -71,6 +73,16 @@ def markup(text):
     text = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", text)
     text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
     return text
+
+
+def tool_label(name):
+    """`mcp__desktop__desktop_click` -> `desktop_click`; other MCP tools -> `server: tool`."""
+    name = name or ""
+    if name.startswith("mcp__"):
+        parts = name.split("__", 2)
+        if len(parts) == 3:
+            return parts[2] if parts[2].startswith(parts[1]) else f"{parts[1]}: {parts[2]}"
+    return name
 
 
 def run(cmd):
@@ -148,8 +160,9 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.query = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=42, css_classes=["query"], visible=False)
         self.reply = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True, max_width_chars=42, css_classes=["reply"], visible=False)
         self.activity = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=42, css_classes=["activity"], visible=False)
+        self.thought = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.START, max_width_chars=42, css_classes=["thought"], visible=False)
         self.approval_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        for w in (self.query, self.reply, self.activity, self.approval_box):
+        for w in (self.query, self.reply, self.activity, self.thought, self.approval_box):
             self.card.append(w)
         root.append(self.card)
 
@@ -172,12 +185,20 @@ class ShellWindow(Gtk.ApplicationWindow):
 
         self.busy = False
         self.reply_text = ""
+        self.thinking_text = ""
+        self.activity_text = ""
+        self.started = 0.0
+        self.tick_timer = None
         self.passive = False  # shown without keyboard focus (result or approval arrived)
         self.hide_timer = None
         self.approvals = {}
         self.auto = False
+        self.controlling = False
         self.session = Session(self.on_event)
-        GLib.timeout_add_seconds(2, self.poll_control)
+        # The takeover poll runs off the main loop: the desktop daemon can be busy for
+        # seconds (screenshots, launches) and a blocked main loop freezes the overlay,
+        # which, while it holds the keyboard, freezes the whole desktop.
+        threading.Thread(target=self._poll_control_thread, daemon=True).start()
 
     # ---- showing and hiding
     def set_shape(self, active):
@@ -199,10 +220,14 @@ class ShellWindow(Gtk.ApplicationWindow):
         """Show a result or an approval without taking the keyboard from what the user is doing."""
         if self.get_visible() and not self.passive:
             return
+        self.go_passive()
+
+    def go_passive(self, keep=False):
         self.passive = True
         self.set_shape(active=False)
         self.set_visible(True)
-        self.arm_hide_timer()
+        if not keep:
+            self.arm_hide_timer()
 
     def claim_focus(self):
         if self.passive:
@@ -251,7 +276,9 @@ class ShellWindow(Gtk.ApplicationWindow):
     # ---- the card
     def clear_card(self):
         self.reply_text = ""
-        for w in (self.query, self.reply, self.activity):
+        self.thinking_text = ""
+        self.activity_text = ""
+        for w in (self.query, self.reply, self.activity, self.thought):
             w.set_text("")
             w.set_visible(False)
         self.reply.remove_css_class("error")
@@ -269,12 +296,31 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.card.set_visible(True)
 
     def show_activity(self, text, failed=False):
-        self.activity.set_text(text)
+        self.activity_text = text
+        self.render_activity()
         self.activity.set_visible(bool(text))
         if failed:
             self.activity.add_css_class("failed")
         else:
             self.activity.remove_css_class("failed")
+        self.card.set_visible(True)
+
+    def render_activity(self):
+        self.activity.set_text(self.activity_text)
+
+    def on_tick(self):
+        if not self.busy:
+            self.tick_timer = None
+            return False
+        if not self.controlling:
+            self.hint.set_text(f"working · {int(time.monotonic() - self.started)}s")
+        return True
+
+    def show_thought(self, delta):
+        self.thinking_text = (self.thinking_text + delta)[-600:]
+        tail = self.thinking_text.strip().replace("\n", " ")
+        self.thought.set_text(tail)
+        self.thought.set_visible(bool(tail))
         self.card.set_visible(True)
 
     def set_state(self, state, hint=None):
@@ -296,17 +342,27 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.set_state("idle")
         elif kind == "turn_start":
             self.busy = True
+            self.started = time.monotonic()
             self.set_state("working", "working")
             self.show_activity("thinking…")
+            if self.tick_timer is None:
+                self.tick_timer = GLib.timeout_add(1000, self.on_tick)
+            # Hand the screen back while Slate works: no keyboard grab, no full-screen
+            # surface (the agent's own clicks must reach the apps), progress stays visible.
+            if self.get_visible() and not self.passive:
+                self.go_passive(keep=True)
+        elif kind == "thinking":
+            self.show_thought(ev.get("text", ""))
         elif kind == "text_delta":
             self.show_reply(self.reply_text + ev.get("text", ""))
         elif kind == "text":
             self.show_reply(ev.get("text", ""))
         elif kind == "tool_start":
-            self.show_activity(f"▸ {ev.get('name')}  {ev.get('detail', '')}")
+            self.thought.set_visible(False)
+            self.show_activity(f"▸ {tool_label(ev.get('name'))}  {ev.get('detail', '')}")
         elif kind == "tool_end":
             if not ev.get("ok", True):
-                self.show_activity(f"✗ {ev.get('name')}  {ev.get('detail', '')}", failed=True)
+                self.show_activity(f"✗ {tool_label(ev.get('name'))}  {ev.get('detail', '')}", failed=True)
         elif kind == "approval_needed":
             self.add_approval(ev)
         elif kind == "approval_resolved":
@@ -325,6 +381,7 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.show_reply(ev.get("text", ""), error=True)
         elif kind == "done":
             self.busy = False
+            self.thought.set_visible(False)
             self.set_state("idle")
             if ev.get("summary") and ev.get("ok") is False and not self.reply_text:
                 self.show_reply(ev["summary"], error=True)
@@ -333,6 +390,9 @@ class ShellWindow(Gtk.ApplicationWindow):
                 self.show_passive()
             elif self.passive:
                 self.arm_hide_timer()
+            if self.tick_timer is not None:
+                GLib.source_remove(self.tick_timer)
+                self.tick_timer = None
         elif kind == "exited":
             self.busy = False
             self.set_state("idle", "offline")
@@ -379,13 +439,21 @@ class ShellWindow(Gtk.ApplicationWindow):
             return True
         return False
 
-    def poll_control(self):
-        st = run(["slate-desktop", "status"])
-        if '"controlling":true' in st.replace(" ", ""):
+    def _poll_control_thread(self):
+        while True:
+            st = run(["slate-desktop", "status"])
+            controlling = '"controlling":true' in st.replace(" ", "")
+            if controlling != self.controlling:
+                self.controlling = controlling
+                GLib.idle_add(self.on_control_changed)
+            time.sleep(2)
+
+    def on_control_changed(self):
+        if self.controlling:
             self.set_state("controlling", "Esc takes back control")
-        elif self.glyph.has_css_class("controlling"):
+        else:
             self.set_state("working" if self.busy else "idle")
-        return True
+        return False
 
 
 class App(Adw.Application):

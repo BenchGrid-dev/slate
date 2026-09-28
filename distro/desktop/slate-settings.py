@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import threading
+import tomllib
 
 import gi
 
@@ -300,6 +301,143 @@ class SlatePage(Gtk.Box):
             self.mem_group.add(row)
 
 
+SLASH_CONFIG = os.path.expanduser("~/.config/slate/slash.toml")
+
+
+def load_slash_config():
+    try:
+        with open(SLASH_CONFIG, "rb") as f:
+            return tomllib.load(f)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def toml_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(toml_value(x) for x in v) + "]"
+    return json.dumps(str(v))
+
+
+def save_slash_config(cfg):
+    """slash.toml is small and flat (scalars at the top, one level of tables): write it by hand."""
+    os.makedirs(os.path.dirname(SLASH_CONFIG), exist_ok=True)
+    lines = ["# written by Slate Settings; slash reads this at start"]
+    for k, v in cfg.items():
+        if not isinstance(v, dict):
+            lines.append(f"{k} = {toml_value(v)}")
+    for k, v in cfg.items():
+        if isinstance(v, dict):
+            lines.append(f"\n[{k}]")
+            for k2, v2 in v.items():
+                lines.append(f"{k2} = {toml_value(v2)}")
+    with open(SLASH_CONFIG, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+class AIPage(Gtk.Box):
+    """Slate AI: which agent runs slash, how it is signed in, how chatty it is."""
+
+    BACKENDS = ["claude", "codex"]
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.cfg = load_slash_config()
+        page = Adw.PreferencesPage()
+        self.append(page)
+
+        agent = Adw.PreferencesGroup(title="Agent", description="Slate drives the official Claude Code or Codex CLI with your own subscription. Changes apply to new sessions.")
+        page.add(agent)
+        self.backend = Adw.ComboRow(title="Backend", model=Gtk.StringList.new(["Claude Code", "Codex"]))
+        self.backend.set_selected(self.BACKENDS.index(self.cfg.get("backend", "claude")) if self.cfg.get("backend", "claude") in self.BACKENDS else 0)
+        self.backend.connect("notify::selected", lambda *_: self.set_value(["backend"], self.BACKENDS[self.backend.get_selected()]))
+        agent.add(self.backend)
+        self.model = Adw.EntryRow(title="Claude model (sonnet, opus, haiku or a model id)")
+        self.model.set_text(str(self.cfg.get("claude", {}).get("model") or ""))
+        self.model.connect("apply", lambda *_: self.set_value(["claude", "model"], self.model.get_text().strip() or None))
+        self.model.set_show_apply_button(True)
+        agent.add(self.model)
+        self.codex_model = Adw.EntryRow(title="Codex model (empty keeps Codex's default)")
+        self.codex_model.set_text(str(self.cfg.get("codex", {}).get("model") or ""))
+        self.codex_model.connect("apply", lambda *_: self.set_value(["codex", "model"], self.codex_model.get_text().strip() or None))
+        self.codex_model.set_show_apply_button(True)
+        agent.add(self.codex_model)
+
+        signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in happens in the agent's own CLI (a terminal opens). Slate never sees your credentials.")
+        page.add(signin)
+        self.claude_row = Adw.ActionRow(title="Claude Code")
+        self.add_auth_buttons(self.claude_row, ["claude", "auth", "login"], ["claude", "auth", "logout"])
+        signin.add(self.claude_row)
+        self.codex_row = Adw.ActionRow(title="Codex")
+        self.add_auth_buttons(self.codex_row, ["codex", "login"], ["codex", "logout"])
+        signin.add(self.codex_row)
+        self.refresh_auth()
+
+        behaviour = Adw.PreferencesGroup(title="Behaviour")
+        page.add(behaviour)
+        self.verbose = Adw.SwitchRow(title="Verbose log", subtitle="Show raw agent events, tool details and session ids in slash (also /verbose)")
+        self.verbose.set_active(bool(self.cfg.get("verbose", False)))
+        self.verbose.connect("notify::active", lambda *_: self.set_value(["verbose"], self.verbose.get_active()))
+        behaviour.add(self.verbose)
+        self.auto = Adw.SwitchRow(title="Bypass approvals by default", subtitle="Start every session as /auto on: actions that would ask for confirmation just run (still audited, still undoable)")
+        self.auto.set_active(bool(self.cfg.get("auto_approve", False)))
+        self.auto.connect("notify::active", lambda *_: self.set_value(["auto_approve"], self.auto.get_active()))
+        behaviour.add(self.auto)
+        restart = Adw.ActionRow(title="Restart the Slate prompt", subtitle="Applies the settings above to the prompt in the top-right corner")
+        btn = Gtk.Button(label="Restart", valign=Gtk.Align.CENTER)
+        btn.connect("clicked", self.restart_prompt)
+        restart.add_suffix(btn)
+        behaviour.add(restart)
+        config_row = Adw.ActionRow(title="Configuration file", subtitle=SLASH_CONFIG)
+        behaviour.add(config_row)
+
+    def set_value(self, path, value):
+        node = self.cfg
+        for k in path[:-1]:
+            node = node.setdefault(k, {})
+        if value is None:
+            node.pop(path[-1], None)
+        else:
+            node[path[-1]] = value
+        save_slash_config(self.cfg)
+
+    def add_auth_buttons(self, row, login_cmd, logout_cmd):
+        login = Gtk.Button(label="Sign in…", valign=Gtk.Align.CENTER)
+        login.connect("clicked", lambda *_: self.run_in_terminal(login_cmd))
+        logout = Gtk.Button(label="Sign out", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        logout.connect("clicked", lambda *_: (run(logout_cmd), self.refresh_auth()))
+        row.add_suffix(login)
+        row.add_suffix(logout)
+
+    def run_in_terminal(self, cmd):
+        # The CLI opens a browser and waits for the code; leave a shell so the window stays readable.
+        subprocess.Popen(["foot", "-e", "sh", "-c", " ".join(cmd) + '; echo; echo "Done. You can close this window."; exec ${SHELL:-sh}'])
+        GLib.timeout_add_seconds(15, lambda: (self.refresh_auth(), False)[1])
+
+    def refresh_auth(self):
+        def work():
+            claude = run(["claude", "auth", "status"])
+            try:
+                st = json.loads(claude)
+                who = st.get("email") or st.get("account") or st.get("authMethod") or ""
+                claude_text = f"Signed in ({who})" if st.get("loggedIn") else "Not signed in"
+            except Exception:  # noqa: BLE001
+                claude_text = "claude not installed" if not claude else claude.splitlines()[0]
+            codex = run(["codex", "login", "status"])
+            codex_text = codex.splitlines()[0] if codex else "codex not installed"
+            GLib.idle_add(self.claude_row.set_subtitle, claude_text)
+            GLib.idle_add(self.codex_row.set_subtitle, codex_text)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def restart_prompt(self, *_):
+        subprocess.run(["pkill", "-f", "bin/.slate-shell-wrapped"], check=False)
+        subprocess.Popen(["slate-shell", "--hidden"])
+
+
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Settings", default_width=820, default_height=560)
@@ -326,6 +464,7 @@ class Window(Adw.ApplicationWindow):
             ("Sound", "audio-volume-high-symbolic", SoundPage),
             ("Network", "network-wireless-symbolic", NetworkPage),
             ("Slate", "starred-symbolic", SlatePage),
+            ("AI", "system-run-symbolic", AIPage),
         ]
         for name, icon, ctor in pages:
             row = Gtk.ListBoxRow()
