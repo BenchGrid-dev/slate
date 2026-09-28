@@ -31,14 +31,14 @@ pub fn run() -> Result<()> {
     desktop.settle()?;
     let listener =
         UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
-    eprintln!(
+    slate_proto::log!(
         "slate-desktop daemon: agent seat ready, listening on {}",
         path.display()
     );
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
         if let Err(e) = handle(&mut desktop, stream) {
-            eprintln!("slate-desktop daemon: {e:#}");
+            slate_proto::log!("slate-desktop daemon: {e:#}");
         }
     }
     Ok(())

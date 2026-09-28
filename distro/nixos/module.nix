@@ -157,11 +157,26 @@ in
     systemd.user.services.slated = {
       description = "Slate daemon: approval broker, audit log, snapshots and undo";
       wantedBy = [ "default.target" ];
+      path = [ pkg pkgs.btrfs-progs pkgs.libnotify pkgs.coreutils ];
       environment = lib.mkIf (cfg.snapshotRoot != null) { SLATE_SNAPSHOT_ROOT = cfg.snapshotRoot; };
       serviceConfig = {
         ExecStart = "${pkg}/bin/slated";
-        Restart = "on-failure";
-        RestartSec = 2;
+        Restart = "always";
+        RestartSec = 1;
+      };
+    };
+
+    # The agent seat owner. Started by the compositor (it needs WAYLAND_DISPLAY),
+    # supervised by systemd so a crash never leaves the session without a seat.
+    systemd.user.services.slate-desktop = lib.mkIf cfg.desktop.enable {
+      description = "Slate desktop daemon: the agent's own Wayland seat";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ pkg pkgs.sway pkgs.coreutils ];
+      serviceConfig = {
+        ExecStart = "${pkg}/bin/slate-desktop daemon";
+        Restart = "always";
+        RestartSec = 1;
       };
     };
 

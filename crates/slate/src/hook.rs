@@ -56,7 +56,7 @@ pub fn pre_tool_use() -> Result<()> {
             ..
         } => (decision, format!("slate: {} ({})", reason, tier.as_str())),
         Reply::Error { message } => {
-            eprintln!("slate hook: {message}");
+            slate_proto::log!("slate hook: {message}");
             return Ok(());
         }
         _ => return Ok(()),

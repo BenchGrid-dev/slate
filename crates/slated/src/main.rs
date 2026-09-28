@@ -35,11 +35,11 @@ fn main() -> Result<()> {
     let snapshots =
         match snapshot::Snapshotter::detect(snap_root.clone(), state_dir.join("snapshots")) {
             Ok(s) => {
-                eprintln!("slated: snapshots enabled for {}", snap_root.display());
+                slate_proto::log!("slated: snapshots enabled for {}", snap_root.display());
                 Some(s)
             }
             Err(e) => {
-                eprintln!("slated: snapshots disabled: {e:#}");
+                slate_proto::log!("slated: snapshots disabled: {e:#}");
                 None
             }
         };

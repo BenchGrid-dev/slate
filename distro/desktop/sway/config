@@ -65,7 +65,8 @@ bar {
     swaybar_command waybar
 }
 
-# The agent seat must exist before any app starts (apps ignore seats added later).
-exec slate-desktop daemon
+# The agent seat must exist before any app starts (apps ignore seats added later):
+# hand the display to systemd and start the supervised daemon first.
+exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart slate-desktop.service
 exec mako
-exec foot
+exec sleep 1 && foot

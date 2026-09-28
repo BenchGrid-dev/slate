@@ -82,7 +82,7 @@ impl State {
 
     fn log(&self, e: AuditEntry) {
         if let Err(err) = self.audit.append(&e) {
-            eprintln!("slated: audit write failed: {err:#}");
+            slate_proto::log!("slated: audit write failed: {err:#}");
         }
     }
 
@@ -95,7 +95,7 @@ impl State {
         match snap.create(task_id) {
             Ok(info) => {
                 for old in snap.prune(SNAPSHOT_KEEP) {
-                    eprintln!("slated: pruned snapshot {}", old.display());
+                    slate_proto::log!("slated: pruned snapshot {}", old.display());
                 }
                 let p = info.path.display().to_string();
                 let _ = self.tasks.update(task_id, |t| {
@@ -115,7 +115,7 @@ impl State {
                 Some(p)
             }
             Err(e) => {
-                eprintln!("slated: snapshot failed for {task_id}: {e:#}");
+                slate_proto::log!("slated: snapshot failed for {task_id}: {e:#}");
                 self.log(AuditEntry {
                     ts: now_millis(),
                     task_id: Some(task_id.into()),
@@ -179,7 +179,7 @@ pub fn serve(path: PathBuf, state: Shared) -> Result<()> {
     }
     let listener =
         UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
-    eprintln!(
+    slate_proto::log!(
         "slated {} listening on {}",
         slate_proto::VERSION,
         path.display()
@@ -189,7 +189,7 @@ pub fn serve(path: PathBuf, state: Shared) -> Result<()> {
         let st = Arc::clone(&state);
         std::thread::spawn(move || {
             if let Err(e) = handle_conn(stream, st) {
-                eprintln!("slated: connection error: {e:#}");
+                slate_proto::log!("slated: connection error: {e:#}");
             }
         });
     }

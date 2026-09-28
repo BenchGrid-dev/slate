@@ -10,6 +10,17 @@ use std::path::PathBuf;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Log to stderr without ever panicking. `eprintln!` aborts the process when
+/// stderr is a closed pipe, which is how a daemon started by a compositor can
+/// die the first time it tries to report an error.
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = writeln!(::std::io::stderr(), $($arg)*);
+    }};
+}
+
 /// Environment variable carrying the current task id into agent subprocesses.
 /// Hooks and MCP servers inherit it from the backend, which inherits it from slash.
 pub const ENV_TASK: &str = "SLATE_TASK";
