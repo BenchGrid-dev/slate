@@ -40,12 +40,8 @@ let
     #!/bin/sh
     # Prints the arguments that point a nixos-* tool at the SlateOS configuration.
     cfg=/etc/slateos
-    if [ -e "$cfg/flake.nix" ]; then printf -- '--flake
-%s
-' "$cfg"
-    elif [ -e "$cfg/configuration.nix" ]; then printf -- '-I
-nixos-config=%s/configuration.nix
-' "$cfg"
+    if [ -e "$cfg/flake.nix" ]; then echo --flake; echo "$cfg"
+    elif [ -e "$cfg/configuration.nix" ]; then echo -I; echo "nixos-config=$cfg/configuration.nix"
     fi
     EOF
     for tool in rebuild option install; do
