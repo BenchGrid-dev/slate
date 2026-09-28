@@ -94,11 +94,10 @@ def main():
         if images and w:
             pw, ph = png_size(images[0])
             check("window screenshot size == reported window size", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
-        # close it through the seat
-        m.tool("desktop_type", text="exit")
-        m.tool("desktop_key", combo="Return")
+        # close it properly
+        m.tool("desktop_close", window=foot["id"])
         gone = wait_for(lambda: find(m, "foot", before) is None, 10)
-        check("typed exit closes the terminal", bool(gone))
+        check("desktop_close closes the terminal", bool(gone))
 
     # 2. firefox: navigate to a local page and check the compositor-reported title.
     page = os.path.join(tempfile.gettempdir(), "slate-e2e-page.html")
@@ -127,11 +126,9 @@ def main():
         if images and w:
             pw, ph = png_size(images[0])
             check("firefox screenshot cropped to window geometry", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
-        m.tool("desktop_key", combo="ctrl+q")
-        time.sleep(1.5)
-        m.tool("desktop_key", combo="Return")  # confirm "Quit Firefox" if it asks
+        m.tool("desktop_close", window=ff["id"])
         gone = wait_for(lambda: find(m, "firefox", before_ff) is None, 15)
-        check("ctrl+q (+Return) quits the firefox instance", bool(gone))
+        check("desktop_close closes the firefox window", bool(gone))
 
     m.close()
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall passed")

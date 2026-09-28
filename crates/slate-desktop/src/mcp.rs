@@ -13,6 +13,9 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Window {
     pub id: String,
+    /// Compositor container id (sway), for close/focus. Not shown to agents.
+    #[serde(skip)]
+    pub con_id: Option<i64>,
     pub app_id: String,
     pub title: String,
     pub focused: bool,
@@ -37,6 +40,7 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 .as_ref()
                 .and_then(|(ws, _)| ws.iter().find(|w| w.identifier == t.identifier));
             Window {
+                con_id: g.map(|g| g.con_id),
                 id: t.identifier,
                 app_id: t.app_id,
                 title: t.title,
@@ -143,8 +147,18 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_key",
-            "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'alt+Tab', 'shift+Tab', 'Escape'.",
+            "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'shift+Tab', 'Escape'. Keys go to the app the agent seat has focused (click a window first). Window-manager shortcuts differ per desktop; use desktop_close / desktop_focus instead of guessing them.",
             "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
+        },
+        {
+            "name": "desktop_close",
+            "description": "Close a window (id, app_id or title substring) the proper way, as if its close button was clicked. Do not guess keyboard shortcuts for this.",
+            "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}, "required": ["window"]}
+        },
+        {
+            "name": "desktop_focus",
+            "description": "Bring a window to the front and give it keyboard focus for the human's seat. Usually unnecessary: desktop_click already focuses the window for the agent's own seat.",
+            "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}, "required": ["window"]}
         },
         {
             "name": "desktop_launch",
@@ -243,6 +257,28 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
                 d.key(seat, c)?;
                 text(format!("pressed {c}{via}"))
+            }
+            "desktop_close" | "desktop_focus" => {
+                let w = args.get("window").and_then(Value::as_str).unwrap_or("");
+                let win = resolve(d, w)?;
+                let con = win.con_id.ok_or_else(|| {
+                    anyhow!(
+                        "no compositor handle for window {}; this compositor does not expose it",
+                        win.id
+                    )
+                })?;
+                let cmd = if name == "desktop_close" {
+                    "kill"
+                } else {
+                    "focus"
+                };
+                sway::command_for_con(con, cmd)?;
+                text(format!(
+                    "{} {} ({})",
+                    if cmd == "kill" { "closed" } else { "focused" },
+                    win.id,
+                    win.title
+                ))
             }
             "desktop_launch" => {
                 let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");

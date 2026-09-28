@@ -214,6 +214,9 @@ fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, 
     let _ = write!(out, "  {} ", cyan("›"));
     let _ = out.flush();
     drop(out);
+    // Stray keystrokes may be waiting (an agent driving the desktop can type into this very
+    // terminal); the answer must be what the human types from here on.
+    let _ = nix::sys::termios::tcflush(std::io::stdin(), nix::sys::termios::FlushArg::TCIFLUSH);
     let mut line = String::new();
     if std::io::stdin().read_line(&mut line).is_err() {
         return (false, false);
@@ -221,8 +224,12 @@ fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, 
     match line.trim().to_ascii_lowercase().as_str() {
         "y" | "yes" => (true, false),
         "a" | "always" => (true, true),
-        _ => {
-            println!("  {}", red("denied"));
+        other => {
+            println!(
+                "  {} {}",
+                red("denied"),
+                dim(&format!("(got {other:?}; answer y, a or n)"))
+            );
             (false, false)
         }
     }

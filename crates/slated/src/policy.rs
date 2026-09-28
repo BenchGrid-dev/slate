@@ -134,9 +134,14 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         }
         "mcp__desktop__desktop_click"
         | "mcp__desktop__desktop_scroll"
-        | "mcp__desktop__desktop_key" => {
+        | "mcp__desktop__desktop_key"
+        | "mcp__desktop__desktop_focus" => {
             v(Tier::Reversible, "drives the desktop on the agent seat")
         }
+        "mcp__desktop__desktop_close" => v(
+            Tier::Reversible,
+            "closes a window (the app may ask to save)",
+        ),
         "mcp__desktop__desktop_type" => {
             let t = input.get("text").and_then(Value::as_str).unwrap_or("");
             if t.len() > 2000 {
@@ -147,7 +152,7 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         }
         "mcp__desktop__desktop_launch" => {
             let c = input.get("command").and_then(Value::as_str).unwrap_or("");
-            if DANGEROUS_PATTERNS.iter().any(|p| c.contains(p.trim())) {
+            if is_dangerous_command(c) {
                 v(Tier::Confirm, "launches a sensitive program")
             } else {
                 v(Tier::Reversible, "launches a desktop program")
@@ -388,103 +393,31 @@ const READ_ONLY_SUBCMDS: &[(&str, &[&str])] = &[
     ("make", &["-n", "--dry-run"]),
 ];
 
-/// Anything matching these is Confirm regardless of context.
-const DANGEROUS_PATTERNS: &[&str] = &[
+/// Substrings that force Confirm wherever they appear (lowercased comparison).
+const DANGEROUS_SUBSTRINGS: &[&str] = &[
     "rm -rf /",
     "rm -rf ~",
-    "rm -rf $HOME",
+    "rm -rf $home",
     "rm -rf *",
     "rm -r /",
     "rm -fr /",
-    "mkfs",
-    "dd if=",
-    "dd of=",
     "> /dev/sd",
-    "shred",
-    "wipefs",
-    "fdisk",
-    "parted",
-    "sgdisk",
     ":(){",
-    "chmod -R 777",
-    "chown -R",
-    "git push",
-    "git push --force",
-    "git reset --hard",
-    "git clean -f",
-    "git branch -D",
-    "git checkout --",
-    "git restore",
-    "curl -X POST",
-    "curl -X PUT",
-    "curl -X DELETE",
-    "curl -d",
+    "chmod -r 777",
+    "chown -r",
+    "curl -x post",
+    "curl -x put",
+    "curl -x delete",
+    "curl -d ",
     "curl --data",
-    "curl -F",
+    "curl -f ",
     "wget --post",
-    "http POST",
-    "ssh ",
-    "scp ",
-    "rsync ",
-    "sftp ",
-    "mail ",
-    "sendmail",
-    "mutt ",
-    "msmtp",
-    "aws ",
-    "gcloud ",
-    "az ",
-    "kubectl delete",
-    "kubectl apply",
-    "terraform apply",
-    "terraform destroy",
-    "docker rm",
-    "docker rmi",
-    "docker system prune",
-    "npm publish",
-    "cargo publish",
-    "pip upload",
-    "twine upload",
-    "gh pr create",
-    "gh release",
-    "gh repo delete",
-    "git remote set-url",
-    "passwd",
-    "useradd",
-    "userdel",
-    "usermod",
-    "visudo",
-    "crontab",
-    "systemctl disable",
-    "systemctl mask",
-    "systemctl stop",
-    "systemctl restart",
-    "systemctl enable",
-    "nixos-rebuild",
-    "reboot",
-    "shutdown",
-    "poweroff",
-    "halt",
     "kill -9 -1",
-    "killall",
-    "pkill",
-    "iptables",
-    "nft ",
-    "ufw ",
-    "firewall-cmd",
-    "openssl req",
-    "gpg --",
-    "ssh-keygen",
-    "keychain",
-    "security ",
-    "1password",
-    "op ",
-    "vault ",
     "history -c",
-    "export AWS_SECRET",
-    "export GITHUB_TOKEN",
-    "export ANTHROPIC_API_KEY",
-    "export OPENAI_API_KEY",
+    "export aws_secret",
+    "export github_token",
+    "export anthropic_api_key",
+    "export openai_api_key",
     ".ssh/",
     ".gnupg/",
     ".aws/",
@@ -492,11 +425,138 @@ const DANGEROUS_PATTERNS: &[&str] = &[
     "credentials",
     "id_rsa",
     "id_ed25519",
-    "sudo ",
-    "doas ",
-    "pkexec ",
-    "su ",
 ];
+
+/// Commands (first word of a pipeline segment) that force Confirm, optionally only
+/// with certain subcommand prefixes. An empty list means any invocation.
+const DANGEROUS_COMMANDS: &[(&str, &[&str])] = &[
+    ("sudo", &[]),
+    ("doas", &[]),
+    ("pkexec", &[]),
+    ("su", &[]),
+    ("ssh", &[]),
+    ("scp", &[]),
+    ("sftp", &[]),
+    ("rsync", &[]),
+    ("mail", &[]),
+    ("sendmail", &[]),
+    ("mutt", &[]),
+    ("msmtp", &[]),
+    ("aws", &[]),
+    ("gcloud", &[]),
+    ("az", &[]),
+    ("op", &[]),
+    ("vault", &[]),
+    ("1password", &[]),
+    ("kubectl", &["delete", "apply"]),
+    ("terraform", &["apply", "destroy"]),
+    ("docker", &["rm", "rmi", "system prune"]),
+    (
+        "git",
+        &[
+            "push",
+            "reset --hard",
+            "clean -f",
+            "branch -D",
+            "checkout --",
+            "restore",
+            "remote set-url",
+        ],
+    ),
+    ("gh", &["pr create", "release", "repo delete"]),
+    ("npm", &["publish"]),
+    ("cargo", &["publish"]),
+    ("twine", &["upload"]),
+    ("pip", &["upload"]),
+    ("passwd", &[]),
+    ("useradd", &[]),
+    ("userdel", &[]),
+    ("usermod", &[]),
+    ("visudo", &[]),
+    ("crontab", &[]),
+    (
+        "systemctl",
+        &["disable", "mask", "stop", "restart", "enable"],
+    ),
+    ("nixos-rebuild", &[]),
+    ("reboot", &[]),
+    ("shutdown", &[]),
+    ("poweroff", &[]),
+    ("halt", &[]),
+    ("killall", &[]),
+    ("pkill", &[]),
+    ("iptables", &[]),
+    ("nft", &[]),
+    ("ufw", &[]),
+    ("firewall-cmd", &[]),
+    ("mkfs", &[]),
+    ("dd", &[]),
+    ("shred", &[]),
+    ("wipefs", &[]),
+    ("fdisk", &[]),
+    ("parted", &[]),
+    ("sgdisk", &[]),
+    ("openssl", &["req"]),
+    ("gpg", &["--"]),
+    ("ssh-keygen", &[]),
+    ("keychain", &[]),
+    ("security", &[]),
+];
+
+/// The first real word of a segment (env assignments and wrappers stripped), lowercased,
+/// plus the rest of the segment.
+fn segment_command(seg: &str) -> Option<(String, String)> {
+    let mut words: Vec<&str> = seg.split_whitespace().collect();
+    while let Some(w) = words.first() {
+        let is_assignment = w.contains('=') && !w.starts_with('-');
+        let is_wrapper = matches!(*w, "env" | "time" | "nice" | "command" | "builtin" | "exec");
+        if is_assignment || is_wrapper {
+            words.remove(0);
+        } else {
+            break;
+        }
+    }
+    let cmd = words.first()?;
+    let base = cmd.rsplit('/').next().unwrap_or(cmd).to_ascii_lowercase();
+    Some((base, words[1..].join(" ").to_ascii_lowercase()))
+}
+
+/// Why a shell command is dangerous, if it is.
+fn dangerous_reason(cmd: &str) -> Option<String> {
+    let lower = cmd.to_ascii_lowercase();
+    for pat in DANGEROUS_SUBSTRINGS {
+        if lower.contains(pat) {
+            return Some(format!("matches {:?}", pat.trim()));
+        }
+    }
+    for seg in split_segments(cmd) {
+        let Some((base, rest)) = segment_command(&seg) else {
+            continue;
+        };
+        for (name, subs) in DANGEROUS_COMMANDS {
+            if base == *name && (subs.is_empty() || subs.iter().any(|s| rest.starts_with(s))) {
+                return Some(if subs.is_empty() {
+                    format!("runs {name}")
+                } else {
+                    format!(
+                        "runs {name} {}",
+                        subs.iter().find(|s| rest.starts_with(*s)).unwrap_or(&"")
+                    )
+                });
+            }
+        }
+        // Names that only sudo-like wrappers hide, e.g. "sudo -u root rm".
+        if base == "sudo" || base == "doas" {
+            return Some(format!("runs {base}"));
+        }
+    }
+    None
+}
+
+/// Public for slate-desktop launch checks: is this a command that needs Confirm?
+pub fn is_dangerous_command(cmd: &str) -> bool {
+    dangerous_reason(cmd).is_some()
+}
 
 fn is_sensitive_path(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
@@ -542,19 +602,28 @@ pub fn classify_shell(cmd: &str) -> Verdict {
         .iter()
         .any(|t| lower.contains(&t.to_ascii_lowercase()));
     if !trusted {
-        for pat in pol
-            .confirm_patterns
-            .iter()
-            .map(String::as_str)
-            .chain(DANGEROUS_PATTERNS.iter().copied())
-        {
-            let pat_l = pat.to_ascii_lowercase();
-            if lower.contains(&pat_l) {
-                return v(Tier::Confirm, format!("matches {:?}", pat.trim()));
+        for pat in &pol.confirm_patterns {
+            if lower.contains(&pat.to_ascii_lowercase()) {
+                return v(
+                    Tier::Confirm,
+                    format!("matches {:?} (policy.toml)", pat.trim()),
+                );
             }
+        }
+        if let Some(reason) = dangerous_reason(trimmed) {
+            return v(Tier::Confirm, reason);
         }
     }
     // Writes via redirection or in-place edits are reversible, not observe.
+    // Redirecting to /dev/null or merging stderr is not a write.
+    let lower = lower
+        .replace("2>&1", "")
+        .replace("&>/dev/null", "")
+        .replace("&> /dev/null", "")
+        .replace("2>/dev/null", "")
+        .replace("2> /dev/null", "")
+        .replace(">/dev/null", "")
+        .replace("> /dev/null", "");
     let writes = lower.contains('>')
         || lower.contains("tee ")
         || lower.contains("sed -i")
@@ -738,6 +807,24 @@ sensitive = ["/srv/vault"]
         assert_eq!(tier("sed -i 's/a/b/' f"), Tier::Reversible);
         assert_eq!(tier("python3 script.py"), Tier::Reversible);
         assert_eq!(tier("rm build/foo.o"), Tier::Reversible);
+    }
+
+    #[test]
+    fn no_false_positives_on_substrings() {
+        install_test_policy();
+        assert_eq!(
+            tier("echo $XDG_CURRENT_DESKTOP $WAYLAND_DISPLAY"),
+            Tier::Observe
+        );
+        assert_eq!(
+            tier("which swaymsg hyprctl wmctrl xdotool 2>/dev/null; echo ---"),
+            Tier::Observe
+        );
+        assert_eq!(tier("cat notes/opinions.txt"), Tier::Observe);
+        assert_eq!(tier("ls /var/log/azure"), Tier::Observe);
+        assert_eq!(tier("op item get x"), Tier::Confirm);
+        assert_eq!(tier("FOO=1 sudo -u root ls"), Tier::Confirm);
+        assert_eq!(tier("git log | ssh host tee x"), Tier::Confirm);
     }
 
     #[test]

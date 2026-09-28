@@ -71,6 +71,22 @@ pub fn available() -> bool {
     socket_path().is_some()
 }
 
+/// Run a sway command against a container, e.g. `kill` or `focus`.
+pub fn command_for_con(con_id: i64, command: &str) -> Result<()> {
+    let reply = ipc(0, &format!("[con_id={con_id}] {command}"))?; // RUN_COMMAND
+    let ok = reply
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .all(|r| r.get("success").and_then(Value::as_bool).unwrap_or(false))
+        })
+        .unwrap_or(false);
+    if !ok {
+        bail!("sway rejected `{command}` for container {con_id}: {reply}");
+    }
+    Ok(())
+}
+
 fn rect(v: &Value) -> Rect {
     let g = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0) as i32;
     Rect {

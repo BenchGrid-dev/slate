@@ -36,6 +36,8 @@ usage:
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
       input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
   slate-desktop launch CMD [ARGS...]      start a program on this display
+  slate-desktop close WINDOW              close a window (id, app_id or title)
+  slate-desktop focus WINDOW
   slate-desktop probe                     report compositor capabilities",
         slate_proto::VERSION
     );
@@ -114,6 +116,21 @@ fn main() -> Result<()> {
             d.settle()?;
             d.key(seat, &combo)?;
             std::thread::sleep(std::time::Duration::from_millis(300));
+            Ok(())
+        }
+        "close" | "focus" => {
+            let target = args.get(1).cloned().unwrap_or_default();
+            let mut d = wayland::Desktop::connect()?;
+            let wins = mcp::windows(&mut d)?;
+            let w = wins
+                .iter()
+                .find(|w| w.id == target || w.app_id == target || w.title.contains(&target))
+                .ok_or_else(|| anyhow::anyhow!("no window matches {target:?}"))?;
+            let con = w
+                .con_id
+                .ok_or_else(|| anyhow::anyhow!("no compositor handle"))?;
+            sway::command_for_con(con, if cmd == "close" { "kill" } else { "focus" })?;
+            println!("{cmd} {}", w.id);
             Ok(())
         }
         "launch" => {
