@@ -38,6 +38,16 @@ pub fn route(line: &str) -> Input {
         }
         return Input::Control { name, args };
     }
+    // Plain "exit" and friends leave slash itself; nobody means them for the agent.
+    if matches!(
+        trimmed.to_ascii_lowercase().as_str(),
+        "exit" | "quit" | "bye" | "退出" | "再见" | "logout"
+    ) {
+        return Input::Control {
+            name: "quit".into(),
+            args: String::new(),
+        };
+    }
     Input::Agent(trimmed.to_string())
 }
 
@@ -85,6 +95,20 @@ mod tests {
             route("//usr/bin/what is this"),
             Input::Agent("/usr/bin/what is this".into())
         );
+    }
+
+    #[test]
+    fn exit_words_quit_slash() {
+        for w in ["exit", "Quit", "退出"] {
+            assert_eq!(
+                route(w),
+                Input::Control {
+                    name: "quit".into(),
+                    args: String::new()
+                }
+            );
+        }
+        assert!(matches!(route("exit the app for me"), Input::Agent(_)));
     }
 
     #[test]
