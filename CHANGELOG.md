@@ -2,6 +2,14 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## 0.0.6 — 2026-09-28
+
+- Settings app (`slate-settings`, Mod+comma or right-click the panel's Slate button): display resolution, scale and a 2x HiDPI preset with confirm-or-revert; sound, network, Slate status and memories.
+- `display-settings` skill: query, one change at a time, verify by screenshot, roll back, persist only to `~/.config/slate/sway.d/`.
+- The desktop daemon is a supervised systemd user service started by sway (auto-restart, journal logs) with the session PATH; daemons log without panicking on a closed stderr (the "broken pipe" after launching Firefox).
+- slated unit has btrfs and notify-send on PATH (snapshots had silently failed under systemd).
+- e2e: geometry checks wait for windows to settle.
+
 ## 0.0.5 — 2026-09-28
 
 - slate-desktop: a long-lived `daemon` owns the agent seat for the session (apps only accept input from seats present at their start); MCP and CLI proxy to it; sway profile starts it first.
