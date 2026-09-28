@@ -47,9 +47,13 @@ def swaymsg(*args, as_json=False):
     return out
 
 
-def run(cmd):
+def run(cmd, timeout=10):
+    # Agent CLIs installed per user (npm -g, ~/.local/bin) are not on the session PATH.
+    env = dict(os.environ)
+    extra = [os.path.expanduser(p) for p in ("~/.npm-global/bin", "~/.local/bin", "~/.cargo/bin")]
+    env["PATH"] = ":".join(extra + [env.get("PATH", "")])
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env).stdout.strip()
     except Exception as e:  # noqa: BLE001
         return f"({e})"
 

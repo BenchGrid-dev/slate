@@ -2,6 +2,14 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- Slate prompt: no more desktop freeze while Slate thinks. The takeover poll ran on the UI thread and could block for seconds behind a busy desktop daemon; with the overlay holding the keyboard that froze everything. The poll is off the main loop, and as soon as a prompt is sent the overlay drops to its panel-sized shape (no keyboard grab, no full-screen surface), so the agent's own clicks reach the apps and the user keeps their screen.
+- Slate prompt: live activity while working: the model's reasoning tail when the backend streams it (new `thinking` event from Claude's `thinking_delta` and Codex `reasoning` items), the current tool, and an elapsed timer in the pill.
+- Slate prompt: the card no longer draws a box-shadow (it was clipped to a hard rectangle on the panel-sized surface); MCP tool names are shown short.
+- Settings: an **AI** page: backend (Claude Code / Codex), models, sign-in status with Sign in / Sign out (runs the official CLI in a terminal), verbose log and bypass-approvals defaults, written to `~/.config/slate/slash.toml`; a button restarts the prompt to apply.
+- slash: `verbose` in `slash.toml` starts sessions in verbose mode.
+
 ## 0.0.9 — 2026-09-28
 
 - SlateOS identity: os-release, boot entries, getty greeting and the default hostname say SlateOS; `ID_LIKE=nixos` is kept and skills match on it (`nixos-system` skill renamed `slateos-system`). slash introduces itself as the shell of SlateOS, built on NixOS.
