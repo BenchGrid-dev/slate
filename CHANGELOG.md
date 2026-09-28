@@ -2,12 +2,13 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.8 — 2026-09-28
 
 - Slate Shell: floating layer-shell panel (Mod+s / panel button) driving `slash --serve`: streamed answers, tool lines, approvals as buttons, status, takeover warning, Esc hides.
 - `slash --serve`: JSON-lines session protocol for GUI clients.
 - Takeover indicator: user-seat actions switch sway into a `controlling` mode and the panel blinks; Esc hands control back and blocks retries for a minute.
 - e2e: serve protocol suite.
+- Fixes: task records keep the user's prompt (not the context block); the panel status ignores tasks that died mid-turn.
 
 ## 0.0.7 — 2026-09-28
 

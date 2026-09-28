@@ -680,6 +680,8 @@ impl App {
 
     fn agent_turn(&mut self, prompt: &str) {
         self.warn_if_updated();
+        // The task record keeps what the user typed, not the context block we prepend.
+        let user_prompt = prompt.to_string();
         let context = Session::instructions().to_string();
         let first_turn = self.backend.session_id().is_none();
         if first_turn {
@@ -704,7 +706,7 @@ impl App {
         let backend_name = self.backend.name();
         let auto_approve = self.auto_approve;
         let task_id = match self.daemon() {
-            Some(d) => match d.task_start(backend_name, prompt, &cwd, auto_approve) {
+            Some(d) => match d.task_start(backend_name, &user_prompt, &cwd, auto_approve) {
                 Ok(id) => Some(id),
                 Err(e) => {
                     say!(self, "{} slated: {e:#}", yellow("warning:"));

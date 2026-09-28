@@ -145,11 +145,19 @@ fn main() -> Result<()> {
             let (text, tooltip, class) =
                 match Client::connect().and_then(|mut c| c.call(Request::Tasks { n: 1 })) {
                     Ok(Reply::Tasks { tasks }) => match tasks.first() {
-                        Some(t) if t.ended.is_none() => (
-                            "◆ working".to_string(),
-                            t.prompt.lines().next().unwrap_or("").to_string(),
-                            "working".to_string(),
-                        ),
+                        // A task without an end that started long ago is a session that died
+                        // mid-turn, not work in progress.
+                        Some(t)
+                            if t.ended.is_none()
+                                && slate_proto::now_millis().saturating_sub(t.started)
+                                    < 30 * 60 * 1000 =>
+                        {
+                            (
+                                "◆ working".to_string(),
+                                t.prompt.lines().next().unwrap_or("").to_string(),
+                                "working".to_string(),
+                            )
+                        }
                         Some(t) => (
                             "◆ Slate".to_string(),
                             format!("last task: {}", t.prompt.lines().next().unwrap_or("")),
