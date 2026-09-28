@@ -255,6 +255,7 @@ class App(Adw.Application):
     def __init__(self):
         # Arguments are handled by hand (--hidden); do not let GApplication reject them.
         super().__init__(application_id="dev.benchgrid.slate.Shell", flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.win = None
 
     def do_command_line(self, _cmdline):
         self.activate()
