@@ -27,7 +27,8 @@
         "return-type": "json",
         "interval": 1,
         "format": " {} ",
-        "on-click": "sh -c \"swaymsg '[title=^slash] focus' | grep -q true || foot -e slash\"",
+        "on-click": "slate-shell",
+        "on-click-middle": "sh -c \"swaymsg '[title=^slash] focus' | grep -q true || foot -e slash\"",
         "on-click-right": "slate-settings"
     }
 }

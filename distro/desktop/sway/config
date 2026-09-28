@@ -1,5 +1,5 @@
 # Slate desktop profile for sway (phase 1: conventional desktop feel on a wlroots compositor).
-# Mod = Super.  Mod+Return terminal · Mod+Space launcher · Mod+w browser · Mod+e files
+# Mod = Super.  Mod+Return terminal · Mod+Space launcher · Mod+s Slate panel · Mod+w browser · Mod+e files
 # Mod+q close · Mod+1..5 workspaces · Mod+Shift+1..5 move window · Mod+f fullscreen · Mod+Shift+e exit
 set $mod Mod4
 set $term foot
@@ -35,6 +35,7 @@ bindsym $mod+w exec $browser
 bindsym $mod+e exec $files
 bindsym $mod+t exec gnome-text-editor
 bindsym $mod+comma exec slate-settings
+bindsym $mod+s exec slate-shell
 bindsym $mod+q kill
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+e exec swaymsg exit

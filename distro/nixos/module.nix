@@ -31,6 +31,34 @@ let
     '';
     meta.mainProgram = "slate-settings";
   };
+  # The floating Slate panel: layer-shell window driving `slash --serve`.
+  slateShell = pkgs.stdenv.mkDerivation {
+    pname = "slate-shell";
+    version = pkg.version;
+    src = ../desktop/slate-shell.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.gtk4 pkgs.libadwaita pkgs.gtk4-layer-shell (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    # gtk4-layer-shell must be loaded before GTK opens the display.
+    preFixup = ''
+      gappsWrapperArgs+=(--set LD_PRELOAD "${pkgs.gtk4-layer-shell}/lib/libgtk4-layer-shell.so")
+    '';
+    installPhase = ''
+      mkdir -p $out/bin $out/share/applications
+      cp $src $out/bin/slate-shell
+      chmod +x $out/bin/slate-shell
+      cat > $out/share/applications/slate-shell.desktop <<EOF
+      [Desktop Entry]
+      Type=Application
+      Name=Slate
+      Comment=Talk to your computer
+      Exec=slate-shell
+      Icon=starred
+      Categories=Utility;
+      EOF
+    '';
+    meta.mainProgram = "slate-shell";
+  };
 in
 {
   options.services.slate = {
@@ -100,7 +128,7 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ pkg pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings
+        slateSettings slateShell
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         firefox xfce.thunar gnome-text-editor loupe pavucontrol
         papirus-icon-theme adwaita-icon-theme
