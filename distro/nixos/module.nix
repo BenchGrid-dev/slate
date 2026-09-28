@@ -80,14 +80,17 @@ in
         firefox xfce.thunar gnome-text-editor loupe pavucontrol
         papirus-icon-theme adwaita-icon-theme
       ]);
-    environment.shells = [ "${pkg}/bin/slash" ];
+    # A stable path, not the store path: a logged-in session keeps $SHELL from login
+    # time, and /run/current-system always resolves to the current build, so new
+    # terminals pick up an updated slash without re-login.
+    environment.shells = [ "/run/current-system/sw/bin/slash" "${pkg}/bin/slash" ];
     environment.pathsToLink = [ "/share/slate" ];
 
     # slash finds its fallback shell through this variable when the user has not set one.
     environment.sessionVariables.SLATE_FALLBACK_SHELL = cfg.fallbackShell;
 
     users.users = lib.genAttrs cfg.loginShellUsers (_: {
-      shell = "${pkg}/bin/slash";
+      shell = "/run/current-system/sw/bin/slash";
     });
 
     programs.sway = lib.mkIf cfg.sway.enable {
