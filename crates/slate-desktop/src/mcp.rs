@@ -321,41 +321,51 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     // sway acts on the container (title bar, borders) while the agent talks
                     // about content pixels, and the mapping differs between tiled and floating
                     // windows. Apply, measure, and correct once instead of guessing.
+                    // The command values are an affine function of the content geometry with
+                    // an offset we do not know exactly (title bar, borders), so start from the
+                    // decoration guess, then shift the *commanded* values by the measured error.
                     let mut cur = win.clone();
-                    for _ in 0..2 {
-                        let (cx, cy) = (cur.x.unwrap_or(0) as i64, cur.y.unwrap_or(0) as i64);
-                        let (cw, ch) = (
-                            cur.width.unwrap_or(0) as i64,
-                            cur.height.unwrap_or(0) as i64,
-                        );
-                        let ex = want_x.map(|v| v - cx).unwrap_or(0);
-                        let ey = want_y.map(|v| v - cy).unwrap_or(0);
-                        let ew = want_w.map(|v| v - cw).unwrap_or(0);
-                        let eh = want_h.map(|v| v - ch).unwrap_or(0);
-                        if ex == 0 && ey == 0 && ew == 0 && eh == 0 {
-                            break;
+                    let (cx0, cy0) = (cur.x.unwrap_or(0) as i64, cur.y.unwrap_or(0) as i64);
+                    let (cw0, ch0) = (
+                        cur.width.unwrap_or(0) as i64,
+                        cur.height.unwrap_or(0) as i64,
+                    );
+                    let mut cmd_w = want_w.unwrap_or(cw0) + cur.deco.2 as i64;
+                    let mut cmd_h = want_h.unwrap_or(ch0) + cur.deco.3 as i64;
+                    let mut cmd_x = want_x.unwrap_or(cx0) - cur.deco.0 as i64;
+                    let mut cmd_y = want_y.unwrap_or(cy0) - cur.deco.1 as i64;
+                    for attempt in 0..3 {
+                        if attempt > 0 {
+                            let (cx, cy) = (cur.x.unwrap_or(0) as i64, cur.y.unwrap_or(0) as i64);
+                            let (cw, ch) = (
+                                cur.width.unwrap_or(0) as i64,
+                                cur.height.unwrap_or(0) as i64,
+                            );
+                            let ex = want_x.map(|v| v - cx).unwrap_or(0);
+                            let ey = want_y.map(|v| v - cy).unwrap_or(0);
+                            let ew = want_w.map(|v| v - cw).unwrap_or(0);
+                            let eh = want_h.map(|v| v - ch).unwrap_or(0);
+                            if ex.abs() <= 1 && ey.abs() <= 1 && ew.abs() <= 1 && eh.abs() <= 1 {
+                                break;
+                            }
+                            cmd_x += ex;
+                            cmd_y += ey;
+                            cmd_w += ew;
+                            cmd_h += eh;
                         }
-                        if ew != 0 || eh != 0 {
+                        if want_w.is_some() || want_h.is_some() {
                             sway::command_for_con(
                                 con,
-                                &format!(
-                                    "resize set {} px {} px",
-                                    cw + ew + cur.deco.2 as i64,
-                                    ch + eh + cur.deco.3 as i64
-                                ),
+                                &format!("resize set {cmd_w} px {cmd_h} px"),
                             )?;
                         }
-                        if ex != 0 || ey != 0 {
+                        if want_x.is_some() || want_y.is_some() {
                             sway::command_for_con(
                                 con,
-                                &format!(
-                                    "move position {} px {} px",
-                                    cx + ex - cur.deco.0 as i64,
-                                    cy + ey - cur.deco.1 as i64
-                                ),
+                                &format!("move position {cmd_x} px {cmd_y} px"),
                             )?;
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(80));
+                        std::thread::sleep(std::time::Duration::from_millis(120));
                         cur = resolve(d, &win.id)?;
                     }
                     done.push(format!(
