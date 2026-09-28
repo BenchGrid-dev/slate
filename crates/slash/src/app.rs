@@ -98,6 +98,7 @@ impl App {
         } else {
             ""
         };
+        self.warn_if_updated();
         println!(
             "{} {}  {}",
             bold("slash"),
@@ -449,7 +450,22 @@ impl App {
         }
     }
 
+    /// Installed Slate newer than this process? Say so: a running slash keeps its own
+    /// version while updated tools are already on PATH.
+    fn warn_if_updated(&self) {
+        if let Some(v) = daemon::binary_version(&self.slate_bin) {
+            if v != slate_proto::VERSION {
+                println!(
+                    "{} Slate {v} is installed but this slash is {}; type exit and start slash again to use it.",
+                    yellow("note:"),
+                    slate_proto::VERSION
+                );
+            }
+        }
+    }
+
     fn agent_turn(&mut self, prompt: &str) {
+        self.warn_if_updated();
         let context = Session::instructions().to_string();
         let first_turn = self.backend.session_id().is_none();
         if first_turn {
