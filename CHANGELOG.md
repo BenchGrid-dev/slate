@@ -2,7 +2,7 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.5 — 2026-09-28
 
 - slate-desktop: a long-lived `daemon` owns the agent seat for the session (apps only accept input from seats present at their start); MCP and CLI proxy to it; sway profile starts it first.
 - slate-desktop: click/type/key return a post-action screenshot; arrange positions are workspace-relative; `desktop_window_set` converges on the requested content geometry.
