@@ -350,7 +350,7 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
             sway::command_for_con(con, "focus")?;
         }
     }
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    std::thread::sleep(std::time::Duration::from_millis(300));
     match focused_window(d, seat) {
         Some(w) if w.id == win.id => Ok(()),
         Some(w) => {

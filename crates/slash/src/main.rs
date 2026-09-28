@@ -47,6 +47,10 @@ fn main() -> ExitCode {
         return ExitCode::from(127);
     }
 
+    // Ctrl-C must stop the agent (the child gets the default SIGINT and dies), not slash:
+    // a no-op handler here is reset to default across exec, so children still die,
+    // while slash survives to end the task and show the prompt again.
+    install_sigint_noop();
     match app::App::new(cfg).and_then(|mut a| a.run()) {
         Ok(code) => ExitCode::from(code.clamp(0, 255) as u8),
         Err(e) => {
@@ -69,4 +73,15 @@ fn wants_fallback(args: &[String]) -> bool {
         return true;
     }
     !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())
+}
+
+fn install_sigint_noop() {
+    extern "C" fn noop(_: libc::c_int) {}
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = noop as usize;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+        libc::sigaction(libc::SIGINT, &sa, std::ptr::null_mut());
+    }
 }

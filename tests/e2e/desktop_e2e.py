@@ -134,9 +134,10 @@ def main():
         # typing with `window` goes to that window even though another one was clicked last
         m.tool("desktop_click", window=a, x=100, y=100, verify=False)
         marker_b = os.path.join(tempfile.gettempdir(), f"slate-e2e-b-{int(time.time())}.txt")
+        time.sleep(1)  # let the second shell finish starting
         r, _ = m.tool("desktop_type", window=b, text=f"echo into-b > {marker_b}\n", verify=False)
-        okb = wait_for(lambda: os.path.exists(marker_b), 8)
-        check("desktop_type with window focuses that window first", bool(okb) and "into foot" in r, r[:80])
+        okb = wait_for(lambda: os.path.exists(marker_b), 12)
+        check("desktop_type with window focuses that window first", bool(okb) and "into foot" in r, f"{r[:60]} file={bool(okb)}")
         m.tool("desktop_window_set", window=a, x=100, y=100, width=500, height=400)
         time.sleep(0.5)
         wa = {w["id"]: w for w in m.windows()}[a]
