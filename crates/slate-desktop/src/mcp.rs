@@ -140,6 +140,7 @@ fn tools() -> Value {
                 "window": {"type": "string"},
                 "button": {"type": "string", "enum": ["left", "right", "middle"]},
                 "count": {"type": "integer", "description": "1 for click, 2 for double-click"},
+                "verify": {"type": "boolean", "description": "default true: return a screenshot of the window after the click so you can see the effect"},
                 "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}
             }, "required": ["x", "y"]}
         },
@@ -156,12 +157,12 @@ fn tools() -> Value {
         {
             "name": "desktop_type",
             "description": "Type text with the agent's own keyboard into whatever the agent seat has focused (click a window first). Newlines press Return.",
-            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
         },
         {
             "name": "desktop_key",
             "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'shift+Tab', 'Escape'. Keys go to the app the agent seat has focused (click a window first). Window-manager shortcuts differ per desktop; use desktop_close / desktop_focus instead of guessing them.",
-            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
+            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
         },
         {
             "name": "desktop_close",
@@ -229,6 +230,42 @@ fn seat_of(args: &Value) -> Seat {
     Seat::parse(args.get("seat").and_then(Value::as_str).unwrap_or("agent"))
 }
 
+/// A screenshot of `window` (or the whole screen) as MCP image content, best effort.
+fn verify_image(d: &mut Desktop, window: Option<&str>) -> Vec<Value> {
+    std::thread::sleep(std::time::Duration::from_millis(350));
+    let (ident, crop) = match window {
+        Some(w) => match resolve(d, w) {
+            Ok(win) => {
+                let crop = match (win.width, win.height) {
+                    (Some(cw), Some(ch)) if cw > 0 && ch > 0 => Some((cw as u32, ch as u32)),
+                    _ => None,
+                };
+                (Some(win.id), crop)
+            }
+            Err(_) => return vec![json!({"type": "text", "text": "(window is gone)"})],
+        },
+        None => (None, None),
+    };
+    match d.capture(ident.as_deref(), crop) {
+        Ok((png, w, h)) => vec![
+            json!({"type": "text", "text": format!("after: {w}x{h} px{}", ident.map(|i| format!(", window {i}")).unwrap_or_default())}),
+            json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&png), "mimeType": "image/png"}),
+        ],
+        Err(e) => vec![json!({"type": "text", "text": format!("(could not capture: {e:#})")})],
+    }
+}
+
+fn with_verify(d: &mut Desktop, mut result: Value, window: Option<&str>, args: &Value) -> Value {
+    if args.get("verify").and_then(Value::as_bool) == Some(false) {
+        return result;
+    }
+    let extra = verify_image(d, window);
+    if let Some(arr) = result.get_mut("content").and_then(Value::as_array_mut) {
+        arr.extend(extra);
+    }
+    result
+}
+
 fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
     let seat = seat_of(args);
     let via = if seat == Seat::User {
@@ -265,7 +302,20 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 let button = args.get("button").and_then(Value::as_str).unwrap_or("left");
                 let count = args.get("count").and_then(Value::as_u64).unwrap_or(1) as u32;
                 d.click(seat, x, y, button, count)?;
-                text(format!("clicked {button} at {x:.0},{y:.0}{via}"))
+                let win = args
+                    .get("window")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(w) = &win {
+                    d.last_window = Some(w.clone());
+                }
+                let r = text(format!("clicked {button} at {x:.0},{y:.0}{via}. Check the screenshot below before claiming the click worked."));
+                with_verify(
+                    d,
+                    r,
+                    win.as_deref().or(d.last_window.clone().as_deref()),
+                    args,
+                )
             }
             "desktop_move" => {
                 let (x, y) = point(d, args)?;
@@ -282,12 +332,16 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
             "desktop_type" => {
                 let t = args.get("text").and_then(Value::as_str).unwrap_or("");
                 d.type_text(seat, t)?;
-                text(format!("typed {} characters{via}", t.chars().count()))
+                let r = text(format!("typed {} characters{via}", t.chars().count()));
+                let lw = d.last_window.clone();
+                with_verify(d, r, lw.as_deref(), args)
             }
             "desktop_key" => {
                 let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
                 d.key(seat, c)?;
-                text(format!("pressed {c}{via}"))
+                let r = text(format!("pressed {c}{via}"));
+                let lw = d.last_window.clone();
+                with_verify(d, r, lw.as_deref(), args)
             }
             "desktop_window_set" => {
                 let w = args.get("window").and_then(Value::as_str).unwrap_or("");
@@ -332,8 +386,14 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     );
                     let mut cmd_w = want_w.unwrap_or(cw0) + cur.deco.2 as i64;
                     let mut cmd_h = want_h.unwrap_or(ch0) + cur.deco.3 as i64;
-                    let mut cmd_x = want_x.unwrap_or(cx0) - cur.deco.0 as i64;
-                    let mut cmd_y = want_y.unwrap_or(cy0) - cur.deco.1 as i64;
+                    let area = sway::usable_area().unwrap_or(sway::Rect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    });
+                    let mut cmd_x = want_x.unwrap_or(cx0) - cur.deco.0 as i64 - area.x as i64;
+                    let mut cmd_y = want_y.unwrap_or(cy0) - cur.deco.1 as i64 - area.y as i64;
                     for attempt in 0..3 {
                         if attempt > 0 {
                             let (cx, cy) = (cur.x.unwrap_or(0) as i64, cur.y.unwrap_or(0) as i64);
@@ -428,12 +488,15 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         .con_id
                         .ok_or_else(|| anyhow!("no compositor handle for {}", w.id))?;
                     let (col, row) = ((i as i64) % cols, (i as i64) / cols);
+                    // Cell origin in screen pixels; sway's floating `move position` is
+                    // relative to the workspace origin, so subtract it when commanding.
                     let x = area.x as i64 + gap + col * (cell_w + gap);
                     let y = area.y as i64 + gap + row * (cell_h + gap);
+                    let (mx, my) = (x - area.x as i64, y - area.y as i64);
                     sway::command_for_con(con, "fullscreen disable")?;
                     sway::command_for_con(con, "floating enable")?;
                     sway::command_for_con(con, &format!("resize set {cell_w} px {cell_h} px"))?;
-                    sway::command_for_con(con, &format!("move position {x} px {y} px"))?;
+                    sway::command_for_con(con, &format!("move position {mx} px {my} px"))?;
                     placed.push(format!("{} -> {x},{y} {cell_w}x{cell_h}", w.app_id));
                 }
                 text(format!("{layout}: {}", placed.join("; ")))

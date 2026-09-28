@@ -116,6 +116,8 @@ def main():
         no_overlap = wa["x"] + wa["width"] <= wb["x"] or wb["x"] + wb["width"] <= wa["x"]
         same_row = abs(wa["y"] - wb["y"]) < 10
         check("side_by_side: windows do not overlap and share a row", no_overlap and same_row, f"{wa['x']},{wa['y']} {wa['width']}x{wa['height']} | {wb['x']},{wb['y']} {wb['width']}x{wb['height']}")
+        on_screen = all(w["y"] < 80 and w["y"] + w["height"] <= 800 and w["x"] >= 0 and w["x"] + w["width"] <= 1280 for w in (wa, wb))
+        check("side_by_side: windows fill the screen below the panel without overflowing", on_screen, f"y={wa['y']} bottom={wa['y']+wa['height']}")
         m.tool("desktop_window_set", window=a, x=100, y=100, width=500, height=400)
         time.sleep(0.5)
         wa = {w["id"]: w for w in m.windows()}[a]

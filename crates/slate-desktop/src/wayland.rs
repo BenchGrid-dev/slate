@@ -117,6 +117,8 @@ pub struct Desktop {
     active: Option<Active>,
     user_active: Option<Active>,
     started: Instant,
+    /// The window the agent last clicked, used for post-action screenshots.
+    pub last_window: Option<String>,
 }
 
 /// The keymap currently uploaded to a virtual keyboard.
@@ -230,6 +232,7 @@ impl Desktop {
             active: None,
             user_active: None,
             started: Instant::now(),
+            last_window: None,
         };
         // Start with the standard keymap so key combos work before any text is typed.
         d.ensure_us(Seat::Agent)?;
