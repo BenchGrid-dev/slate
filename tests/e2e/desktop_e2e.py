@@ -58,6 +58,19 @@ def wait_for(pred, timeout=15, step=0.5):
 def find(m, app_id, exclude=()):
     return next((w for w in m.windows() if w["app_id"] == app_id and w["id"] not in exclude), None)
 
+
+def settled(m, app_id, exclude=(), timeout=8):
+    """The window once its geometry stops changing (new windows get resized by the profile)."""
+    last = None
+    end = time.time() + timeout
+    while time.time() < end:
+        w = find(m, app_id, exclude)
+        if w and last and (w["x"], w["y"], w["width"], w["height"]) == (last["x"], last["y"], last["width"], last["height"]):
+            return w
+        last = w
+        time.sleep(0.4)
+    return last
+
 def png_size(b64):
     raw = base64.b64decode(b64)
     return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
@@ -90,9 +103,9 @@ def main():
         m.tool("desktop_key", combo="Return")
         time.sleep(1)
         check("ctrl+u combo cancels the typed line", "SHOULD-NOT-RUN" not in open(marker).read())
-        # screenshot size matches reported geometry (crop)
+        # screenshot size matches reported geometry (crop); wait for the window to settle first
+        w = settled(m, "foot", before)
         text, images = m.tool("desktop_screenshot", window=foot["id"])
-        w = find(m, "foot", before)
         if images and w:
             pw, ph = png_size(images[0])
             check("window screenshot size == reported window size", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
@@ -148,8 +161,8 @@ def main():
         m.tool("desktop_key", combo="Return")
         titled = wait_for(lambda: (lambda w: w and "SLATE-E2E-TITLE" in w["title"])(find(m, "firefox", before_ff)), 20)
         check("firefox navigates to the typed URL (title oracle)", bool(titled))
+        w = settled(m, "firefox", before_ff)
         text, images = m.tool("desktop_screenshot", window=ff["id"])
-        w = find(m, "firefox", before_ff)
         if images and w:
             pw, ph = png_size(images[0])
             check("firefox screenshot cropped to window geometry", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
