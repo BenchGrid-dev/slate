@@ -148,8 +148,16 @@ pub struct Attachment {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
+/// How to ask the human: (tool_name, summary, tier, reason) -> (allow, remember).
+pub type Answerer = std::sync::Arc<dyn Fn(&str, &str, &str, &str) -> (bool, bool) + Send + Sync>;
+
+/// The terminal answerer: prompt on stdin.
+pub fn terminal_answerer() -> Answerer {
+    std::sync::Arc::new(ask_user)
+}
+
 impl Attachment {
-    pub fn start(task_id: &str) -> Result<Self> {
+    pub fn start(task_id: &str, answer: Answerer) -> Result<Self> {
         let mut stream = UnixStream::connect(slate_proto::socket_path())?;
         let env = Envelope {
             id: "attach".into(),
@@ -175,7 +183,7 @@ impl Attachment {
                     reason,
                 } = ev
                 {
-                    let (allow, remember) = ask_user(&tool_name, &summary, tier.as_str(), &reason);
+                    let (allow, remember) = answer(&tool_name, &summary, tier.as_str(), &reason);
                     let ans = Envelope {
                         id: format!("ans-{approval_id}"),
                         request: Request::ApprovalAnswer {

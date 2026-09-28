@@ -12,7 +12,42 @@ use rustyline::error::ReadlineError;
 use rustyline::{Config as RlConfig, DefaultEditor};
 use std::path::PathBuf;
 
+/// Say something to the human: plain text on a terminal, a `note` event in serve mode.
+macro_rules! say {
+    ($app:expr, $($arg:tt)*) => {
+        $app.say(format!($($arg)*))
+    };
+}
+
+/// Approvals a serve-mode client still has to answer, by id.
+type PendingApprovals = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<(bool, bool)>>>,
+>;
+
+/// A message from a serve-mode client.
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum ClientMsg {
+    Prompt {
+        text: String,
+    },
+    Approve {
+        id: String,
+        allow: bool,
+        #[serde(default)]
+        remember: bool,
+    },
+    Command {
+        line: String,
+    },
+    Quit,
+}
+
 pub struct App {
+    /// Serve mode: JSON events on stdout instead of terminal rendering.
+    json: bool,
+    /// Serve mode: approvals waiting for the client's answer.
+    pending_approvals: PendingApprovals,
     cfg: Config,
     backend: Box<dyn Backend>,
     shell: ShellRunner,
@@ -49,6 +84,8 @@ impl App {
         };
         let auto_approve = cfg.auto_approve;
         Ok(Self {
+            json: false,
+            pending_approvals: Default::default(),
             auto_approve,
             cfg,
             backend,
@@ -69,6 +106,110 @@ impl App {
             self.daemon = Daemon::connect(self.cfg.slated.auto_start).ok();
         }
         self.daemon.as_mut()
+    }
+
+    fn emit(&self, ev: serde_json::Value) {
+        use std::io::Write;
+        let mut out = std::io::stdout().lock();
+        let _ = writeln!(out, "{ev}");
+        let _ = out.flush();
+    }
+
+    fn say(&self, text: String) {
+        if self.json {
+            self.emit(serde_json::json!({"event": "note", "text": text}));
+        } else {
+            println!("{text}");
+        }
+    }
+
+    /// Serve mode: JSON lines in on stdin (`prompt`, `approve`, `command`, `quit`),
+    /// JSON events out on stdout. This is what the desktop panel talks to.
+    pub fn serve(&mut self) -> Result<i32> {
+        self.json = true;
+        std::env::set_var("NO_COLOR", "1");
+        self.emit(serde_json::json!({
+            "event": "ready",
+            "version": slate_proto::VERSION,
+            "backend": self.backend.name(),
+            "model": self.backend.model(),
+            "slated": self.daemon.is_some(),
+            "desktop": self.desktop_bin.is_some(),
+            "auto_approve": self.auto_approve,
+            "cwd": self.shell.cwd().display().to_string(),
+        }));
+        let (tx, rx) = std::sync::mpsc::channel::<ClientMsg>();
+        let pending = std::sync::Arc::clone(&self.pending_approvals);
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<ClientMsg>(&line) {
+                    Ok(ClientMsg::Approve {
+                        id,
+                        allow,
+                        remember,
+                    }) => {
+                        // Answer a pending approval directly; the main thread is busy in the turn.
+                        let waiter = pending
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .remove(&id);
+                        if let Some(w) = waiter {
+                            let _ = w.send((allow, remember));
+                        }
+                    }
+                    Ok(msg) => {
+                        if tx.send(msg).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        use std::io::Write;
+                        let _ = writeln!(
+                            std::io::stdout(),
+                            "{}",
+                            serde_json::json!({"event": "error", "text": format!("bad message: {e}")})
+                        );
+                    }
+                }
+            }
+            let _ = tx.send(ClientMsg::Quit);
+        });
+        for msg in rx {
+            match msg {
+                ClientMsg::Prompt { text } => {
+                    self.emit(serde_json::json!({"event": "turn_start"}));
+                    match route(&text) {
+                        Input::Shell(_) => self.say(
+                            "shell commands (!) are not available here; use the terminal".into(),
+                        ),
+                        Input::Control { name, args } => {
+                            if let Some(code) = self.control(&name, &args) {
+                                return Ok(code);
+                            }
+                            self.emit(serde_json::json!({"event": "done", "ok": true, "summary": null, "stats": null}));
+                        }
+                        Input::Agent(t) => self.agent_turn(&t),
+                        Input::Empty => {}
+                    }
+                }
+                ClientMsg::Command { line } => {
+                    if let Input::Control { name, args } = route(&line) {
+                        if let Some(code) = self.control(&name, &args) {
+                            return Ok(code);
+                        }
+                    }
+                    self.emit(serde_json::json!({"event": "done", "ok": true, "summary": null, "stats": null}));
+                }
+                ClientMsg::Approve { .. } => {}
+                ClientMsg::Quit => return Ok(0),
+            }
+        }
+        Ok(0)
     }
 
     fn prompt(&self) -> String {
@@ -92,6 +233,9 @@ impl App {
     }
 
     fn set_title(&self, state: &str) {
+        if self.json {
+            return;
+        }
         // OSC 0: terminal title. mako's click action focuses the window titled "slash…".
         print!("\x1b]0;slash {state}\x07");
         render::flush();
@@ -163,11 +307,11 @@ impl App {
                 match self.shell.run(&cmd) {
                     Ok(rec) => {
                         if rec.output_ended_without_newline {
-                            println!("{}", dim("⏎"));
+                            say!(self, "{}", dim("⏎"));
                         }
                         if let Some(c) = rec.exit_code {
                             if c != 0 {
-                                println!("{}", dim(&format!("exit {c}")));
+                                say!(self, "{}", dim(&format!("exit {c}")));
                             }
                         }
                         self.session.push(rec);
@@ -188,34 +332,50 @@ impl App {
     fn control(&mut self, name: &str, args: &str) -> Option<i32> {
         match name {
             "help" | "?" => {
-                println!("{}", bold("slash"));
-                println!("  {}   talk to the agent", dim("<text>"));
-                println!("  {}   run in {}", dim("!<cmd>"), self.cfg.shell());
-                println!(
+                say!(self, "{}", bold("slash"));
+                say!(self, "  {}   talk to the agent", dim("<text>"));
+                say!(self, "  {}   run in {}", dim("!<cmd>"), self.cfg.shell());
+                say!(
+                    self,
                     "  {}   escape a leading slash for the agent",
                     dim("//<text>")
                 );
-                println!();
-                println!("  /agent [claude|codex]   show or switch backend (starts a new session)");
-                println!(
+                say!(self, "");
+                say!(
+                    self,
+                    "  /agent [claude|codex]   show or switch backend (starts a new session)"
+                );
+                say!(
+                    self,
                     "  /model [name|default]   show or switch model (sonnet, opus, or a full id)"
                 );
-                println!("  /new                    start a new agent session");
-                println!("  /session                show the backend session id");
-                println!(
+                say!(self, "  /new                    start a new agent session");
+                say!(
+                    self,
+                    "  /session                show the backend session id"
+                );
+                say!(
+                    self,
                     "  /context                show what the agent is told about this session"
                 );
-                println!("  /history                manual commands run in this session");
-                println!("  /cd <dir>               change directory");
-                println!("  /undo [--preview]       roll back the last task's file changes (needs slated + btrfs)");
-                println!("  /audit [N]              recent audit entries");
-                println!("  /tasks                  recent tasks");
-                println!("  /remember <text>        store a memory; /memories [query] lists them");
-                println!("  /auto [on|off]          bypass approvals: Confirm-tier actions run without asking (still audited, still snapshotted)");
-                println!("  /verbose                toggle raw event output");
-                println!("  /quit, /exit            leave slash");
-                println!();
-                println!(
+                say!(
+                    self,
+                    "  /history                manual commands run in this session"
+                );
+                say!(self, "  /cd <dir>               change directory");
+                say!(self, "  /undo [--preview]       roll back the last task's file changes (needs slated + btrfs)");
+                say!(self, "  /audit [N]              recent audit entries");
+                say!(self, "  /tasks                  recent tasks");
+                say!(
+                    self,
+                    "  /remember <text>        store a memory; /memories [query] lists them"
+                );
+                say!(self, "  /auto [on|off]          bypass approvals: Confirm-tier actions run without asking (still audited, still snapshotted)");
+                say!(self, "  /verbose                toggle raw event output");
+                say!(self, "  /quit, /exit            leave slash");
+                say!(self, "");
+                say!(
+                    self,
                     "  {}",
                     dim("anything else starting with / is passed to the agent backend")
                 );
@@ -223,15 +383,16 @@ impl App {
             }
             "agent" => {
                 if args.is_empty() {
-                    println!("backend: {}", self.backend.name());
+                    say!(self, "backend: {}", self.backend.name());
                 } else {
                     match backend::by_name(args, &self.cfg) {
                         Some(b) => {
                             self.backend = b;
                             self.session.reset_sent();
-                            println!("backend: {} (new session)", self.backend.name());
+                            say!(self, "backend: {} (new session)", self.backend.name());
                         }
-                        None => println!(
+                        None => say!(
+                            self,
                             "{} unknown backend {args:?}; try claude or codex",
                             red("error:")
                         ),
@@ -242,33 +403,37 @@ impl App {
             "model" => {
                 if args.is_empty() {
                     match self.backend.model() {
-                        Some(m) => println!("model: {m}"),
-                        None => println!("model: {}", dim("backend default")),
+                        Some(m) => say!(self, "model: {m}"),
+                        None => say!(self, "model: {}", dim("backend default")),
                     }
                 } else if args == "default" {
                     self.backend.set_model(None);
-                    println!("model: {}", dim("backend default"));
+                    say!(self, "model: {}", dim("backend default"));
                 } else {
                     self.backend.set_model(Some(args.to_string()));
-                    println!("model: {args}");
+                    say!(self, "model: {args}");
                 }
                 None
             }
             "new" => {
                 self.backend.reset();
                 self.session.reset_sent();
-                println!("{}", dim("new session"));
+                say!(self, "{}", dim("new session"));
                 None
             }
             "session" => {
                 match self.backend.session_id() {
-                    Some(id) => println!("{} session {id}", self.backend.name()),
-                    None => println!("{}", dim("no session yet")),
+                    Some(id) => say!(self, "{} session {id}", self.backend.name()),
+                    None => say!(self, "{}", dim("no session yet")),
                 }
                 None
             }
             "context" => {
-                println!("{}", dim(&self.session.context_for_agent(self.shell.cwd())));
+                say!(
+                    self,
+                    "{}",
+                    dim(&self.session.context_for_agent(self.shell.cwd()))
+                );
                 None
             }
             "history" => {
@@ -277,7 +442,8 @@ impl App {
                         .exit_code
                         .map(|c| c.to_string())
                         .unwrap_or_else(|| "sig".into());
-                    println!(
+                    say!(
+                        self,
                         "{} {}  {}",
                         dim(&format!("[{code}]")),
                         r.command,
@@ -302,7 +468,12 @@ impl App {
                         self.shell.set_cwd(p.clone());
                         let _ = std::env::set_current_dir(&p);
                     }
-                    _ => println!("{} no such directory: {}", red("error:"), target.display()),
+                    _ => say!(
+                        self,
+                        "{} no such directory: {}",
+                        red("error:"),
+                        target.display()
+                    ),
                 }
                 None
             }
@@ -313,7 +484,7 @@ impl App {
                     .find(|a| !a.starts_with('-'))
                     .map(str::to_string);
                 let Some(d) = self.daemon() else {
-                    println!("{} slated is not available", red("error:"));
+                    say!(self, "{} slated is not available", red("error:"));
                     return None;
                 };
                 let req = if preview {
@@ -328,29 +499,29 @@ impl App {
                         deleted,
                         note,
                     }) => {
-                        println!("{} task {} ({note})", green("↶"), dim(&task_id));
+                        say!(self, "{} task {} ({note})", green("↶"), dim(&task_id));
                         for p in &restored {
-                            println!("  {} {}", dim("restore"), p.display());
+                            say!(self, "  {} {}", dim("restore"), p.display());
                         }
                         for p in &deleted {
-                            println!("  {} {}", dim("delete "), p.display());
+                            say!(self, "  {} {}", dim("delete "), p.display());
                         }
                         if restored.is_empty() && deleted.is_empty() {
-                            println!("  {}", dim("nothing changed since the snapshot"));
+                            say!(self, "  {}", dim("nothing changed since the snapshot"));
                         }
                     }
                     Ok(slate_proto::Reply::Error { message }) => {
-                        println!("{} {message}", red("error:"))
+                        say!(self, "{} {message}", red("error:"))
                     }
-                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
-                    Err(e) => println!("{} {e:#}", red("error:")),
+                    Ok(other) => say!(self, "{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => say!(self, "{} {e:#}", red("error:")),
                 }
                 None
             }
             "audit" => {
                 let n = args.trim().parse().unwrap_or(20);
                 let Some(d) = self.daemon() else {
-                    println!("{} slated is not available", red("error:"));
+                    say!(self, "{} slated is not available", red("error:"));
                     return None;
                 };
                 match d.call(slate_proto::Request::AuditTail { n }) {
@@ -361,7 +532,8 @@ impl App {
                                 .decision
                                 .map(|d| format!("{d:?}").to_lowercase())
                                 .unwrap_or_default();
-                            println!(
+                            say!(
+                                self,
                                 "{} {:<10} {:<10} {:<5} {} {}",
                                 dim(&format!("{:?}", e.kind).to_lowercase()),
                                 e.tool_name.unwrap_or_default(),
@@ -372,20 +544,21 @@ impl App {
                             );
                         }
                     }
-                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
-                    Err(e) => println!("{} {e:#}", red("error:")),
+                    Ok(other) => say!(self, "{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => say!(self, "{} {e:#}", red("error:")),
                 }
                 None
             }
             "tasks" => {
                 let Some(d) = self.daemon() else {
-                    println!("{} slated is not available", red("error:"));
+                    say!(self, "{} slated is not available", red("error:"));
                     return None;
                 };
                 match d.call(slate_proto::Request::Tasks { n: 10 }) {
                     Ok(slate_proto::Reply::Tasks { tasks }) => {
                         for t in tasks {
-                            println!(
+                            say!(
+                                self,
                                 "{} {:?} calls={} snapshot={} {}",
                                 dim(&t.task_id),
                                 t.backend,
@@ -395,32 +568,34 @@ impl App {
                             );
                         }
                     }
-                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
-                    Err(e) => println!("{} {e:#}", red("error:")),
+                    Ok(other) => say!(self, "{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => say!(self, "{} {e:#}", red("error:")),
                 }
                 None
             }
             "remember" => {
                 let Some(d) = self.daemon() else {
-                    println!("{} slated is not available", red("error:"));
+                    say!(self, "{} slated is not available", red("error:"));
                     return None;
                 };
                 match d.call(slate_proto::Request::MemoryAdd {
                     text: args.to_string(),
                     task_id: None,
                 }) {
-                    Ok(slate_proto::Reply::MemoryAdded { .. }) => println!("{}", dim("remembered")),
-                    Ok(slate_proto::Reply::Error { message }) => {
-                        println!("{} {message}", red("error:"))
+                    Ok(slate_proto::Reply::MemoryAdded { .. }) => {
+                        say!(self, "{}", dim("remembered"))
                     }
-                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
-                    Err(e) => println!("{} {e:#}", red("error:")),
+                    Ok(slate_proto::Reply::Error { message }) => {
+                        say!(self, "{} {message}", red("error:"))
+                    }
+                    Ok(other) => say!(self, "{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => say!(self, "{} {e:#}", red("error:")),
                 }
                 None
             }
             "memories" => {
                 let Some(d) = self.daemon() else {
-                    println!("{} slated is not available", red("error:"));
+                    say!(self, "{} slated is not available", red("error:"));
                     return None;
                 };
                 let query = if args.trim().is_empty() {
@@ -431,14 +606,14 @@ impl App {
                 match d.call(slate_proto::Request::MemoryList { n: 50, query }) {
                     Ok(slate_proto::Reply::Memories { memories }) => {
                         if memories.is_empty() {
-                            println!("{}", dim("no memories"));
+                            say!(self, "{}", dim("no memories"));
                         }
                         for m in memories {
-                            println!("{} {}", dim(&m.id), m.text);
+                            say!(self, "{} {}", dim(&m.id), m.text);
                         }
                     }
-                    Ok(other) => println!("{} unexpected reply {other:?}", red("error:")),
-                    Err(e) => println!("{} {e:#}", red("error:")),
+                    Ok(other) => say!(self, "{} unexpected reply {other:?}", red("error:")),
+                    Err(e) => say!(self, "{} {e:#}", red("error:")),
                 }
                 None
             }
@@ -448,11 +623,12 @@ impl App {
                     "off" | "0" | "false" => self.auto_approve = false,
                     "" => {}
                     other => {
-                        println!("{} /auto on|off (got {other:?})", red("error:"));
+                        say!(self, "{} /auto on|off (got {other:?})", red("error:"));
                         return None;
                     }
                 }
-                println!(
+                say!(
+                    self,
                     "{}",
                     if self.auto_approve {
                         yellow("⚡ auto-approve on: the agent will not ask before Confirm-tier actions (every action is still audited and file changes snapshotted)")
@@ -464,7 +640,8 @@ impl App {
             }
             "verbose" => {
                 self.verbose = !self.verbose;
-                println!(
+                say!(
+                    self,
                     "{}",
                     dim(&format!(
                         "verbose {}",
@@ -530,18 +707,85 @@ impl App {
             Some(d) => match d.task_start(backend_name, prompt, &cwd, auto_approve) {
                 Ok(id) => Some(id),
                 Err(e) => {
-                    println!("{} slated: {e:#}", yellow("warning:"));
+                    say!(self, "{} slated: {e:#}", yellow("warning:"));
                     None
                 }
             },
             None => None,
         };
-        let attachment = task_id.as_deref().and_then(|id| Attachment::start(id).ok());
+        let answerer: daemon::Answerer = if self.json {
+            let pending = std::sync::Arc::clone(&self.pending_approvals);
+            std::sync::Arc::new(move |tool: &str, summary: &str, tier: &str, reason: &str| {
+                let id = format!("{:x}", slate_proto::now_millis());
+                let (tx, rx) = std::sync::mpsc::channel();
+                pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id.clone(), tx);
+                {
+                    use std::io::Write;
+                    let mut out = std::io::stdout().lock();
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        serde_json::json!({"event": "approval_needed", "id": id, "tool": tool, "summary": summary, "tier": tier, "reason": reason})
+                    );
+                    let _ = out.flush();
+                }
+                let answer = rx
+                    .recv_timeout(std::time::Duration::from_secs(600))
+                    .unwrap_or((false, false));
+                pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id);
+                {
+                    use std::io::Write;
+                    let _ = writeln!(
+                        std::io::stdout(),
+                        "{}",
+                        serde_json::json!({"event": "approval_resolved", "id": id, "allow": answer.0})
+                    );
+                }
+                answer
+            })
+        } else {
+            daemon::terminal_answerer()
+        };
+        let attachment = task_id
+            .as_deref()
+            .and_then(|id| Attachment::start(id, answerer.clone()).ok());
         let slate_bin = self.slate_bin.clone();
         let desktop_bin = self.desktop_bin.clone();
         let mut last_text: Option<String> = None;
         let mut streamed = 0usize;
+        let json = self.json;
+        let emit = |ev: serde_json::Value| {
+            use std::io::Write;
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(out, "{ev}");
+            let _ = out.flush();
+        };
         let mut on_event = |ev: Event| {
+            if json {
+                let v = match &ev {
+                    Event::SessionStarted(id) => serde_json::json!({"event": "session", "id": id}),
+                    Event::TextDelta(t) => serde_json::json!({"event": "text_delta", "text": t}),
+                    Event::Text(t) => serde_json::json!({"event": "text", "text": t}),
+                    Event::ToolStart { name, detail } => {
+                        serde_json::json!({"event": "tool_start", "name": name, "detail": detail})
+                    }
+                    Event::ToolEnd { name, ok, detail } => {
+                        serde_json::json!({"event": "tool_end", "name": name, "ok": ok, "detail": render::truncate(detail.lines().next().unwrap_or(""), 200)})
+                    }
+                    Event::Done { ok, summary, stats } => {
+                        serde_json::json!({"event": "done", "ok": ok, "summary": summary, "stats": stats})
+                    }
+                    Event::Other(s) => serde_json::json!({"event": "raw", "text": s}),
+                };
+                emit(v);
+                return;
+            }
             match ev {
                 Event::TextDelta(t) => {
                     print!("{t}");
@@ -612,11 +856,16 @@ impl App {
         let result = self.backend.run_turn(req, &mut on_event);
         let ok = result.is_ok();
         if let Err(e) = result {
-            println!("{} {e:#}", red("error:"));
-            println!(
-                "{}",
-                yellow("hint: check the backend is installed and logged in; /agent to switch")
-            );
+            if self.json {
+                self.emit(serde_json::json!({"event": "error", "text": format!("{e:#}")}));
+                self.emit(serde_json::json!({"event": "done", "ok": false, "summary": null, "stats": null}));
+            } else {
+                println!("{} {e:#}", red("error:"));
+                println!(
+                    "{}",
+                    yellow("hint: check the backend is installed and logged in; /agent to switch")
+                );
+            }
         }
         if let Some(a) = attachment {
             a.stop();

@@ -27,6 +27,15 @@ fn main() -> ExitCode {
         }
     };
 
+    if args.iter().any(|a| a == "--serve") {
+        return match app::App::new(cfg).and_then(|mut a| a.serve()) {
+            Ok(code) => ExitCode::from(code.clamp(0, 255) as u8),
+            Err(e) => {
+                eprintln!("slash: {e:#}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if wants_fallback(&args) {
         let mut cmd = Command::new(cfg.shell());
         if args.first().map(|a| a.starts_with('-')).unwrap_or(false) {
