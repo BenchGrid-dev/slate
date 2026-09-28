@@ -68,7 +68,9 @@ def main():
 
     # 1. launch a terminal, type a command that creates a file, verify the file.
     marker = os.path.join(tempfile.gettempdir(), f"slate-e2e-{int(time.time())}.txt")
-    m.tool("desktop_launch", command="foot")
+    # An explicit shell: on Slate the login shell is slash, which would send typed
+    # text to the agent instead of running it.
+    m.tool("desktop_launch", command="foot", args=["bash"])
     foot = wait_for(lambda: find(m, "foot", before))
     check("launch foot appears in windows", foot is not None)
     if foot:
