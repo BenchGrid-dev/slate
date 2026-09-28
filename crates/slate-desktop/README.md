@@ -4,7 +4,7 @@ Background computer use for Linux. Gives an agent its own Wayland seat (pointer,
 
 ## Status
 
-v0, verified on sway 1.12 (headless and normal). Needs a compositor that implements:
+Works, verified on sway 1.12 (headless and on a real display, HiDPI included); the SlateOS desktop runs it as a supervised user service. Needs a compositor that implements:
 
 - `ext_transient_seat_manager_v1`
 - `zwlr_virtual_pointer_manager_v1` (v2) and `zwp_virtual_keyboard_manager_v1`
@@ -23,7 +23,7 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 ## MCP tools
 
-`desktop_windows`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_launch`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. Screenshots come back as PNG image content.
+`desktop_windows`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_close`, `desktop_focus`, `desktop_window_set`, `desktop_arrange`, `desktop_launch`, `desktop_seats`, `desktop_status`, `desktop_takeover_cancel`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. `desktop_type` and `desktop_key` take a `window`, focus it for the seat in use, verify the focus through the compositor and report which window received the input. Every action returns a screenshot of the result.
 
 slash adds this server to the agent backend automatically when `WAYLAND_DISPLAY` is set and the binary sits next to `slash`.
 
@@ -34,10 +34,11 @@ Whether an app reacts to the agent seat depends on its toolkit binding every `wl
 | Toolkit / app | Agent seat | Notes |
 |---|---|---|
 | foot | works | binds all seats |
-| GTK 4.22 (gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
-| Qt, Chromium/Electron, GTK3 | untested | contributions welcome |
+| Firefox, GTK3 (Thunar) | works | when the seat predates the app (the daemon guarantees that) |
+| GTK 4 / libadwaita (gnome-text-editor, gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
+| Qt, Chromium/Electron, Flatpak | untested | contributions welcome |
 
-`seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). Verified so far: keyboard input reaches GTK4 this way; pointer buttons were not delivered on a headless sway whose seat0 has no physical pointer. Needs verification on a real desktop. See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
+`seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). Pointer and keyboard both work this way on a real display. See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
 
 ## CLI (for testing)
 
@@ -63,5 +64,5 @@ Arbitrary Unicode is typed by generating an xkb keymap where every distinct char
 - A distinct "ghost" cursor for the agent seat (needs compositor support or a patch)
 - Headless output for agent windows the user does not see
 - Accessibility tree (AT-SPI2) so agents can act on named controls instead of pixels
-- Human takeover controls (freeze the seat, hand a window back)
+- Takeover beyond Esc (freeze the seat, hand a window back)
 - Multiple outputs

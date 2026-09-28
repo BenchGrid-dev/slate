@@ -1,8 +1,9 @@
 <p align="center">
-  <h1 align="center">Slate</h1>
-  <p align="center"><b>一个 AI 原生的 Linux：人和 agent 共用同一张桌面。</b></p>
+  <h1 align="center">SlateOS</h1>
+  <p align="center"><b>用说的来用的 Linux 桌面。</b></p>
   <p align="center">
-    <a href="#当前状态">状态：设计阶段</a> ·
+    <a href="#当前状态">状态：pre-alpha，已能端到端跑通</a> ·
+    <a href="#试一试">试一试</a> ·
     <a href="docs/architecture.md">架构</a> ·
     <a href="docs/roadmap.md">路线图</a> ·
     <a href="CONTRIBUTING.md">贡献</a> ·
@@ -12,119 +13,142 @@
 
 ---
 
-Slate 是一个 Linux 发行版加 agent 运行时，只围绕一个想法：**你不该再需要 shell 才能用电脑，但 agent 应该拥有一个比你用过的都好的 shell。**
+SlateOS 是一个 Linux 发行版，在这里用电脑的正常方式是把你想要的说出来。shell 是一段对话。背后的 agent 是你已经在付费的 Claude Code 或 Codex 订阅，不是 API key，也不是跑在笔记本上的本地模型。它有自己的鼠标和键盘，可以在你继续用电脑的同时操作你的应用；它做的每一步都有审计，都可以撤销。
 
-你用自然语言跟机器说话。agent 去干活，大脑是你已经在用的 Claude Code 或 Codex 订阅。它有自己的光标、自己的键盘焦点、自己的剪贴板，所以它可以在后台操作桌面上的任何应用，而你在前台继续做你的事。每个动作都有审计，每次改动都有快照，"撤销"永远有效。
+它和"Linux 上开个聊天窗口"有三点根本不同：
 
-zsh 和 bash 还在。只是你会慢慢不再打开它们。
+- **你的订阅就是大脑。** SlateOS 启动官方的 `claude` 或 `codex` 二进制，只通过它们公开的扩展点集成（hooks、MCP、skills、permission 工具）。不调模型 API，不用买 token，不越过订阅条款。
+- **agent 有自己的 seat。** 在 Wayland 上它拿到第二套指针和键盘、自己的焦点、自己的剪贴板。你在这边打字，它可以在后台操作 Firefox、文件管理器或设置页。真的需要借用*你的*鼠标时，顶栏会闪，按 Esc 就收回。
+- **撤销是一个动词。** 每个任务开始前先做文件系统快照。可逆操作不问直接做，破坏性操作停下来问，`/undo` 把东西放回去。所有动作都在审计日志里。
 
-## 为什么现在还没有这种东西
-
-零件都有了：
-
-- **阿里云 Linux Agentic Edition** 把默认 shell 换成了自然语言、加了机器可读的 OS Skills，但它面向云服务器，不是你坐在前面的桌面。
-- **Omarchy** 是 agent 优先的桌面发行版，但它的 agent 住在终端窗口里，跟你抢鼠标。
-- **macOS 上的 Codex** 给了 agent 自己的光标、能在后台操作应用。它靠的是 SkyLight 私有 API，而且只有 Mac 能用。
-- **豆包手机**和其他系统级手机 agent 证明了用户愿意把跨应用的长任务交给 agent，但那是一个你永远盯着它干活的平台。
-
-没有人把这些拼成一张人和多个 agent 真正共存的桌面。而在 Wayland 上，把这件事做对所需的原语（独立 seat、按窗口截图、虚拟输入、临时 seat）已经全是标准协议。Slate 就是把它们组装起来的项目。
+bash 和 zsh 都还在，一个按键就到。只是你打开它们的次数会变少。
 
 ## 用起来是什么样
 
-```
-❯ 上周那封机票确认邮件，把日期加到日历，pdf 转发给 Alice
-
-  ▸ 在 Thunderbird 找到 "Booking confirmation – SFO→NRT"（9 月 18 日）
-  ▸ 在 GNOME Calendar 创建 2 个事件（10 月 3 日出发，10 月 17 日返回）
-  ▸ Thunderbird：新建邮件 → alice@… → 附加 confirmation.pdf
-  ⏸ 发送邮件给 alice@example.com？  [y] 发送  [n] 取消  [v] 看草稿
-```
-
-这期间 Thunderbird 和日历是被 agent 的 seat 驱动的。你的鼠标一动不动。你可以继续在编辑器里打字，也可以切过去看幽灵光标在干活，或者说一句**停**、**我来**。
+按 `Mod+s`（或点顶栏的 Slate 按钮），右上角落下一个输入框，一次只显示这一轮问答：
 
 ```
-❯ !git status                 # ! 在你真正的 zsh 里跑一行
-❯ /agent codex                # / 是给 slash 自己或 agent 后端的控制命令
-❯ /undo                       # 回滚上一个任务对文件系统的改动
+◆  把 Downloads 里的 report.pdf 用 Firefox 打开，缩放到适合宽度
+
+   把 Downloads 里的 report.pdf 用 Firefox 打开，缩放到适合宽度
+   已在 Firefox 打开 ~/Downloads/report.pdf 并设为适合宽度。
+   ▸ desktop_key ctrl+0 → "report.pdf — Mozilla Firefox"      11.2s · 4 turns
 ```
 
-## 一屏看懂架构
+这期间你可以接着干自己的事：agent 的点击走它自己的 seat。如果它必须借你的键鼠（GTK4 应用只认第一个 seat），顶栏显示闪烁的 **controlling**，按 Esc 拿回来。
+
+同一个会话在任何终端里也能用，那里的 shell 就是 `slash`：
+
+```
+~ ❯ 这里什么东西占了这么多磁盘？
+  ▸ Bash: du -sh * | sort -h | tail
+  target/ 占了 4.1G，其余都在 50M 以下。
+  ✓ 6.2s, 2 turns
+
+~ ❯ !git status                # ! 在你真正的 bash/zsh 里跑一行，agent 看得到输出
+~ ❯ /undo                      # 回滚上一个任务的改动
+~ ❯ /auto on                   # 本会话跳过审批（仍有审计，仍可撤销）
+~ ❯ /agent codex               # 切换后端
+```
+
+## 它是怎么拼起来的
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  你                                                                  │
-│   ├─ slash（终端）      ─┐   同一个会话，两个视图                     │
-│   └─ slash（桌面面板）  ─┘                                           │
+│   ├─ 终端里的 slash            ─┐  同一个会话，两个视图               │
+│   └─ Slate 输入框（Mod+s）     ─┘  （背后是 slash --serve）           │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slash — shell / 前端                                                │
-│   • 路由：裸文本 → agent，/cmd → 控制，!cmd → zsh                    │
-│   • 渲染后端事件流，先给答案，stdout 折叠                            │
-│   • 不拥有 agent 循环，不碰模型 token                                │
+│  slash — shell                                                       │
+│   裸文本 → agent · /cmd → slash 或 agent · !cmd → bash/zsh           │
+│   渲染 agent 的事件流；不持有任何模型凭据                             │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Agent 后端（自带）                                                  │
-│   claude（Claude Code）  │  codex  │  …                              │
-│   只通过官方扩展面驱动：                                             │
-│   无头模式 · hooks · MCP · skills · permission-prompt 工具           │
+│  Agent 后端（自带）：Claude Code · Codex                              │
+│   只通过无头模式、hooks、MCP、skills、permission-prompt 工具驱动      │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slated — 守护进程（OS 层的部分）                                    │
-│   身份 ─ 审批代理 ─ 审计日志 ─ 快照/撤销 ─ 记忆                      │
-│   skills 注册表 ─ 会话上下文 ─ 给后端用的 MCP server                 │
+│  slated — 守护进程                                                   │
+│   审批分级 · 审计日志 · btrfs 快照与撤销 · 记忆                       │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slate-desktop — Linux 上的后台 computer use                         │
-│   agent seat（ext-transient-seat）· 虚拟指针/键盘                    │
-│   按窗口截图 · AT-SPI2 树 · 幽灵光标 · headless 输出                 │
+│  slate-desktop — 后台 computer use                                   │
+│   agent seat · 虚拟指针和键盘 · 按窗口截图                            │
+│   窗口管理 · 输入前验证焦点 · 接管指示                                │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Wayland compositor（wlroots 系，按需打补丁）· Linux                 │
+│  sway（wlroots）· NixOS                                              │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-完整细节和未决问题见 [docs/architecture.md](docs/architecture.md)。
+完整设计和未决问题见 [docs/architecture.md](docs/architecture.md)，已定的决策在 [docs/decisions](docs/decisions)。
 
 ## 原则
 
-1. **自带 agent。** Slate 从不调用模型 API。它启动官方的 `claude` 或 `codex` 二进制，通过 hooks、MCP 和 skills 集成。你的订阅还是你的，并且在条款允许范围内。后端可插拔。
+1. **自带 agent。** SlateOS 从不调用模型 API。它运行官方的 `claude` 或 `codex` 二进制，只用它们的扩展面。后端可插拔。
 2. **agent 有自己的 seat。** 不是你的鼠标、不是你的焦点、不是你的剪贴板。共存是 compositor 层面的保证，不是一个 UX 约定。
-3. **优先走无聊的路。** CLI、D-Bus、配置文件优先于无障碍树，无障碍树优先于截图。OS Skills 教 agent 系统每个部分"无聊但正确"的做法。
-4. **撤销是一等动词。** 每个任务开始前先快照。可逆操作不问直接做，破坏性操作停下来问。
-5. **一切可审计。** agent 的每个动作都记录：它看到了什么、做了什么、拿的是哪一级审批。
-6. **逃生舱永远开着。** `!` 给你真正的 zsh，`chsh` 给你回到过去的生活。Slate 没有任何部分是底层 Linux 的依赖。
+3. **优先走无聊的路。** CLI、D-Bus、配置文件优先于 GUI；OS Skills 教 agent 系统每个部分"无聊但正确"的做法。
+4. **撤销是一等动词。** 先快照；可逆操作不问直接做，破坏性操作停下来问。
+5. **一切可审计。** 每个动作都记录：做了什么、拿的是哪一级审批。
+6. **逃生舱永远开着。** `!` 给你真正的 shell，`chsh` 给你回原来的登录 shell。Slate 没有任何部分是底层 Linux 的依赖。
 
 ## 组件
 
-| Crate | 是什么 | 状态 |
+| 路径 | 是什么 | 状态（0.0.10） |
 |---|---|---|
-| `crates/slash` | shell。终端视图和桌面面板视图共享同一个会话。 | v0：Claude Code 和 Codex 都能用，见 [crates/slash](crates/slash) |
-| `crates/slated` | 守护进程。审批、分级策略、审计、快照与撤销。身份、记忆、skills 待做。 | v0：审批、审计、撤销可用 |
-| `crates/slate` | `slated` 的 CLI，也是 Claude Code 调用的 hook 和 MCP 入口。 | v0 |
-| `crates/slate-desktop` | 后台 computer use：agent seat、按窗口截图、输入，通过 MCP 暴露。 | v0：sway 上可用，见 [crates/slate-desktop](crates/slate-desktop) |
-| `crates/slate-proto` | 跨进程边界的共享类型。 | 占位 |
-| `skills/` | OS Skills：给机器读的系统手册。 | 仅示例 |
-| `distro/` | SlateOS 镜像构建。基础发行版尚未决定。 | 空 |
+| `crates/slash` | shell：终端视图，以及给桌面输入框用的 `--serve` 模式。Claude Code 和 Codex 后端。 | 可用，见 [crates/slash](crates/slash) |
+| `crates/slated` | 守护进程：审批分级和策略文件、审计日志、btrfs 快照与撤销、记忆。 | 可用；agent 身份隔离未开始 |
+| `crates/slate` | 守护进程的 CLI，以及 agent 调用的 hook 和 MCP 入口。安装 OS Skills。 | 可用 |
+| `crates/slate-desktop` | 常驻的 agent seat、按窗口截图、输入、窗口管理、MCP server。 | sway 上可用，见 [crates/slate-desktop](crates/slate-desktop) |
+| `crates/slate-proto` | 各进程共享的协议类型。 | 可用 |
+| `skills/base` | OS Skills：音量、亮度、Wi-Fi、systemd、显示设置、窗口、撤销、SlateOS 系统改动。 | 8 个 |
+| `distro/` | NixOS 模块和 flake、桌面配置（sway、顶栏、启动器、通知、主题）、设置应用、Slate 输入框。 | 任何 NixOS 都能装；还没有 ISO |
 
 ## 当前状态
 
-**Pre-alpha，但是真的能跑。** 截至 2026-09-27，下面这些都在开发机（NixOS 26.05，sway 1.12）上跑通，并且用 Claude Code 和 Codex 两个后端做过端到端验证：
+**Pre-alpha，但已经能端到端跑通。** 截至 2026-09-28（0.0.10），下面这些都在开发机（NixOS 26.05，sway 1.12）上用 Claude Code 和 Codex 两个后端跑通，并由 `tests/e2e/` 的端到端套件覆盖：
 
-- **slash**：自然语言 shell，`/` 和 `!` 前缀，`!` 命令跑在 pty 里所以 agent 能看到输出，Claude Code（stream-json、会话续接）和 Codex（exec --json）后端，流式输出。
-- **slated**：三级策略（Observe / Reversible / Confirm）加 `policy.toml`，审批通过 Claude Code 的 permission tool 送到终端前的人，审计日志，无需特权的 btrfs 快照和 `/undo`，记忆（`remember` / `recall` / `forget`）。
-- **slate-desktop**：Wayland 上的 agent seat，自己的指针和键盘，按窗口截图，Unicode 输入，两个后端都能用的 MCP 工具。已验证：agent 通过自己的 seat 操作终端窗口并从截图读回结果。已知缺口：GTK4 应用只监听第一个 seat（ADR 0007）。
-- **桌面（Phase 1 + 2）**：`services.slate.desktop.enable` 提供一套常规的 sway 桌面：顶栏、启动器、通知、设置应用、右上角浮动的 **Slate 面板**（Mod+s：对话、流式回答、审批按钮、agent 状态）、常驻的 agent seat daemon、借用键鼠时闪烁的 "controlling" 指示和 Esc 收回、输入前验证焦点。
-- **NixOS 模块**：`services.slate.enable` 装好全部组件，把 slash 注册为登录 shell，slated 作为用户服务运行，系统对外身份为 SlateOS（底层仍是 NixOS，`ID_LIKE=nixos`）。
+- **slash**：自然语言 shell，`/` 和 `!` 前缀；`!` 跑在 pty 里所以 agent 看得到输出；Claude Code（stream-json、会话续接）和 Codex（exec --json）后端；流式回答；`/auto`、`/undo`、`/remember`、`/audit`、`/model`、`/agent`。
+- **slated**：Observe / Reversible / Confirm 三级加 `policy.toml`，审批经 agent 的 permission 工具送到你面前，审计日志，无需特权的 btrfs 快照和 `/undo`，记忆。
+- **slate-desktop**：Wayland 上常驻的 agent seat，自己的指针和键盘，按窗口截图，Unicode 输入，窗口排布，输入前验证焦点并报告输入落到了哪个窗口，对不认额外 seat 的工具包提供用户 seat 兜底，以及闪烁的 "controlling" 指示和 Esc 收回。
+- **桌面**：常规的 sway 桌面（顶栏、启动器、通知、深色主题），右上角的 Slate 输入框（一次一轮问答、审批是按钮、结果回来时不抢你的键盘），设置应用（显示与 HiDPI、声音、网络、记忆，以及 AI 页：后端、模型、登录、verbose、跳过审批）。
+- **NixOS 上的 SlateOS**：`services.slate.enable` 装好全部组件，slash 设为登录 shell，守护进程作为用户服务运行，系统对外身份为 SlateOS。
 
-还没做的：桌面壳层、幽灵光标和人工接管（需要 compositor 补丁）、无障碍树输入、agent 身份隔离、安装器。见 [docs/roadmap.md](docs/roadmap.md)。
+还没有的：需要 root 的系统改动（agent 没法向你要密码）、幽灵光标和按应用过滤 seat（需要 compositor 补丁）、无障碍树作为输入路径、agent 身份隔离、可安装镜像。见 [docs/roadmap.md](docs/roadmap.md)。
+
+## 试一试
+
+需要一台 NixOS 机器（虚拟机也行）和一个 Claude Code 或 Codex 的登录。加上 flake 模块：
+
+```nix
+{
+  inputs.slate.url = "github:BenchGrid-dev/slate";
+  outputs = { nixpkgs, slate, ... }: {
+    nixosConfigurations.mybox = nixpkgs.lib.nixosSystem {
+      modules = [
+        slate.nixosModules.default
+        {
+          services.slate.enable = true;
+          services.slate.loginShellUsers = [ "alice" ];   # alice 的 shell 变成 slash
+          services.slate.desktop.enable = true;           # SlateOS 桌面
+          services.slate.desktop.autologinUser = "alice";
+        }
+      ];
+    };
+  };
+}
+```
+
+重建、登录，登录一次 agent（`claude auth login` 或 `codex login`，也可以在 设置 → AI 里点），然后按 `Mod+s` 或开一个终端。详细选项和安装器将来要做的事见 [distro/README.md](distro/README.md)。
 
 ## 贡献
 
-Slate 还在设计阶段，所以现在最有用的贡献是论证、原型和 skills，而不是打磨。最需要帮助的方向：
+机制已经跑通了，现在缺的是更多硬件、更多应用、更多人来用。有用的贡献：
 
-- **Wayland / wlroots 内部** —— 多 seat、transient seat、toplevel 截图、compositor 打补丁
-- **Linux 无障碍** —— AT-SPI2，让 Chromium / Electron / Flatpak 应用暴露控件树
-- **Claude Code 和 Codex 的扩展面** —— hooks、MCP、无头模式、permission 工具
-- **Btrfs / NixOS** —— 守护进程的快照和回滚策略
-- **发行版构建** —— Arch 还是 NixOS 做底座、镜像流水线、安装器
-- **写 OS Skills** —— Linux 桌面上每个常见任务的"无聊但正确"的做法
+- **跑起来然后报告。** 不同 GPU、HiDPI、工具包（Qt、Chromium/Electron、Flatpak），agent seat 能不能碰到它们。
+- **OS Skills。** Linux 桌面上每个常见任务"无聊但正确"的做法。不需要写 Rust。见 [skills/README.md](skills/README.md)。
+- **compositor。** 按应用过滤 seat、给 agent seat 画幽灵光标（sway 补丁，见 ADR 0007）。
+- **无障碍。** 把 AT-SPI2 做成输入路径，让 agent 操作有名字的控件而不是像素。
+- **桌面壳层。** 输入框和设置应用现在是 Python/GTK4，设计稳定后计划用 Rust 重写。
+- **agent 扩展面。** Claude Code 和 Codex 的 hooks、MCP、无头模式、permission 工具，以及系统改动的 root/polkit 方案。
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。标了 `good first issue` 和 `rfc` 的 issue 是入口，设计改动走 [docs/rfcs](docs/rfcs)。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。设计改动走 [docs/rfcs](docs/rfcs)。
 
 ## 许可证
 

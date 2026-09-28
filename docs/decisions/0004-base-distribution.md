@@ -1,6 +1,6 @@
 # 0004: Base distribution
 
-- Status: open
+- Status: accepted for v0 (NixOS), 2026-09-28; an Arch base stays possible if someone builds it
 - Date: 2026-09-26
 
 ## Context

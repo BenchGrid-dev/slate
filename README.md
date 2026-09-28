@@ -1,131 +1,155 @@
 <p align="center">
-  <h1 align="center">Slate</h1>
-  <p align="center"><b>An AI-native Linux where humans and agents share the same desktop.</b></p>
+  <h1 align="center">SlateOS</h1>
+  <p align="center"><b>The Linux desktop you talk to.</b></p>
   <p align="center">
-    <a href="#status">Status: design phase</a> ·
+    <a href="#status">Status: pre-alpha, runs end to end</a> ·
+    <a href="#try-it">Try it</a> ·
     <a href="docs/architecture.md">Architecture</a> ·
     <a href="docs/roadmap.md">Roadmap</a> ·
-    <a href="CONTRIBUTING.md">Contributing</a> ·
+    <a href="CONTRIBUTING.md">Contribute</a> ·
     <a href="README.zh-CN.md">中文</a>
   </p>
 </p>
 
 ---
 
-Slate is a Linux distribution and agent runtime built on one idea: **you should not need a shell to use your computer, but the agent should have a better one than you ever did.**
+SlateOS is a Linux distribution where the normal way to use the computer is to say what you want. The shell is a conversation. The agent behind it is the Claude Code or Codex subscription you already pay for, not an API key and not a model running on your laptop. It has its own mouse and keyboard, so it can work in your apps while you keep using them, and every step it takes is audited and can be undone.
 
-You talk to your machine in natural language. An agent does the work, using your existing Claude Code or Codex subscription as its brain. It gets its own cursor, its own keyboard focus and its own clipboard, so it can drive any app on your desktop in the background while you keep working in the foreground. Every action is audited, every change is snapshotted, and "undo" always works.
+Three things make it different from "a chat window on Linux":
 
-zsh and bash are still there. You will just stop opening them.
+- **Your subscription is the brain.** SlateOS launches the official `claude` or `codex` binary and integrates through their documented extension points (hooks, MCP, skills, the permission tool). No model API, no tokens to buy, nothing that breaks the terms of your plan.
+- **The agent has its own seat.** On Wayland it gets a second pointer and keyboard, its own focus and its own clipboard. It can drive Firefox, a file manager or a settings page in the background while you type somewhere else. When it does need *your* mouse, the panel blinks and Esc takes it back.
+- **Undo is a verb.** Every task starts with a filesystem snapshot. Reversible actions run without asking; destructive ones stop and ask; `/undo` puts things back. Everything is in an audit log.
 
-## Why this does not exist yet
-
-Pieces of it do:
-
-- **Alibaba Cloud Linux Agentic Edition** ships a natural-language default shell and machine-readable OS skills, but it targets cloud servers, not a desktop you sit in front of.
-- **Omarchy** is an agent-first desktop distro, but its agents live in terminal windows and share your mouse.
-- **Codex on macOS** gives an agent its own cursor and drives apps in the background. It does it by reaching into private SkyLight APIs, and it only runs on a Mac.
-- **Doubao Phone** and the other system-level phone agents proved people will hand long, cross-app tasks to an agent, on a platform where you are always watching it work.
-
-Nobody has assembled these into a desktop where a human and several agents genuinely co-exist. On Wayland, the primitives to do it properly (independent seats, per-window capture, virtual input, transient seats) are already standard protocols. Slate is the project that puts them together.
+bash and zsh are still there, one keystroke away. You will just open them less.
 
 ## What it looks like
 
-```
-❯ the flight confirmation from last week, put the dates in my calendar and
-  forward the pdf to Alice
-
-  ▸ found "Booking confirmation – SFO→NRT" in Thunderbird (Sep 18)
-  ▸ creating 2 events in GNOME Calendar (Oct 3 depart, Oct 17 return)
-  ▸ Thunderbird: compose → alice@… → attach confirmation.pdf
-  ⏸ send email to alice@example.com?  [y] send  [n] cancel  [v] view draft
-```
-
-While that runs, Thunderbird and Calendar are being driven by the agent's seat. Your mouse never moves. You can keep typing in your editor, or alt-tab over to watch the ghost cursor work, or say **stop** or **I'll take it from here**.
+Press `Mod+s` (or click the Slate button in the panel) and a prompt drops down from the top right, one exchange at a time:
 
 ```
-❯ !git status                 # ! runs a line in your real zsh
-❯ /agent codex                # / talks to slash itself or the agent backend
-❯ /undo                       # roll back the last task's filesystem changes
+◆  open the report pdf from Downloads in Firefox and fit it to the width
+
+   open the report pdf from Downloads in Firefox and fit it to the width
+   Opened ~/Downloads/report.pdf in Firefox and set the zoom to fit width.
+   ▸ desktop_key ctrl+0 → "report.pdf — Mozilla Firefox"      11.2s · 4 turns
 ```
 
-## Architecture in one screen
+While that runs you can keep working: the agent's clicks go through its own seat. If it must borrow yours (GTK4 apps only listen to the first seat), the panel shows a blinking **controlling** and Esc hands control back.
+
+The same session is available in any terminal, where the shell is `slash`:
+
+```
+~ ❯ what is eating the disk in here?
+  ▸ Bash: du -sh * | sort -h | tail
+  target/ is 4.1G; everything else is under 50M.
+  ✓ 6.2s, 2 turns
+
+~ ❯ !git status                # ! runs one line in your real bash/zsh; the agent sees the output
+~ ❯ /undo                      # roll back what the last task changed
+~ ❯ /auto on                   # skip approvals for this session (still audited, still undoable)
+~ ❯ /agent codex               # switch backends
+```
+
+## How it is put together
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  You                                                                 │
-│   ├─ slash   (terminal)      ─┐   same session, two views            │
-│   └─ slash   (desktop palette)┘                                      │
+│   ├─ slash in a terminal        ─┐  one session, two views           │
+│   └─ the Slate prompt (Mod+s)   ─┘  (slash --serve behind it)        │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slash — the shell / front end                                       │
-│   • routes: bare text → agent, /cmd → control, !cmd → zsh            │
-│   • renders the backend's event stream, answers first, stdout folded │
-│   • owns no agent loop and no model tokens                           │
+│  slash — the shell                                                   │
+│   bare text → agent · /cmd → slash or the agent · !cmd → bash/zsh    │
+│   renders the agent's event stream; holds no model credentials       │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Agent backend (bring your own)                                      │
-│   claude (Claude Code)  │  codex  │  …                               │
-│   driven only through their official surfaces:                       │
-│   headless mode · hooks · MCP · skills · permission-prompt tool      │
+│  Agent backend (bring your own): Claude Code · Codex                 │
+│   driven only through headless mode, hooks, MCP, skills,             │
+│   the permission-prompt tool                                          │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slated — the daemon (the OS-level part)                             │
-│   identity ─ approval broker ─ audit log ─ snapshots/undo ─ memory   │
-│   skills registry ─ session context ─ MCP servers for the backends   │
+│  slated — the daemon                                                 │
+│   approval tiers · audit log · btrfs snapshots and undo · memories   │
 ├──────────────────────────────────────────────────────────────────────┤
-│  slate-desktop — background computer use for Linux                   │
-│   agent seat (ext-transient-seat) · virtual pointer/keyboard         │
-│   per-window capture · AT-SPI2 tree · ghost cursor · headless output │
+│  slate-desktop — background computer use                             │
+│   agent seat · virtual pointer and keyboard · per-window capture     │
+│   window management · focus-verified typing · takeover indicator     │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Wayland compositor (wlroots-based, patched as needed) · Linux       │
+│  sway (wlroots) · NixOS                                              │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Full detail, including the open questions, is in [docs/architecture.md](docs/architecture.md).
+The full picture, including what is still open, is in [docs/architecture.md](docs/architecture.md). Settled decisions are in [docs/decisions](docs/decisions).
 
 ## Principles
 
-1. **Bring your own agent.** Slate never calls a model API. It launches the official `claude` or `codex` binary and integrates through hooks, MCP and skills. Your subscription stays yours and stays within its terms of service. Backends are pluggable.
+1. **Bring your own agent.** SlateOS never calls a model API. It runs the official `claude` or `codex` binary and stays inside their extension surfaces. Backends are pluggable.
 2. **The agent gets its own seat.** Not your mouse, not your focus, not your clipboard. Co-existence is a compositor-level guarantee, not a UX convention.
-3. **Prefer the boring path.** CLI, D-Bus and config files before the accessibility tree; the accessibility tree before screenshots. OS Skills teach the agent the boring path for every part of the system.
-4. **Undo is a first-class verb.** Every task starts with a snapshot. Reversible actions run without asking. Destructive ones stop and ask.
-5. **Everything is auditable.** Every action an agent takes is logged with what it saw, what it did and which tier of approval it had.
-6. **The escape hatch is always open.** `!` gives you real zsh. `chsh` gives you your old life back. Nothing in Slate is load-bearing for the underlying Linux.
+3. **Prefer the boring path.** CLI, D-Bus and config files before the GUI; OS Skills teach the agent the boring path for every part of the system.
+4. **Undo is a first-class verb.** Snapshot first; reversible actions run without asking; destructive ones stop and ask.
+5. **Everything is auditable.** Every action is logged with what the agent did and which tier of approval it had.
+6. **The escape hatch is always open.** `!` gives you a real shell. `chsh` gives you your old login shell back. Nothing in Slate is load-bearing for the Linux underneath.
 
 ## Components
 
-| Crate | What it is | Status |
+| Path | What it is | State (0.0.10) |
 |---|---|---|
-| `crates/slash` | The shell. Terminal and desktop-palette views of the same session. | v0: works with Claude Code and Codex, see [crates/slash](crates/slash) |
-| `crates/slated` | The daemon. Approvals, tier policy, audit, snapshots and undo. Identity, memory and skills to come. | v0: approvals, audit and undo work |
-| `crates/slate` | The CLI for `slated`, plus the hook and MCP entry points Claude Code calls. | v0 |
-| `crates/slate-desktop` | Background computer use: agent seat, per-window capture, input, over MCP. | v0: works on sway, see [crates/slate-desktop](crates/slate-desktop) |
-| `crates/slate-proto` | Shared types crossing process boundaries. | placeholder |
-| `skills/` | OS Skills: machine-readable manuals for the system. | examples only |
-| `distro/` | Image build for SlateOS. Base distribution not yet decided. | empty |
+| `crates/slash` | The shell: terminal view and `--serve` mode for the desktop prompt. Claude Code and Codex backends. | works; see [crates/slash](crates/slash) |
+| `crates/slated` | The daemon: approval tiers and policy file, audit log, btrfs snapshots and undo, memories. | works; agent identity isolation not started |
+| `crates/slate` | CLI for the daemon, plus the hook and MCP entry points the agents call. Installs OS Skills. | works |
+| `crates/slate-desktop` | The agent seat as a supervised daemon, per-window capture, input, window management, MCP server. | works on sway; see [crates/slate-desktop](crates/slate-desktop) |
+| `crates/slate-proto` | Wire types shared by the processes. | works |
+| `skills/base` | OS Skills: volume, brightness, Wi-Fi, systemd, display settings, windows, undo, SlateOS system changes. | 8 skills |
+| `distro/` | NixOS module and flake, the desktop profile (sway, panel, launcher, notifications, theme), the settings app and the Slate prompt. | installs on any NixOS; no ISO yet |
 
 ## Status
 
-**Pre-alpha, but real.** As of 2026-09-27 everything below runs on the dev machine (NixOS 26.05, sway 1.12) and is exercised end to end with both Claude Code and Codex:
+**Pre-alpha, but it runs end to end.** As of 2026-09-28 (release 0.0.10) everything below runs on the development machine (NixOS 26.05, sway 1.12) with both Claude Code and Codex, and is covered by the end-to-end suites in `tests/e2e/`:
 
-- **slash**: natural-language shell with `/` and `!`, pty-backed `!` commands whose output the agent can see, Claude Code (stream-json, session resume) and Codex (exec --json) backends, streaming output.
-- **slated**: tier policy (Observe / Reversible / Confirm) with a `policy.toml`, approvals routed through Claude Code's permission tool to the human at the terminal, audit log, privilege-free btrfs snapshots with `/undo`, memories (`remember` / `recall` / `forget`).
-- **slate-desktop**: an agent seat on Wayland with its own pointer and keyboard, per-window screenshots, Unicode typing, MCP tools that both backends use. Verified: an agent drives a terminal window through its own seat and reads the result from a screenshot. Known gap: GTK4 apps only listen to the first seat (ADR 0007).
-- **Desktop (phase 1 + 2)**: `services.slate.desktop.enable` gives a conventional sway desktop with a panel, launcher, notifications, a settings app, the floating **Slate Shell** panel (Mod+s: chat, streamed answers, approvals as buttons, agent status), a supervised agent-seat daemon, a blinking "controlling" indicator with Esc to take your mouse and keyboard back, and focus-verified typing.
-- **NixOS module**: `services.slate.enable` installs everything, registers slash as a login shell, runs slated as a user service, and brands the system as SlateOS (NixOS underneath; `ID_LIKE=nixos`).
+- **slash**: natural-language shell with `/` and `!`; `!` runs in a pty so the agent sees its output; Claude Code (stream-json, session resume) and Codex (exec --json) backends; streaming answers; `/auto`, `/undo`, `/remember`, `/audit`, `/model`, `/agent`.
+- **slated**: Observe / Reversible / Confirm tiers with `policy.toml`, approvals routed through the agent's permission tool to you, audit log, privilege-free btrfs snapshots and `/undo`, memories.
+- **slate-desktop**: a long-lived agent seat on Wayland with its own pointer and keyboard, per-window screenshots, Unicode typing, window arrangement, focus-verified typing that reports which window received the input, a user-seat fallback for toolkits that ignore extra seats, and a blinking "controlling" indicator with Esc to take control back.
+- **Desktop**: a conventional sway desktop (panel, launcher, notifications, dark theme), the Slate prompt in the top-right corner (one exchange at a time, approvals as buttons, results reappear without stealing your keyboard), and a settings app for display and HiDPI, sound, network, memories, and the AI page (backend, models, sign-in, verbose, bypass approvals).
+- **SlateOS on NixOS**: `services.slate.enable` installs everything, makes slash the login shell, runs the daemons as user services, and presents the system as SlateOS.
 
-Not built yet: the desktop shell layer, ghost cursor and human takeover (need compositor patches), accessibility-tree input, agent identity isolation, the installer. See [docs/roadmap.md](docs/roadmap.md).
+Not there yet: system changes that need root (the agent cannot ask for your password), a ghost cursor and per-app seat filtering (compositor patches), the accessibility tree as an input path, agent identity isolation, an installable image. See [docs/roadmap.md](docs/roadmap.md).
+
+## Try it
+
+You need a NixOS machine (a VM is fine) and a Claude Code or Codex login. Add the flake module:
+
+```nix
+{
+  inputs.slate.url = "github:BenchGrid-dev/slate";
+  outputs = { nixpkgs, slate, ... }: {
+    nixosConfigurations.mybox = nixpkgs.lib.nixosSystem {
+      modules = [
+        slate.nixosModules.default
+        {
+          services.slate.enable = true;
+          services.slate.loginShellUsers = [ "alice" ];   # alice's shell becomes slash
+          services.slate.desktop.enable = true;           # the SlateOS desktop
+          services.slate.desktop.autologinUser = "alice";
+        }
+      ];
+    };
+  };
+}
+```
+
+Rebuild, log in, sign in to the agent once (`claude auth login` or `codex login`, also from Settings → AI), then press `Mod+s` or open a terminal. Details, options and what the installer will eventually do: [distro/README.md](distro/README.md).
 
 ## Contribute
 
-Slate is in its design phase, so the most useful contributions are arguments, prototypes and skills, not polish. Areas where help matters most:
+The mechanism works; what it needs now is exposure to more hardware, more apps and more people. Useful contributions:
 
-- **Wayland / wlroots internals** — multi-seat, transient seats, toplevel capture, compositor patching
-- **Accessibility on Linux** — AT-SPI2, getting Chromium/Electron/Flatpak apps to expose their trees
-- **Claude Code and Codex extension surfaces** — hooks, MCP, headless modes, permission tools
-- **Btrfs / NixOS** — snapshot and rollback strategy for the daemon
-- **Distro building** — Arch vs NixOS base, image pipeline, installer
-- **Writing OS Skills** — the boring, correct way to do every common task on a Linux desktop
+- **Run it and report.** Different GPUs, HiDPI setups, toolkits (Qt, Chromium/Electron, Flatpak) and whether the agent seat reaches them.
+- **OS Skills.** The correct, boring way to do every common task on a Linux desktop. No Rust needed. See [skills/README.md](skills/README.md).
+- **Compositor work.** Seat filtering per app and a ghost cursor for the agent seat (sway patches; see ADR 0007).
+- **Accessibility.** AT-SPI2 as an input path so agents act on named controls instead of pixels.
+- **The desktop shell.** The prompt and settings app are Python/GTK4 today; a Rust rewrite is planned once the design settles.
+- **Agent surfaces.** Claude Code and Codex hooks, MCP, headless modes, permission tools, and the root/polkit story for system changes.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues labelled `good first issue` and `rfc` are the entry points; design changes go through [docs/rfcs](docs/rfcs).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Design changes go through [docs/rfcs](docs/rfcs).
 
 ## License
 

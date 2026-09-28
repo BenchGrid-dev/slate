@@ -4,7 +4,9 @@ The Slate shell. See the top-level README for what it is for.
 
 ## Status
 
-v0. Works as a standalone program on macOS and Linux with Claude Code or Codex installed. Not yet safe as a login shell in daily use (no `slated`, so permissions are whatever `--permission-mode` you configure).
+Works, and is the login shell on the SlateOS dev machine. Runs on Linux and macOS with Claude Code or Codex installed; on Linux it uses `slated` for approvals, audit, undo and memories, and `slate-desktop` for the GUI when a Wayland display is present. Without `slated` (macOS, or the daemon off), permissions are whatever `--permission-mode` you configure.
+
+`slash --serve` speaks a JSON-lines protocol on stdin/stdout (`prompt`, `approve`, `command`, `quit` in; `ready`, `turn_start`, `text_delta`, `text`, `thinking`, `tool_start`, `tool_end`, `approval_needed`, `approval_resolved`, `note`, `done`, `error` out). The desktop's Slate prompt is a client of it.
 
 ## Run
 
@@ -32,6 +34,8 @@ backend = "claude"            # or "codex"
 fallback_shell = "/bin/zsh"   # default: $SHELL unless that is slash
 shell_interactive = false     # true: run ! lines with -i so aliases/functions load (slower)
 context_commands = 20         # manual commands kept as agent context
+auto_approve = false          # true: start every session as /auto on (audited, undoable)
+verbose = false               # true: start in /verbose mode
 
 [claude]
 bin = "claude"
@@ -63,8 +67,10 @@ When `slated` is reachable (slash starts it if needed), every agent turn is a ta
 
 Codex runs inside its own sandbox; slated audits its tasks but cannot yet approve individual calls.
 
+The settings app's AI page writes this file (backend, models, verbose, auto_approve).
+
 ## What it does not do yet
 
 - Job control (`Ctrl-Z`) inside `!` commands.
 - Persist unexported shell variables, aliases or functions across `!` lines.
-- Memory and skills from slated (not built yet).
+- Conversation history across prompt sessions.

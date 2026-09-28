@@ -14,7 +14,20 @@ skills/base/<name>/
 
 ## Installing them for the agent
 
-`slate skills install` links every skill under `skills/base` (or a directory you pass) into `~/.claude/skills/slate-<name>`, where Claude Code picks them up as user skills. Codex reads instructions from `AGENTS.md`; a generated section for it is planned.
+`slate skills install` links every skill under `skills/base` (or a directory you pass) into `~/.claude/skills/slate-<name>`, where Claude Code picks them up as user skills. Skills whose `requires` tools are missing, or whose `applies_to.distro` does not match `/etc/os-release` (`ID` or `ID_LIKE`; SlateOS reports `slateos` and `nixos`), are skipped and listed. Codex reads instructions from `AGENTS.md`; a generated section for it is planned.
+
+## The base set
+
+| Skill | What it teaches |
+|---|---|
+| `audio-volume` | wpctl for volume and mute |
+| `display-brightness` | brightnessctl, and when the display has no backlight |
+| `display-settings` | Query, one change at a time, verify by screenshot, roll back; persist only to `~/.config/slate/sway.d/` |
+| `desktop-windows` | Arrange, focus, move and close windows through the desktop tools |
+| `network-wifi` | nmcli for Wi-Fi and connections |
+| `systemd-services` | systemctl for user and system units |
+| `slateos-system` | Install packages and change settings by editing the NixOS configuration; rebuild and roll back |
+| `undo` | When and how to offer `/undo` |
 
 ## Conventions
 
