@@ -2,6 +2,13 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## 0.0.7 — 2026-09-28
+
+- Typing is focus-aware: `desktop_type` / `desktop_key` take a `window`, focus it for the seat in use (agent seat: title-bar click; user seat: compositor focus), verify via sway's per-seat focus, and report which window received the input. `desktop_seats` shows each seat's focus.
+- `/auto on|off` in slash: bypass approvals for the session (Confirm-tier actions run, still audited and snapshotted); ⚡ prompt marker; `auto_approve` config.
+- slash sets the terminal title (ready / working / approval needed); Slate notifications and the panel button focus the existing slash window instead of opening a new one.
+- sway IPC: GET_SEATS is type 101.
+
 ## 0.0.6 — 2026-09-28
 
 - Settings app (`slate-settings`, Mod+comma or right-click the panel's Slate button): display resolution, scale and a 2x HiDPI preset with confirm-or-revert; sound, network, Slate status and memories.
