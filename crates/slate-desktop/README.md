@@ -17,6 +17,10 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 `slate-desktop daemon` owns the agent seat for the whole session and must start before any application: toolkits only accept input from seats that existed when they started. The Slate sway profile runs it first (`exec slate-desktop daemon`). `slate-desktop serve` (MCP) and the CLI use the daemon when it is running and fall back to a private seat otherwise.
 
+## Borrowing the user's seat
+
+`seat: "user"` actions put sway into a `controlling` binding mode (the profile binds Esc there to `slate-desktop takeover-cancel`), the panel shows a blinking "controlling", and after Esc further user-seat input is refused for a minute so the agent has to ask again. `desktop_status` reports the state.
+
 ## MCP tools
 
 `desktop_windows`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_launch`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. Screenshots come back as PNG image content.

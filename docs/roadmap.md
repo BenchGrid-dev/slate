@@ -22,10 +22,12 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [x] Demo: same with Codex (MCP server passed via -c overrides)
 - [ ] Demo: fill a form in a GTK4 app (blocked on ADR 0007 compositor work or the user-seat fallback)
 - [x] User-seat fallback for first-seat-only toolkits (GTK4), gated as Confirm
+- [x] Long-lived agent seat: `slate-desktop daemon` as a supervised user service (apps only honour seats present at their start)
+- [x] Takeover indicator: panel blinks "controlling", sway `controlling` mode, Esc hands control back and blocks retries
+- [x] Focus-aware input: per-seat focus from the compositor, focus-then-verify before typing, post-action screenshots
 - [ ] sway patch: security-context clients see only the agent seat (ADR 0007)
 - [ ] Ghost cursor rendering (sway patch)
-- [ ] Human takeover: freeze / hand back / show me (device attach on a patched sway)
-- [ ] Toolkit compatibility list: Qt, Chromium/Electron, GTK3
+- [ ] Toolkit compatibility list: Qt, Chromium/Electron, GTK3 (GTK3 verified: works when the seat predates the app)
 
 ## M2: slated core (started; runs on the dev VM)
 
@@ -54,6 +56,16 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [x] Model selection (default sonnet) and /model
 - [ ] Wire slated: permission-prompt tool, /undo, memory
 - [ ] Desktop palette view sharing the session
+
+## M3b: the desktop shell (phase 2)
+
+- [x] `slash --serve`: JSON-lines session protocol for GUI clients (events, approval round trip, commands)
+- [x] Slate Shell: floating layer-shell panel (top-right; Mod+s or the panel button) with streamed answers, tool lines, approval buttons, status, takeover warning
+- [x] Settings app: display (with confirm-or-revert), sound, network, Slate
+- [x] Panel status module (idle / working / controlling), notifications that focus the slash window
+- [ ] Slate's own notifications inside the panel instead of mako
+- [ ] Conversation history across panel sessions
+- [ ] Rust rewrite of the panel and settings once the design settles
 
 ## M4: Slate OS image
 
