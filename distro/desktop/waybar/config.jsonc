@@ -25,7 +25,7 @@
     "custom/slate": {
         "exec": "slate agent-status",
         "return-type": "json",
-        "interval": 2,
+        "interval": 1,
         "format": " {} ",
         "on-click": "sh -c \"swaymsg '[title=^slash] focus' | grep -q true || foot -e slash\"",
         "on-click-right": "slate-settings"

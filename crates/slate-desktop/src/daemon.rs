@@ -35,6 +35,10 @@ pub fn run() -> Result<()> {
         "slate-desktop daemon: agent seat ready, listening on {}",
         path.display()
     );
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        mcp::takeover_tick();
+    });
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
         if let Err(e) = handle(&mut desktop, stream) {

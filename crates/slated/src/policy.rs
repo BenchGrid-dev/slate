@@ -123,6 +123,8 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         name if name.starts_with("mcp__slate__") => v(Tier::Observe, "slate's own tool"),
         "mcp__desktop__desktop_windows"
         | "mcp__desktop__desktop_seats"
+        | "mcp__desktop__desktop_status"
+        | "mcp__desktop__desktop_takeover_cancel"
         | "mcp__desktop__desktop_screenshot"
         | "mcp__desktop__desktop_move" => v(Tier::Observe, "looks at the desktop"),
         "mcp__desktop__desktop_click"

@@ -135,6 +135,13 @@ fn main() -> Result<()> {
         }
         "agent-status" => {
             // {"text","tooltip","class"} for waybar's custom module; never fails.
+            if desktop_controlling() {
+                println!(
+                    "{}",
+                    serde_json::json!({"text": "◆ controlling", "tooltip": "Slate is using your mouse and keyboard. Press Esc to take them back.", "class": "controlling"})
+                );
+                return Ok(());
+            }
             let (text, tooltip, class) =
                 match Client::connect().and_then(|mut c| c.call(Request::Tasks { n: 1 })) {
                     Ok(Reply::Tasks { tasks }) => match tasks.first() {
@@ -366,4 +373,31 @@ fn skills_list() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Ask the desktop daemon whether it is borrowing the user's seat right now.
+fn desktop_controlling() -> bool {
+    use std::io::{BufRead, BufReader, Write};
+    let Ok(mut stream) =
+        std::os::unix::net::UnixStream::connect(slate_proto::desktop_socket_path())
+    else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    if stream
+        .write_all(b"{\"name\":\"desktop_status\",\"args\":{}}\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut line = String::new();
+    if BufReader::new(stream).read_line(&mut line).is_err() {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(&line)
+        .ok()
+        .and_then(|v| v["content"][0]["text"].as_str().map(str::to_string))
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v["controlling"].as_bool())
+        .unwrap_or(false)
 }

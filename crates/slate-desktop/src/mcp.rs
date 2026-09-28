@@ -10,6 +10,67 @@ use std::io::{BufRead, Write};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
+/// Borrowing the human's seat ("controlling"): visible in the panel, cancellable
+/// with Esc through the compositor's `controlling` mode.
+#[derive(Debug, Default)]
+pub struct Takeover {
+    pub active_until: Option<std::time::Instant>,
+    pub cancelled_until: Option<std::time::Instant>,
+}
+
+pub static TAKEOVER: std::sync::Mutex<Takeover> = std::sync::Mutex::new(Takeover {
+    active_until: None,
+    cancelled_until: None,
+});
+
+const TAKEOVER_LINGER: std::time::Duration = std::time::Duration::from_secs(6);
+const TAKEOVER_CANCEL_HOLD: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn sway_mode(mode: &str) {
+    let _ = sway::run_command(&format!("mode {mode}"));
+}
+
+/// Called before a user-seat action. Errors if the user cancelled recently.
+fn takeover_begin() -> Result<()> {
+    let mut t = TAKEOVER.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    if t.cancelled_until.map(|u| u > now).unwrap_or(false) {
+        anyhow::bail!("the user cancelled control of their mouse and keyboard (Esc); do not retry seat=user until they ask");
+    }
+    let was_active = t.active_until.map(|u| u > now).unwrap_or(false);
+    t.active_until = Some(now + TAKEOVER_LINGER);
+    if !was_active {
+        sway_mode("controlling");
+    }
+    Ok(())
+}
+
+/// Periodic housekeeping: leave the `controlling` mode when the takeover lingers out.
+pub fn takeover_tick() {
+    let mut t = TAKEOVER.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    if let Some(u) = t.active_until {
+        if u <= now {
+            t.active_until = None;
+            sway_mode("default");
+        }
+    }
+}
+
+pub fn takeover_cancel() {
+    let mut t = TAKEOVER.lock().unwrap_or_else(|e| e.into_inner());
+    t.active_until = None;
+    t.cancelled_until = Some(std::time::Instant::now() + TAKEOVER_CANCEL_HOLD);
+    sway_mode("default");
+}
+
+pub fn takeover_active() -> bool {
+    let t = TAKEOVER.lock().unwrap_or_else(|e| e.into_inner());
+    t.active_until
+        .map(|u| u > std::time::Instant::now())
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Window {
     pub id: String,
@@ -209,6 +270,11 @@ fn tools() -> Value {
             }, "required": ["layout"]}
         },
         {
+            "name": "desktop_status",
+            "description": "Whether the agent is currently controlling the user's own mouse/keyboard (seat=\"user\" actions). Panels poll this.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
             "name": "desktop_seats",
             "description": "Which window the agent's seat and the user's seat currently have focused. Use it when unsure where typing would go.",
             "inputSchema": {"type": "object", "properties": {}}
@@ -340,6 +406,27 @@ fn with_verify(d: &mut Desktop, mut result: Value, window: Option<&str>, args: &
 }
 
 pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
+    // Status and cancel never touch the seat.
+    match name {
+        "desktop_status" => {
+            return json!({"content": [{"type": "text", "text": json!({"controlling": takeover_active()}).to_string()}]});
+        }
+        "desktop_takeover_cancel" => {
+            takeover_cancel();
+            return text("takeover cancelled: user-seat input is refused for a minute");
+        }
+        _ => {}
+    }
+    if seat_of(args) == Seat::User
+        && matches!(
+            name,
+            "desktop_click" | "desktop_type" | "desktop_key" | "desktop_scroll" | "desktop_move"
+        )
+    {
+        if let Err(e) = takeover_begin() {
+            return error(format!("{e:#}"));
+        }
+    }
     let seat = seat_of(args);
     let via = if seat == Seat::User {
         " via the user's seat"

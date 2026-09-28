@@ -40,6 +40,8 @@ usage:
       input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
   slate-desktop launch CMD [ARGS...]      start a program on this display
   slate-desktop seats                     which window each seat has focused
+  slate-desktop status                    is the agent controlling the user's seat right now
+  slate-desktop takeover-cancel           stop borrowing the user's seat (bound to Esc in sway's controlling mode)
   slate-desktop close WINDOW              close a window (id, app_id or title)
   slate-desktop focus WINDOW
   slate-desktop probe                     report compositor capabilities",
@@ -117,6 +119,16 @@ fn main() -> Result<()> {
                 "desktop_key",
                 json!({"combo": combo, "seat": seat_s, "verify": false}),
             )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "takeover-cancel" => {
+            let r = mcp::cli_call("desktop_takeover_cancel", json!({}))?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "status" => {
+            let r = mcp::cli_call("desktop_status", json!({}))?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }

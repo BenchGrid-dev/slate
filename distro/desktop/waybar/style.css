@@ -3,6 +3,8 @@ window#waybar { background: rgba(29, 39, 51, 0.96); color: #e6edf3; border-botto
 #custom-launcher { background: #4c8bf5; color: #ffffff; border-radius: 6px; margin: 4px 6px; padding: 0 6px; font-weight: bold; }
 #custom-slate { background: #2b3a4a; color: #e6edf3; border-radius: 6px; margin: 4px 6px; padding: 0 6px; }
 #custom-slate.working { background: #4c8bf5; color: #ffffff; }
+@keyframes slate-blink { 0% { background: #4c8bf5; } 50% { background: #1d2733; } 100% { background: #4c8bf5; } }
+#custom-slate.controlling { background: #4c8bf5; color: #ffffff; animation: slate-blink 1s ease-in-out infinite; }
 #custom-slate.off { color: #8b98a5; }
 #workspaces button { color: #8b98a5; padding: 0 8px; border-radius: 6px; margin: 4px 1px; }
 #workspaces button.focused { background: #2b3a4a; color: #ffffff; }
