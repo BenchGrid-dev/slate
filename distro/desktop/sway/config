@@ -60,5 +60,7 @@ bar {
     swaybar_command waybar
 }
 
+# The agent seat must exist before any app starts (apps ignore seats added later).
+exec slate-desktop daemon
 exec mako
 exec foot

@@ -4,12 +4,14 @@
 //! connection with the agent's own transient seat. The other subcommands are
 //! for testing the same operations from a shell.
 
+mod daemon;
 mod keymap;
 mod mcp;
 mod sway;
 mod wayland;
 
 use anyhow::{bail, Result};
+use serde_json::json;
 use wayland::Seat;
 
 /// Strip `--seat X` from args and return the seat.
@@ -27,7 +29,8 @@ fn usage() -> ! {
         "slate-desktop {}
 
 usage:
-  slate-desktop serve                     MCP server on stdio
+  slate-desktop daemon                    own the agent seat for the whole session (start it from the compositor)
+  slate-desktop serve                     MCP server on stdio (uses the daemon when it runs)
   slate-desktop windows                   list windows (JSON)
   slate-desktop shot [IDENT] OUT.png      capture a window (or the output) to PNG
   slate-desktop click X Y [left|right|middle]
@@ -49,12 +52,12 @@ fn main() -> Result<()> {
     let seat = take_seat(&mut args);
     let cmd = args.first().map(String::as_str).unwrap_or("");
     match cmd {
+        "daemon" => daemon::run(),
         "serve" => mcp::serve(),
         "probe" => mcp::probe(),
         "windows" => {
-            let mut d = wayland::Desktop::connect()?;
-            let wins = mcp::windows(&mut d)?;
-            println!("{}", serde_json::to_string_pretty(&wins)?);
+            let r = mcp::cli_call("desktop_windows", json!({}))?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "shot" => {
@@ -63,20 +66,19 @@ fn main() -> Result<()> {
                 3 => (Some(args[1].clone()), args[2].clone()),
                 _ => usage(),
             };
-            let mut d = wayland::Desktop::connect()?;
-            let crop = match ident.as_deref() {
-                Some(id) => mcp::windows(&mut d)?
-                    .into_iter()
-                    .find(|w| w.id == id)
-                    .and_then(|w| match (w.width, w.height) {
-                        (Some(cw), Some(ch)) if cw > 0 && ch > 0 => Some((cw as u32, ch as u32)),
-                        _ => None,
-                    }),
-                None => None,
-            };
-            let (png, w, h) = d.capture(ident.as_deref(), crop)?;
-            std::fs::write(&out, png)?;
-            println!("{out}: {w}x{h}");
+            let mut a = json!({});
+            if let Some(i) = ident {
+                a["window"] = json!(i);
+            }
+            let r = mcp::cli_call("desktop_screenshot", a)?;
+            let img = r["content"]
+                .as_array()
+                .and_then(|c| c.iter().find(|x| x["type"] == "image"))
+                .and_then(|x| x["data"].as_str())
+                .ok_or_else(|| anyhow::anyhow!("no image returned"))?;
+            use base64::Engine;
+            std::fs::write(&out, base64::engine::general_purpose::STANDARD.decode(img)?)?;
+            println!("{out}: {}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "click" | "move" => {
@@ -85,60 +87,60 @@ fn main() -> Result<()> {
             }
             let x: f64 = args[1].parse()?;
             let y: f64 = args[2].parse()?;
-            let mut d = wayland::Desktop::connect()?;
-            d.settle()?;
-            if cmd == "click" {
-                d.click(
-                    seat,
-                    x,
-                    y,
-                    args.get(3).map(String::as_str).unwrap_or("left"),
-                    1,
-                )?;
+            let seat_s = if seat == Seat::User { "user" } else { "agent" };
+            let r = if cmd == "click" {
+                mcp::cli_call(
+                    "desktop_click",
+                    json!({"x": x, "y": y, "button": args.get(3).cloned().unwrap_or_else(|| "left".into()), "seat": seat_s, "verify": false}),
+                )?
             } else {
-                d.pointer_move(seat, x, y)?;
-            }
-            // Keep the seat alive briefly so the compositor delivers the events.
-            std::thread::sleep(std::time::Duration::from_millis(300));
+                mcp::cli_call("desktop_move", json!({"x": x, "y": y, "seat": seat_s}))?
+            };
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "type" => {
             let text = args.get(1).cloned().unwrap_or_default();
-            let mut d = wayland::Desktop::connect()?;
-            d.settle()?;
-            d.type_text(seat, &text)?;
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            let seat_s = if seat == Seat::User { "user" } else { "agent" };
+            let r = mcp::cli_call(
+                "desktop_type",
+                json!({"text": text, "seat": seat_s, "verify": false}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "key" => {
             let combo = args.get(1).cloned().unwrap_or_default();
-            let mut d = wayland::Desktop::connect()?;
-            d.settle()?;
-            d.key(seat, &combo)?;
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            let seat_s = if seat == Seat::User { "user" } else { "agent" };
+            let r = mcp::cli_call(
+                "desktop_key",
+                json!({"combo": combo, "seat": seat_s, "verify": false}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "close" | "focus" => {
             let target = args.get(1).cloned().unwrap_or_default();
-            let mut d = wayland::Desktop::connect()?;
-            let wins = mcp::windows(&mut d)?;
-            let w = wins
-                .iter()
-                .find(|w| w.id == target || w.app_id == target || w.title.contains(&target))
-                .ok_or_else(|| anyhow::anyhow!("no window matches {target:?}"))?;
-            let con = w
-                .con_id
-                .ok_or_else(|| anyhow::anyhow!("no compositor handle"))?;
-            sway::command_for_con(con, if cmd == "close" { "kill" } else { "focus" })?;
-            println!("{cmd} {}", w.id);
+            let r = mcp::cli_call(
+                if cmd == "close" {
+                    "desktop_close"
+                } else {
+                    "desktop_focus"
+                },
+                json!({"window": target}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "launch" => {
             if args.len() < 2 {
                 usage();
             }
-            let child = mcp::launch(&args[1], &args[2..])?;
-            println!("pid {child}");
+            let r = mcp::cli_call(
+                "desktop_launch",
+                json!({"command": args[1], "args": args[2..]}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
         "" | "-h" | "--help" => usage(),

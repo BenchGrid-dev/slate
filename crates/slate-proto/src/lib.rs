@@ -276,6 +276,15 @@ extern "C" {
     fn libc_getuid() -> u32;
 }
 
+/// Where the long-lived desktop daemon (agent seat owner) listens:
+/// `$SLATE_DESKTOP_SOCK`, else `<runtime dir>/slate/desktop.sock`.
+pub fn desktop_socket_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("SLATE_DESKTOP_SOCK") {
+        return PathBuf::from(p);
+    }
+    socket_path().with_file_name("desktop.sock")
+}
+
 /// Per-user state directory: `$XDG_STATE_HOME/slate` or `~/.local/state/slate`.
 pub fn state_dir() -> PathBuf {
     if let Some(p) = std::env::var_os("XDG_STATE_HOME") {

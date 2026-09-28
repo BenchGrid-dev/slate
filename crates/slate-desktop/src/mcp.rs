@@ -266,7 +266,7 @@ fn with_verify(d: &mut Desktop, mut result: Value, window: Option<&str>, args: &
     result
 }
 
-fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
+pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
     let seat = seat_of(args);
     let via = if seat == Seat::User {
         " via the user's seat"
@@ -546,9 +546,35 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
     }
 }
 
+/// Where tool calls go: the session daemon (one long-lived seat) when it is
+/// running, else an in-process Desktop with its own seat.
+enum Backend {
+    Daemon(crate::daemon::Client),
+    Local(Box<Desktop>),
+}
+
+impl Backend {
+    fn open() -> Result<Self> {
+        if let Some(c) = crate::daemon::Client::connect() {
+            return Ok(Backend::Daemon(c));
+        }
+        let mut d = Desktop::connect()?;
+        d.settle()?;
+        Ok(Backend::Local(Box::new(d)))
+    }
+
+    fn call(&mut self, name: &str, args: &Value) -> Value {
+        match self {
+            Backend::Daemon(c) => c
+                .call(name, args)
+                .unwrap_or_else(|e| error(format!("desktop daemon: {e:#}"))),
+            Backend::Local(d) => call(d, name, args),
+        }
+    }
+}
+
 pub fn serve() -> Result<()> {
-    let mut desktop = Desktop::connect()?;
-    desktop.settle()?;
+    let mut backend = Backend::open()?;
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -574,7 +600,7 @@ pub fn serve() -> Result<()> {
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-                Some(call(&mut desktop, name, &args))
+                Some(backend.call(name, &args))
             }
             _ => {
                 if id.is_some() {
@@ -598,4 +624,21 @@ pub fn serve() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// One tool call from the CLI, through the daemon when it runs.
+pub fn cli_call(name: &str, args: Value) -> Result<Value> {
+    let mut b = Backend::open()?;
+    if let Backend::Local(_) = b {
+        // A fresh seat: give clients a moment to bind it (see Desktop::settle).
+    }
+    let r = b.call(name, &args);
+    if r.get("isError").and_then(Value::as_bool).unwrap_or(false) {
+        let msg = r["content"][0]["text"]
+            .as_str()
+            .unwrap_or("error")
+            .to_string();
+        anyhow::bail!("{msg}");
+    }
+    Ok(r)
 }
