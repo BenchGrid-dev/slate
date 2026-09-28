@@ -2,6 +2,14 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- slash: plain `exit` / `quit` / `退出` leaves slash; stdin is flushed before an approval prompt so stray keys cannot turn `y` into a denial.
+- slated: command-aware dangerous-command detection (no more `op ` false positives on `$XDG_CURRENT_DESKTOP`); `/dev/null` redirects are not writes.
+- slate-desktop: `desktop_close`, `desktop_focus`, `desktop_window_set` (move/resize/fullscreen), `desktop_arrange` (side_by_side / top_bottom / grid / maximize); workspace geometry from sway.
+- Skills: `desktop-windows`.
+- e2e: window arrangement and proper closing covered.
+
 ## 0.0.3 — 2026-09-27
 
 ### slash

@@ -135,7 +135,9 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         "mcp__desktop__desktop_click"
         | "mcp__desktop__desktop_scroll"
         | "mcp__desktop__desktop_key"
-        | "mcp__desktop__desktop_focus" => {
+        | "mcp__desktop__desktop_focus"
+        | "mcp__desktop__desktop_window_set"
+        | "mcp__desktop__desktop_arrange" => {
             v(Tier::Reversible, "drives the desktop on the agent seat")
         }
         "mcp__desktop__desktop_close" => v(

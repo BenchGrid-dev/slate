@@ -97,13 +97,45 @@ fn rect(v: &Value) -> Rect {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WorkspaceGeometry {
+    pub name: String,
+    /// Usable area: the output minus panels.
+    pub rect: Rect,
+    pub focused: bool,
+    pub output: Option<String>,
+}
+
 /// All windows with a foreign toplevel identifier, plus outputs.
 pub fn tree() -> Result<(Vec<WindowGeometry>, Vec<OutputGeometry>)> {
+    let (w, o, _) = tree_full()?;
+    Ok((w, o))
+}
+
+/// Windows, outputs and workspaces.
+pub fn tree_full() -> Result<(
+    Vec<WindowGeometry>,
+    Vec<OutputGeometry>,
+    Vec<WorkspaceGeometry>,
+)> {
     let root = ipc(4, "")?; // GET_TREE
     let mut windows = vec![];
     let mut outputs = vec![];
-    walk(&root, None, &mut windows, &mut outputs);
-    Ok((windows, outputs))
+    let mut workspaces = vec![];
+    walk(&root, None, &mut windows, &mut outputs, &mut workspaces);
+    Ok((windows, outputs, workspaces))
+}
+
+/// The usable rectangle of the focused workspace (falls back to the first output).
+pub fn usable_area() -> Result<Rect> {
+    let (_, outputs, workspaces) = tree_full()?;
+    if let Some(ws) = workspaces.iter().find(|w| w.focused).or(workspaces.first()) {
+        return Ok(ws.rect.clone());
+    }
+    outputs
+        .first()
+        .map(|o| o.rect.clone())
+        .ok_or_else(|| anyhow::anyhow!("no outputs"))
 }
 
 fn walk(
@@ -111,10 +143,40 @@ fn walk(
     output: Option<&str>,
     windows: &mut Vec<WindowGeometry>,
     outputs: &mut Vec<OutputGeometry>,
+    workspaces: &mut Vec<WorkspaceGeometry>,
 ) {
     let ty = node.get("type").and_then(Value::as_str).unwrap_or("");
     let name = node.get("name").and_then(Value::as_str);
     let mut current_output = output;
+    if ty == "workspace" {
+        if let Some(n) = name {
+            if !n.starts_with("__") {
+                workspaces.push(WorkspaceGeometry {
+                    name: n.to_string(),
+                    rect: node.get("rect").map(rect).unwrap_or(Rect {
+                        x: 0,
+                        y: 0,
+                        width: 0,
+                        height: 0,
+                    }),
+                    focused: node
+                        .get("focused")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        || node
+                            .get("focus")
+                            .and_then(Value::as_array)
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false)
+                            && node
+                                .get("visible")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
+                    output: output.map(str::to_string),
+                });
+            }
+        }
+    }
     if ty == "output" {
         if let Some(n) = name {
             if !n.starts_with("__") {
@@ -167,7 +229,7 @@ fn walk(
     for key in ["nodes", "floating_nodes"] {
         if let Some(children) = node.get(key).and_then(Value::as_array) {
             for c in children {
-                walk(c, current_output, windows, outputs);
+                walk(c, current_output, windows, outputs, workspaces);
             }
         }
     }

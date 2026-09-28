@@ -161,6 +161,24 @@ fn tools() -> Value {
             "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}, "required": ["window"]}
         },
         {
+            "name": "desktop_window_set",
+            "description": "Move, resize, maximise or restore a window. Coordinates in screen pixels. Any field may be omitted. fullscreen=true fills the screen; fullscreen=false restores.",
+            "inputSchema": {"type": "object", "properties": {
+                "window": {"type": "string"},
+                "x": {"type": "integer"}, "y": {"type": "integer"},
+                "width": {"type": "integer"}, "height": {"type": "integer"},
+                "fullscreen": {"type": "boolean"}
+            }, "required": ["window"]}
+        },
+        {
+            "name": "desktop_arrange",
+            "description": "Lay windows out over the usable screen: side_by_side (left to right), top_bottom, grid, or maximize (one window fills the screen). `windows` is an ordered list of ids, app_ids or title substrings; omit it to arrange all windows on the current workspace.",
+            "inputSchema": {"type": "object", "properties": {
+                "layout": {"type": "string", "enum": ["side_by_side", "top_bottom", "grid", "maximize"]},
+                "windows": {"type": "array", "items": {"type": "string"}}
+            }, "required": ["layout"]}
+        },
+        {
             "name": "desktop_launch",
             "description": "Start a program on the user's desktop (e.g. 'foot', 'firefox'). Returns the pid. Use desktop_windows afterwards to find its window.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}, "required": ["command"]}
@@ -257,6 +275,109 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
                 d.key(seat, c)?;
                 text(format!("pressed {c}{via}"))
+            }
+            "desktop_window_set" => {
+                let w = args.get("window").and_then(Value::as_str).unwrap_or("");
+                let win = resolve(d, w)?;
+                let con = win
+                    .con_id
+                    .ok_or_else(|| anyhow!("no compositor handle for window {}", win.id))?;
+                let mut done = vec![];
+                if let Some(fs) = args.get("fullscreen").and_then(Value::as_bool) {
+                    sway::command_for_con(
+                        con,
+                        if fs {
+                            "fullscreen enable"
+                        } else {
+                            "fullscreen disable"
+                        },
+                    )?;
+                    done.push(if fs {
+                        "fullscreen".to_string()
+                    } else {
+                        "restored".to_string()
+                    });
+                }
+                let gi = |k: &str| args.get(k).and_then(Value::as_i64);
+                if gi("width").is_some() || gi("height").is_some() {
+                    let cw = gi("width")
+                        .unwrap_or(win.width.unwrap_or(800) as i64)
+                        .max(100);
+                    let ch = gi("height")
+                        .unwrap_or(win.height.unwrap_or(600) as i64)
+                        .max(100);
+                    sway::command_for_con(con, "floating enable")?;
+                    sway::command_for_con(con, &format!("resize set {cw} px {ch} px"))?;
+                    done.push(format!("size {cw}x{ch}"));
+                }
+                if gi("x").is_some() || gi("y").is_some() {
+                    let cx = gi("x").unwrap_or(win.x.unwrap_or(0) as i64);
+                    let cy = gi("y").unwrap_or(win.y.unwrap_or(0) as i64);
+                    sway::command_for_con(con, "floating enable")?;
+                    sway::command_for_con(con, &format!("move position {cx} px {cy} px"))?;
+                    done.push(format!("position {cx},{cy}"));
+                }
+                text(format!(
+                    "{}: {}",
+                    win.id,
+                    if done.is_empty() {
+                        "nothing to change".into()
+                    } else {
+                        done.join(", ")
+                    }
+                ))
+            }
+            "desktop_arrange" => {
+                let layout = args
+                    .get("layout")
+                    .and_then(Value::as_str)
+                    .unwrap_or("side_by_side");
+                let all = windows(d)?;
+                let chosen: Vec<Window> = match args.get("windows").and_then(Value::as_array) {
+                    Some(list) if !list.is_empty() => {
+                        let mut v = vec![];
+                        for r in list.iter().filter_map(Value::as_str) {
+                            v.push(resolve(d, r)?);
+                        }
+                        v
+                    }
+                    _ => all.into_iter().filter(|w| w.con_id.is_some()).collect(),
+                };
+                if chosen.is_empty() {
+                    anyhow::bail!("no windows to arrange");
+                }
+                let area = sway::usable_area()?;
+                let gap = 8i64;
+                let n = chosen.len() as i64;
+                let (cols, rows) = match layout {
+                    "side_by_side" => (n, 1),
+                    "top_bottom" => (1, n),
+                    "maximize" => (1, 1),
+                    _ => {
+                        let c = (n as f64).sqrt().ceil() as i64;
+                        (c, (n + c - 1) / c)
+                    }
+                };
+                let cell_w = (area.width as i64 - gap * (cols + 1)) / cols;
+                let cell_h = (area.height as i64 - gap * (rows + 1)) / rows;
+                let mut placed = vec![];
+                for (i, w) in chosen.iter().enumerate() {
+                    if layout == "maximize" && i > 0 {
+                        break;
+                    }
+                    let con = w
+                        .con_id
+                        .ok_or_else(|| anyhow!("no compositor handle for {}", w.id))?;
+                    let (col, row) = ((i as i64) % cols, (i as i64) / cols);
+                    let x = area.x as i64 + gap + col * (cell_w + gap);
+                    let y = area.y as i64 + gap + row * (cell_h + gap);
+                    sway::command_for_con(con, "fullscreen disable")?;
+                    sway::command_for_con(con, "floating enable")?;
+                    sway::command_for_con(con, &format!("resize set {cell_w} px {cell_h} px"))?;
+                    sway::command_for_con(con, &format!("move position {x} px {y} px"))?;
+                    placed.push(format!("{} -> {x},{y} {cell_w}x{cell_h}", w.app_id));
+                }
+                text(format!("{layout}: {}", placed.join("; ")))
             }
             "desktop_close" | "desktop_focus" => {
                 let w = args.get("window").and_then(Value::as_str).unwrap_or("");

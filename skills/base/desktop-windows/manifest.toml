@@ -1,0 +1,4 @@
+name = "desktop-windows"
+description = "Manage desktop windows on Slate: open, arrange, move, resize, focus, close, and drive apps through the agent seat."
+tiers = { default = "reversible" }
+requires = ["slate-desktop"]

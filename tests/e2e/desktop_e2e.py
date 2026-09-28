@@ -99,6 +99,29 @@ def main():
         gone = wait_for(lambda: find(m, "foot", before) is None, 10)
         check("desktop_close closes the terminal", bool(gone))
 
+    # 1b. window management: two terminals side by side, non-overlapping, inside the screen.
+    before2 = {w["id"] for w in m.windows()}
+    m.tool("desktop_launch", command="foot")
+    m.tool("desktop_launch", command="foot")
+    two = wait_for(lambda: (lambda ws: ws if len(ws) >= 2 else None)([w for w in m.windows() if w["app_id"] == "foot" and w["id"] not in before2]), 15)
+    check("two terminals launched", bool(two))
+    if two:
+        a, b = two[0]["id"], two[1]["id"]
+        m.tool("desktop_arrange", layout="side_by_side", windows=[a, b])
+        time.sleep(1)
+        ws = {w["id"]: w for w in m.windows()}
+        wa, wb = ws[a], ws[b]
+        no_overlap = wa["x"] + wa["width"] <= wb["x"] or wb["x"] + wb["width"] <= wa["x"]
+        same_row = abs(wa["y"] - wb["y"]) < 10
+        check("side_by_side: windows do not overlap and share a row", no_overlap and same_row, f"{wa['x']},{wa['y']} {wa['width']}x{wa['height']} | {wb['x']},{wb['y']} {wb['width']}x{wb['height']}")
+        m.tool("desktop_window_set", window=a, x=100, y=100, width=500, height=400)
+        time.sleep(0.5)
+        wa = {w["id"]: w for w in m.windows()}[a]
+        check("desktop_window_set moves and resizes", abs(wa["x"] - 100) < 6 and abs(wa["y"] - 100) < 6 and abs(wa["width"] - 500) < 6, f"{wa['x']},{wa['y']} {wa['width']}x{wa['height']}")
+        m.tool("desktop_close", window=a)
+        m.tool("desktop_close", window=b)
+        wait_for(lambda: not [w for w in m.windows() if w["id"] in (a, b)], 10)
+
     # 2. firefox: navigate to a local page and check the compositor-reported title.
     page = os.path.join(tempfile.gettempdir(), "slate-e2e-page.html")
     open(page, "w").write("<html><head><title>SLATE-E2E-TITLE</title></head><body><h1>ok</h1></body></html>")
