@@ -29,7 +29,7 @@ in
 
     fallbackShell = lib.mkOption {
       type = lib.types.str;
-      default = "${pkgs.zsh}/bin/zsh";
+      default = "${pkgs.bashInteractive}/bin/bash";
       description = "The POSIX shell slash delegates to for `!` lines and non-interactive use.";
     };
 
