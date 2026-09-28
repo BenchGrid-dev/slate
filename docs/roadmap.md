@@ -60,10 +60,11 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 ## M3b: the desktop shell (phase 2)
 
 - [x] `slash --serve`: JSON-lines session protocol for GUI clients (events, approval round trip, commands)
-- [x] Slate Shell: floating layer-shell panel (top-right; Mod+s or the panel button) with streamed answers, tool lines, approval buttons, status, takeover warning
+- [x] Slate prompt: Siri-style layer-shell overlay (top-right; Mod+s or the panel button): a pill and one exchange at a time, Esc or a click elsewhere dismisses, results and approvals reappear passively without taking the keyboard
 - [x] Settings app: display (with confirm-or-revert), sound, network, Slate
 - [x] Panel status module (idle / working / controlling), notifications that focus the slash window
-- [ ] Slate's own notifications inside the panel instead of mako
+- [x] Tasks run from the prompt show approvals and results in the prompt, not as mako notifications (terminal tasks still use mako)
+- [x] SlateOS identity (os-release, boot entries, hostname) and a quiet dark theme
 - [ ] Conversation history across panel sessions
 - [ ] Rust rewrite of the panel and settings once the design settles
 

@@ -2,7 +2,7 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.9 — 2026-09-28
 
 - SlateOS identity: os-release, boot entries, getty greeting and the default hostname say SlateOS; `ID_LIKE=nixos` is kept and skills match on it (`nixos-system` skill renamed `slateos-system`). slash introduces itself as the shell of SlateOS, built on NixOS.
 - Slate prompt (slate-shell) redone in the spirit of Siri: a pill to type into and one exchange at a time below it; Esc or clicking elsewhere dismisses it; results and approvals reappear passively without taking the keyboard; a click claims it back.
