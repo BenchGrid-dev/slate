@@ -172,8 +172,9 @@ in
       description = "Slate desktop daemon: the agent's own Wayland seat";
       partOf = [ "graphical-session.target" ];
       after = [ "graphical-session.target" ];
-      # No `path` here on purpose: the compositor imports the session PATH into the
-      # user manager, and apps the agent launches must see the same PATH the user has.
+      # NixOS gives every unit a minimal PATH; apps the agent launches must resolve
+      # like the user's own, so put the system and per-user profiles on it.
+      path = [ pkg "/run/wrappers" "/etc/profiles/per-user/%u" "/run/current-system/sw" ];
       serviceConfig = {
         ExecStart = "${pkg}/bin/slate-desktop daemon";
         Restart = "always";
