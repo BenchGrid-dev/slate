@@ -16,6 +16,9 @@ pub struct Window {
     /// Compositor container id (sway), for close/focus. Not shown to agents.
     #[serde(skip)]
     pub con_id: Option<i64>,
+    /// Decoration offsets: container rect minus content rect (title bar, borders).
+    #[serde(skip)]
+    pub deco: (i32, i32, i32, i32),
     pub app_id: String,
     pub title: String,
     pub focused: bool,
@@ -41,6 +44,16 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 .and_then(|(ws, _)| ws.iter().find(|w| w.identifier == t.identifier));
             Window {
                 con_id: g.map(|g| g.con_id),
+                deco: g
+                    .map(|g| {
+                        (
+                            g.content.x - g.rect.x,
+                            g.content.y - g.rect.y,
+                            g.rect.width - g.content.width,
+                            g.rect.height - g.content.height,
+                        )
+                    })
+                    .unwrap_or((0, 0, 0, 0)),
                 id: t.identifier,
                 app_id: t.app_id,
                 title: t.title,
@@ -299,6 +312,7 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     });
                 }
                 let gi = |k: &str| args.get(k).and_then(Value::as_i64);
+                let (dx, dy, dw, dh) = win.deco;
                 if gi("width").is_some() || gi("height").is_some() {
                     let cw = gi("width")
                         .unwrap_or(win.width.unwrap_or(800) as i64)
@@ -307,14 +321,21 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         .unwrap_or(win.height.unwrap_or(600) as i64)
                         .max(100);
                     sway::command_for_con(con, "floating enable")?;
-                    sway::command_for_con(con, &format!("resize set {cw} px {ch} px"))?;
+                    // sway sizes the container (title bar + borders); the agent asked for content.
+                    sway::command_for_con(
+                        con,
+                        &format!("resize set {} px {} px", cw + dw as i64, ch + dh as i64),
+                    )?;
                     done.push(format!("size {cw}x{ch}"));
                 }
                 if gi("x").is_some() || gi("y").is_some() {
                     let cx = gi("x").unwrap_or(win.x.unwrap_or(0) as i64);
                     let cy = gi("y").unwrap_or(win.y.unwrap_or(0) as i64);
                     sway::command_for_con(con, "floating enable")?;
-                    sway::command_for_con(con, &format!("move position {cx} px {cy} px"))?;
+                    sway::command_for_con(
+                        con,
+                        &format!("move position {} px {} px", cx - dx as i64, cy - dy as i64),
+                    )?;
                     done.push(format!("position {cx},{cy}"));
                 }
                 text(format!(
