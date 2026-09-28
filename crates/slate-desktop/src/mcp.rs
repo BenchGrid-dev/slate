@@ -209,6 +209,11 @@ fn tools() -> Value {
             }, "required": ["layout"]}
         },
         {
+            "name": "desktop_seats",
+            "description": "Which window the agent's seat and the user's seat currently have focused. Use it when unsure where typing would go.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
             "name": "desktop_launch",
             "description": "Start a program on the user's desktop (e.g. 'foot', 'firefox'). Returns the pid. Use desktop_windows afterwards to find its window.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}, "required": ["command"]}
@@ -580,6 +585,17 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     placed.push(format!("{} -> {x},{y} {cell_w}x{cell_h}", w.app_id));
                 }
                 text(format!("{layout}: {}", placed.join("; ")))
+            }
+            "desktop_seats" => {
+                let mut lines = vec![];
+                for (label, seat) in [("agent", Seat::Agent), ("user", Seat::User)] {
+                    let name = d.seat_display_name(seat).unwrap_or_else(|| "?".into());
+                    let focus = focused_window(d, seat)
+                        .map(|w| format!("{} ({}) [{}]", w.app_id, w.title, w.id))
+                        .unwrap_or_else(|| "nothing / unknown".into());
+                    lines.push(format!("{label} seat {name}: {focus}"));
+                }
+                text(lines.join("\n"))
             }
             "desktop_close" | "desktop_focus" => {
                 let w = args.get("window").and_then(Value::as_str).unwrap_or("");

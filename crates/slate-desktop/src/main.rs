@@ -39,6 +39,7 @@ usage:
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
       input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
   slate-desktop launch CMD [ARGS...]      start a program on this display
+  slate-desktop seats                     which window each seat has focused
   slate-desktop close WINDOW              close a window (id, app_id or title)
   slate-desktop focus WINDOW
   slate-desktop probe                     report compositor capabilities",
@@ -116,6 +117,11 @@ fn main() -> Result<()> {
                 "desktop_key",
                 json!({"combo": combo, "seat": seat_s, "verify": false}),
             )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "seats" => {
+            let r = mcp::cli_call("desktop_seats", json!({}))?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
