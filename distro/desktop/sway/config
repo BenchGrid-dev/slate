@@ -75,4 +75,5 @@ bar {
 # hand the display to systemd and start the supervised daemon first.
 exec systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart slate-desktop.service
 exec mako
+exec sleep 2 && slate-shell --hidden
 exec sleep 1 && foot

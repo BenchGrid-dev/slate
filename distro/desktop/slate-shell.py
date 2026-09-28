@@ -8,6 +8,7 @@ answers, tool activity, approvals as buttons, and the agent's status. Esc hides 
 import json
 import os
 import subprocess
+import sys
 import threading
 
 import gi
@@ -20,7 +21,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 CSS = b"""
-.slate-window { background: rgba(29, 39, 51, 0.97); border: 1px solid #4c8bf5; border-radius: 12px; }
+window.slate-window, .slate-window { background-color: #1d2733; border: 1px solid #4c8bf5; border-radius: 12px; }
+.slate-root { background-color: #1d2733; }
 .slate-title { font-weight: bold; font-size: 15px; color: #e6edf3; }
 .slate-status { color: #8b98a5; font-size: 12px; }
 .slate-status.working { color: #4c8bf5; }
@@ -88,7 +90,7 @@ class ShellWindow(Gtk.ApplicationWindow):
         LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
         LayerShell.set_namespace(self, "slate-shell")
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=12, margin_end=12)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10, margin_start=12, margin_end=12, css_classes=["slate-root"])
         self.set_child(root)
 
         header = Gtk.Box(spacing=8)
@@ -251,7 +253,12 @@ class ShellWindow(Gtk.ApplicationWindow):
 
 class App(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="dev.benchgrid.slate.Shell", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        # Arguments are handled by hand (--hidden); do not let GApplication reject them.
+        super().__init__(application_id="dev.benchgrid.slate.Shell", flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+
+    def do_command_line(self, _cmdline):
+        self.activate()
+        return 0
         self.win = None
 
     def do_startup(self):
@@ -261,11 +268,15 @@ class App(Adw.Application):
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def do_activate(self):
-        # First launch shows the panel; every later `slate-shell` invocation toggles it.
+        # First launch shows the panel (or starts it hidden with --hidden, as the
+        # session does at login); every later `slate-shell` invocation toggles it.
         if self.win is None:
             self.win = ShellWindow(self)
-            self.win.present()
-            self.win.entry.grab_focus()
+            if "--hidden" in sys.argv:
+                self.win.set_visible(False)
+            else:
+                self.win.present()
+                self.win.entry.grab_focus()
         else:
             self.win.toggle()
 
