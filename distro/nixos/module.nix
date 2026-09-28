@@ -173,7 +173,7 @@ in
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
-        firefox xfce.thunar gnome-text-editor loupe pavucontrol
+        firefox thunar gnome-text-editor loupe pavucontrol
         papirus-icon-theme adwaita-icon-theme gnome-themes-extra
       ]);
     # A stable path, not the store path: a logged-in session keeps $SHELL from login

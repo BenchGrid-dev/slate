@@ -2,7 +2,7 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.11 — 2026-09-28
 
 - SlateOS system tools: `slateos-rebuild`, `slateos-option`, `slateos-install`, `slateos-generate-config`, `slateos-enter`, `slateos-version`, thin front ends for the `nixos-*` originals that use `/etc/slateos` (falling back to `/etc/nixos`). The system skill and slash's identity prompt use them. Licensing note in `distro/README.md` (nixpkgs is MIT; the NixOS name is used only descriptively).
 
