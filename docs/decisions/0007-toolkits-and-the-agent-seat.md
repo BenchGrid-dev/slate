@@ -32,5 +32,5 @@ Measured later the same day (Firefox 156, GTK3): an app accepts pointer and keyb
 ## Consequences
 
 - The clean "agent never touches your input" story holds for well-behaved clients and for anything the agent launches on a patched compositor, not for pre-existing GTK4 windows on stock sway.
-- Compositor patches are now a planned part of Slate OS, not an optional nicety.
+- Compositor patches are now a planned part of SlateOS, not an optional nicety.
 - A per-toolkit compatibility list lives in the slate-desktop README.

@@ -273,6 +273,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             prompt,
             cwd,
             auto_approve,
+            quiet,
         } => {
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
             let task_id = new_task_id();
@@ -289,17 +290,13 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 remembered: Default::default(),
                 undone: false,
                 auto_approve,
+                quiet,
             };
             if let Err(e) = st.tasks.insert(task.clone()) {
                 return Reply::Error {
                     message: format!("{e:#}"),
                 };
             }
-            notify(
-                "Slate is working",
-                task.prompt.lines().next().unwrap_or(""),
-                "low",
-            );
             st.log(AuditEntry {
                 ts: now_millis(),
                 task_id: Some(task_id.clone()),
@@ -336,8 +333,12 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 }
             }
             st.uis.remove(&task_id);
-            let calls = st.tasks.get(&task_id).map(|t| t.tool_calls).unwrap_or(0);
-            if calls > 0 {
+            let (calls, quiet) = st
+                .tasks
+                .get(&task_id)
+                .map(|t| (t.tool_calls, t.quiet))
+                .unwrap_or((0, false));
+            if calls > 0 && !quiet {
                 notify(
                     if ok {
                         "Slate finished"
@@ -529,11 +530,14 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                     reason: verdict.reason.clone(),
                 };
                 st.send_event(&tid, &ev);
-                notify(
-                    "Slate needs your approval",
-                    &format!("{tool_name}: {summary}\nAnswer in the slash window."),
-                    "critical",
-                );
+                let quiet = st.tasks.get(&tid).map(|t| t.quiet).unwrap_or(false);
+                if !quiet {
+                    notify(
+                        "Slate needs your approval",
+                        &format!("{tool_name}: {summary}\nAnswer in the slash window."),
+                        "critical",
+                    );
+                }
             }
             let (allow, remember) = rx.recv_timeout(APPROVAL_TIMEOUT).unwrap_or((false, false));
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());

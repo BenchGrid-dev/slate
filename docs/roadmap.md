@@ -67,7 +67,7 @@ Goal: on stock sway, an agent drives a GTK app through its own transient seat wh
 - [ ] Conversation history across panel sessions
 - [ ] Rust rewrite of the panel and settings once the design settles
 
-## M4: Slate OS image
+## M4: SlateOS image
 
 - [x] NixOS module + flake: `services.slate.enable`, slash as login shell, slated user service
 - [ ] Base distribution decided

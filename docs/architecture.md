@@ -100,7 +100,7 @@ Human takeover: the user can at any time say "stop" (freeze the agent seat), "I'
 
 API shape: slate-desktop is an MCP server exposing window-scoped operations (list windows, capture window, get a11y tree, click, type, key, scroll, drag, set clipboard) so that both Claude Code and Codex can use it without either vendor shipping Linux computer use. The API is modelled on the shape of existing background computer-use tools on macOS so prompts and skills transfer.
 
-Compositor support: these protocols are implemented by wlroots-based compositors, not by GNOME or KDE. The prototype targets sway, which has the most mature multi-seat implementation. Slate OS will ship a wlroots-based compositor, patched where needed. **Open:** sway vs Hyprland vs niri vs a thin compositor of our own on wlroots or smithay.
+Compositor support: these protocols are implemented by wlroots-based compositors, not by GNOME or KDE. The prototype targets sway, which has the most mature multi-seat implementation. SlateOS will ship a wlroots-based compositor, patched where needed. **Open:** sway vs Hyprland vs niri vs a thin compositor of our own on wlroots or smithay.
 
 Known gaps: AT-SPI2 coverage is weaker than macOS accessibility. Chromium/Electron need accessibility enabled explicitly; Flatpak sandboxing can block AT-SPI without portal support; Wine and games have no tree at all. Expect heavier screenshot use than macOS tools, and lean on OS Skills to avoid the GUI entirely where possible.
 
@@ -112,13 +112,13 @@ They are loaded by slated and exposed to backends through their native skills me
 
 ### 2.6 The desktop shell
 
-Slate OS ships a wlroots-based compositor with a shell layer (panel, launcher, notifications, approval toasts, agent status) built as ordinary Wayland clients. Applications are standard GTK, Qt, Electron and Chromium; Slate does not require apps to be modified.
+SlateOS ships a wlroots-based compositor with a shell layer (panel, launcher, notifications, approval toasts, agent status) built as ordinary Wayland clients. Applications are standard GTK, Qt, Electron and Chromium; Slate does not require apps to be modified.
 
 Agent-aware affordances in the shell: an "agent is working here" marker on windows owned by an agent seat, a live status line, non-modal approval toasts, "hand this window to the agent", "ask about this selection", "remember this screenshot".
 
 **Open:** shell toolkit (Quickshell, AGS, or custom).
 
-### 2.7 Slate OS: the distribution
+### 2.7 SlateOS: the distribution
 
 The distribution exists so the compositor, slated, slash and the skills are installed, configured and privileged correctly out of the box. Nothing in Slate requires the distribution; every component should run on any wlroots-based Wayland desktop with reduced guarantees.
 

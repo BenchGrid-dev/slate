@@ -99,7 +99,7 @@ zsh 和 bash 还在。只是你会慢慢不再打开它们。
 | `crates/slate-desktop` | 后台 computer use：agent seat、按窗口截图、输入，通过 MCP 暴露。 | v0：sway 上可用，见 [crates/slate-desktop](crates/slate-desktop) |
 | `crates/slate-proto` | 跨进程边界的共享类型。 | 占位 |
 | `skills/` | OS Skills：给机器读的系统手册。 | 仅示例 |
-| `distro/` | Slate OS 镜像构建。基础发行版尚未决定。 | 空 |
+| `distro/` | SlateOS 镜像构建。基础发行版尚未决定。 | 空 |
 
 ## 当前状态
 
@@ -109,7 +109,7 @@ zsh 和 bash 还在。只是你会慢慢不再打开它们。
 - **slated**：三级策略（Observe / Reversible / Confirm）加 `policy.toml`，审批通过 Claude Code 的 permission tool 送到终端前的人，审计日志，无需特权的 btrfs 快照和 `/undo`，记忆（`remember` / `recall` / `forget`）。
 - **slate-desktop**：Wayland 上的 agent seat，自己的指针和键盘，按窗口截图，Unicode 输入，两个后端都能用的 MCP 工具。已验证：agent 通过自己的 seat 操作终端窗口并从截图读回结果。已知缺口：GTK4 应用只监听第一个 seat（ADR 0007）。
 - **桌面（Phase 1 + 2）**：`services.slate.desktop.enable` 提供一套常规的 sway 桌面：顶栏、启动器、通知、设置应用、右上角浮动的 **Slate 面板**（Mod+s：对话、流式回答、审批按钮、agent 状态）、常驻的 agent seat daemon、借用键鼠时闪烁的 "controlling" 指示和 Esc 收回、输入前验证焦点。
-- **NixOS 模块**：`services.slate.enable` 装好全部组件，把 slash 注册为登录 shell，slated 作为用户服务运行。
+- **NixOS 模块**：`services.slate.enable` 装好全部组件，把 slash 注册为登录 shell，slated 作为用户服务运行，系统对外身份为 SlateOS（底层仍是 NixOS，`ID_LIKE=nixos`）。
 
 还没做的：桌面壳层、幽灵光标和人工接管（需要 compositor 补丁）、无障碍树输入、agent 身份隔离、安装器。见 [docs/roadmap.md](docs/roadmap.md)。
 

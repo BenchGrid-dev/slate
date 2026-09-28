@@ -26,6 +26,9 @@ pub struct Task {
     pub undone: bool,
     #[serde(default)]
     pub auto_approve: bool,
+    /// No desktop notifications: the UI that started the task shows everything itself.
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl Task {

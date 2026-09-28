@@ -15,5 +15,5 @@ Every agent task runs against its own seat, created with ext-transient-seat-v1, 
 
 - Slate targets Wayland only. X11 is not a supported target.
 - Slate targets compositors that implement these protocols: wlroots-based today. GNOME and KDE are not supported until they do.
-- Slate OS ships and, where needed, patches its own compositor.
+- SlateOS ships and, where needed, patches its own compositor.
 - The protocols are standard, so slate-desktop should work on any conforming compositor with reduced integration.

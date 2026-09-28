@@ -82,6 +82,10 @@ pub enum Request {
         /// allowed (and audited as such) instead of asking.
         #[serde(default)]
         auto_approve: bool,
+        /// The UI shows progress, approvals and results itself (the desktop panel):
+        /// slated sends no desktop notifications for this task.
+        #[serde(default)]
+        quiet: bool,
     },
     TaskEnd {
         task_id: String,

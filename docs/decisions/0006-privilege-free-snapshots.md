@@ -11,7 +11,7 @@ Measured on the dev VM (NixOS 26.05, kernel 6.18): an unprivileged user can crea
 
 ## Decision
 
-- The snapshot root must be a btrfs subvolume owned by the user. Slate OS creates every user's home as its own subvolume at install / user-creation time. On other systems, `SLATE_SNAPSHOT_ROOT` can point at a user-owned subvolume and undo covers only what is under it.
+- The snapshot root must be a btrfs subvolume owned by the user. SlateOS creates every user's home as its own subvolume at install / user-creation time. On other systems, `SLATE_SNAPSHOT_ROOT` can point at a user-owned subvolume and undo covers only what is under it.
 - slated runs as the user with no extra privileges. It never calls sudo.
 - Change detection diffs the snapshot against the live tree inside the directories the task touched (size, mtime, symlink target), instead of using `find-new`.
 - Slate's own state and agent caches are never rolled back.

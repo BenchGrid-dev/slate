@@ -2,6 +2,14 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- SlateOS identity: os-release, boot entries, getty greeting and the default hostname say SlateOS; `ID_LIKE=nixos` is kept and skills match on it (`nixos-system` skill renamed `slateos-system`). slash introduces itself as the shell of SlateOS, built on NixOS.
+- Slate prompt (slate-shell) redone in the spirit of Siri: a pill to type into and one exchange at a time below it; Esc or clicking elsewhere dismisses it; results and approvals reappear passively without taking the keyboard; a click claims it back.
+- slate-desktop: `click` with `seat: "user"` pressed the button on the agent seat (wherever its pointer was) instead of the user's; motion and button now go through the same seat.
+- slated: tasks started from the panel are `quiet` (no desktop notifications; the panel shows progress, approvals and results itself); the "Slate is working" notification is gone for everyone (the panel button shows it).
+- Desktop theme: dark slate wallpaper (`distro/desktop/wallpaper.py`), Inter + JetBrains Mono + Font Awesome, translucent panel with icon glyphs, 1px window borders, dark GTK/libadwaita via dconf, foot/fuzzel/mako restyled.
+
 ## 0.0.8 — 2026-09-28
 
 - Slate Shell: floating layer-shell panel (Mod+s / panel button) driving `slash --serve`: streamed answers, tool lines, approvals as buttons, status, takeover warning, Esc hides.

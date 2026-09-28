@@ -97,6 +97,7 @@ impl Daemon {
         prompt: &str,
         cwd: &Path,
         auto_approve: bool,
+        quiet: bool,
     ) -> Result<String> {
         let backend = match backend {
             "claude" => Backend::Claude,
@@ -108,6 +109,7 @@ impl Daemon {
             prompt: prompt.into(),
             cwd: cwd.to_path_buf(),
             auto_approve,
+            quiet,
         })? {
             Reply::TaskStarted { task_id } => Ok(task_id),
             Reply::Error { message } => bail!("{message}"),

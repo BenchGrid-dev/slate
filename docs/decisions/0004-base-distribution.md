@@ -5,7 +5,7 @@
 
 ## Context
 
-Slate OS needs a base. Two candidates:
+SlateOS needs a base. Two candidates:
 
 - **NixOS.** Declarative system state. An agent changing the system produces a text diff that can be reviewed and rolled back by generation. Snapshots and undo of system configuration come for free. Smaller community, steeper learning curve, some apps harder to package.
 - **Arch.** Largest desktop app surface, AUR, a validated precedent in Omarchy. Rollback needs btrfs snapshots layered on top. Imperative state is harder for an agent to reason about.

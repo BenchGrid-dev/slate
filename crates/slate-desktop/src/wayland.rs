@@ -411,20 +411,23 @@ impl Desktop {
             _ => 0x110,
         };
         for _ in 0..count.max(1) {
+            // The button must go through the same seat as the motion: a press on the
+            // agent seat lands wherever *its* pointer is, not where we just moved.
             let t = self.now_ms();
-            self.pointer.button(
+            let p = self.ptr(seat);
+            p.button(
                 t,
                 code,
                 wayland_client::protocol::wl_pointer::ButtonState::Pressed,
             );
-            self.pointer.frame();
+            p.frame();
             let t = self.now_ms();
-            self.pointer.button(
+            p.button(
                 t,
                 code,
                 wayland_client::protocol::wl_pointer::ButtonState::Released,
             );
-            self.pointer.frame();
+            p.frame();
             self.queue.flush()?;
             std::thread::sleep(Duration::from_millis(40));
         }

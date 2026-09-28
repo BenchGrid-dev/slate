@@ -1,4 +1,4 @@
-# Slate OS
+# SlateOS
 
 The distribution is not decided yet (ADR 0004 is open, leaning NixOS). What exists today is a NixOS module so the runtime can be installed declaratively on any NixOS machine:
 

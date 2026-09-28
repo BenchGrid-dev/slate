@@ -705,8 +705,10 @@ impl App {
         let verbose = self.verbose;
         let backend_name = self.backend.name();
         let auto_approve = self.auto_approve;
+        let quiet = self.json;
         let task_id = match self.daemon() {
-            Some(d) => match d.task_start(backend_name, &user_prompt, &cwd, auto_approve) {
+            // The panel shows progress and approvals itself; no desktop notifications then.
+            Some(d) => match d.task_start(backend_name, &user_prompt, &cwd, auto_approve, quiet) {
                 Ok(id) => Some(id),
                 Err(e) => {
                     say!(self, "{} slated: {e:#}", yellow("warning:"));

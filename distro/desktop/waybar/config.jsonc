@@ -13,7 +13,7 @@
     },
     "sway/workspaces": { "disable-scroll": true, "format": "{name}" },
     "sway/window": { "max-length": 48, "tooltip": false },
-    "clock": { "format": "{:%a %-d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
+    "clock": { "format": "{:%a %d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
     "tray": { "spacing": 10 },
     "wireplumber": {
         "format": "{icon}",

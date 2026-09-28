@@ -100,7 +100,7 @@ Full detail, including the open questions, is in [docs/architecture.md](docs/arc
 | `crates/slate-desktop` | Background computer use: agent seat, per-window capture, input, over MCP. | v0: works on sway, see [crates/slate-desktop](crates/slate-desktop) |
 | `crates/slate-proto` | Shared types crossing process boundaries. | placeholder |
 | `skills/` | OS Skills: machine-readable manuals for the system. | examples only |
-| `distro/` | Image build for Slate OS. Base distribution not yet decided. | empty |
+| `distro/` | Image build for SlateOS. Base distribution not yet decided. | empty |
 
 ## Status
 
@@ -110,7 +110,7 @@ Full detail, including the open questions, is in [docs/architecture.md](docs/arc
 - **slated**: tier policy (Observe / Reversible / Confirm) with a `policy.toml`, approvals routed through Claude Code's permission tool to the human at the terminal, audit log, privilege-free btrfs snapshots with `/undo`, memories (`remember` / `recall` / `forget`).
 - **slate-desktop**: an agent seat on Wayland with its own pointer and keyboard, per-window screenshots, Unicode typing, MCP tools that both backends use. Verified: an agent drives a terminal window through its own seat and reads the result from a screenshot. Known gap: GTK4 apps only listen to the first seat (ADR 0007).
 - **Desktop (phase 1 + 2)**: `services.slate.desktop.enable` gives a conventional sway desktop with a panel, launcher, notifications, a settings app, the floating **Slate Shell** panel (Mod+s: chat, streamed answers, approvals as buttons, agent status), a supervised agent-seat daemon, a blinking "controlling" indicator with Esc to take your mouse and keyboard back, and focus-verified typing.
-- **NixOS module**: `services.slate.enable` installs everything, registers slash as a login shell, and runs slated as a user service.
+- **NixOS module**: `services.slate.enable` installs everything, registers slash as a login shell, runs slated as a user service, and brands the system as SlateOS (NixOS underneath; `ID_LIKE=nixos`).
 
 Not built yet: the desktop shell layer, ghost cursor and human takeover (need compositor patches), accessibility-tree input, agent identity isolation, the installer. See [docs/roadmap.md](docs/roadmap.md).
 

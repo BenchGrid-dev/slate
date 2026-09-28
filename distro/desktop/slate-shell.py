@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Slate Shell: the desktop's floating Slate prompt.
 
-A layer-shell surface anchored top-right, in the spirit of Siri on macOS: a pill
-you type into, and below it one exchange at a time (your request, the answer,
-what Slate is doing, approvals as buttons). It appears on the panel's Slate
-button or Mod+s, and goes away when you press Esc or click anywhere else. While
-Slate works it keeps going in the background; the result and any approval show
-up in the same place without stealing your keyboard.
+A layer-shell overlay with a prompt top-right, in the spirit of Siri on macOS: a
+pill you type into, and below it one exchange at a time (your request, the
+answer, what Slate is doing, approvals as buttons). It appears on the panel's
+Slate button or Mod+s, and goes away when you press Esc or click anywhere else.
+While Slate works it keeps going in the background; the result and any approval
+show up in the same place without stealing your keyboard (clicks elsewhere pass
+through), and a click on them brings the keyboard back.
 
 It drives `slash --serve`; the conversation itself continues across exchanges
 (the agent remembers the session), only the display is one exchange at a time.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -56,6 +58,21 @@ entry.ask placeholder, entry.ask text placeholder { color: #6b7080; }
 """
 
 
+def markup(text):
+    """Pango markup for the little markdown agents produce: `code`, **bold**, headings."""
+    out = []
+    for line in GLib.markup_escape_text(text).split("\n"):
+        stripped = line.lstrip("#").strip() if line.startswith("#") else line
+        if line.startswith("#"):
+            out.append(f"<b>{stripped}</b>")
+        else:
+            out.append(line)
+    text = "\n".join(out)
+    text = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", text)
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
+    return text
+
+
 def run(cmd):
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout.strip()
@@ -94,37 +111,43 @@ class Session:
 class ShellWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Slate")
-        self.set_default_size(WIDTH, -1)
-        self.set_resizable(False)
         self.add_css_class("slate")
 
+        # Two shapes. Active (typing): the surface covers the whole output, transparent,
+        # with the keyboard held exclusively; it never resizes, so the compositor never
+        # re-arranges layers while it is open (sway drops layer keyboard focus on every
+        # re-arrange), and a click anywhere outside the panel dismisses it. Passive (a
+        # result or approval arrived while the user was elsewhere): the surface is just
+        # the panel, top-right, with no keyboard, so everything else keeps working; a
+        # click on it switches to the active shape.
         LayerShell.init_for_window(self)
         LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
-        LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
-        LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
-        LayerShell.set_margin(self, LayerShell.Edge.TOP, 8)
-        LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 10)
-        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
         LayerShell.set_namespace(self, "slate-shell")
+        self.set_shape(active=True)
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=4, margin_bottom=12, margin_start=12, margin_end=4)
-        self.set_child(root)
+        outer = Gtk.Box()
+        outer.append(Gtk.Box(hexpand=True))  # pushes the panel to the right edge
+        self.panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.START, hexpand=False,
+                             width_request=WIDTH, margin_top=8, margin_end=10)
+        outer.append(self.panel)
+        self.set_child(outer)
+        root = self.panel
 
         # The pill: status glyph, the prompt, a small hint.
         pill = Gtk.Box(css_classes=["pill"], width_request=WIDTH)
         self.glyph = Gtk.Label(label="◆", css_classes=["glyph"])
         self.entry = Gtk.Entry(hexpand=True, placeholder_text="Ask Slate", css_classes=["ask"])
         self.entry.connect("activate", self.on_send)
-        self.hint = Gtk.Label(label="", css_classes=["hint"])
+        self.hint = Gtk.Label(label="", ellipsize=Pango.EllipsizeMode.END, max_width_chars=22, css_classes=["hint"])
         for w in (self.glyph, self.entry, self.hint):
             pill.append(w)
         root.append(pill)
 
         # The card: this exchange only.
         self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["card"], width_request=WIDTH, visible=False)
-        self.query = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, css_classes=["query"], visible=False)
-        self.reply = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True, css_classes=["reply"], visible=False)
-        self.activity = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, css_classes=["activity"], visible=False)
+        self.query = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=42, css_classes=["query"], visible=False)
+        self.reply = Gtk.Label(xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, selectable=True, max_width_chars=42, css_classes=["reply"], visible=False)
+        self.activity = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=42, css_classes=["activity"], visible=False)
         self.approval_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         for w in (self.query, self.reply, self.activity, self.approval_box):
             self.card.append(w)
@@ -133,15 +156,23 @@ class ShellWindow(Gtk.ApplicationWindow):
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
-        # A click anywhere on the surface claims the keyboard (after a passive show).
-        click = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
-        click.connect("pressed", lambda *_: self.claim_focus())
-        self.add_controller(click)
-        self.connect("notify::is-active", self.on_active_changed)
+        # Clicks: on the panel (after a passive show) claim the keyboard; anywhere else on
+        # the surface dismiss it. Capture runs window -> panel, bubble runs panel -> window,
+        # so the panel's capture handler marks the press before the window's bubble handler.
+        first = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        first.connect("pressed", lambda *_: setattr(self, "press_on_panel", False))
+        self.add_controller(first)
+        on_panel = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        on_panel.connect("pressed", self.on_panel_press)
+        self.panel.add_controller(on_panel)
+        last = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.BUBBLE)
+        last.connect("pressed", self.on_surface_press)
+        self.add_controller(last)
+        self.press_on_panel = False
 
         self.busy = False
+        self.reply_text = ""
         self.passive = False  # shown without keyboard focus (result or approval arrived)
-        self.had_focus = False
         self.hide_timer = None
         self.approvals = {}
         self.auto = False
@@ -149,11 +180,18 @@ class ShellWindow(Gtk.ApplicationWindow):
         GLib.timeout_add_seconds(2, self.poll_control)
 
     # ---- showing and hiding
+    def set_shape(self, active):
+        LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
+        LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
+        LayerShell.set_anchor(self, LayerShell.Edge.BOTTOM, active)
+        LayerShell.set_anchor(self, LayerShell.Edge.LEFT, active)
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE if active else LayerShell.KeyboardMode.NONE)
+
     def show_active(self):
-        """Open for typing: takes the keyboard, goes away when focus leaves."""
+        """Open for typing: takes the keyboard; a click anywhere else dismisses it."""
         self.cancel_hide_timer()
         self.passive = False
-        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
+        self.set_shape(active=True)
         self.present()
         self.entry.grab_focus()
 
@@ -162,8 +200,7 @@ class ShellWindow(Gtk.ApplicationWindow):
         if self.get_visible() and not self.passive:
             return
         self.passive = True
-        self.had_focus = False
-        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.NONE)
+        self.set_shape(active=False)
         self.set_visible(True)
         self.arm_hide_timer()
 
@@ -171,17 +208,13 @@ class ShellWindow(Gtk.ApplicationWindow):
         if self.passive:
             self.passive = False
             self.cancel_hide_timer()
-            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
-            # Re-map so the compositor hands us the keyboard under the new mode.
-            self.set_visible(False)
-            self.set_visible(True)
+            self.set_shape(active=True)
             self.entry.grab_focus()
 
     def hide(self):
         self.cancel_hide_timer()
         self.set_visible(False)
         self.passive = False
-        self.had_focus = False
         if not self.busy and not self.approvals:
             self.clear_card()
 
@@ -207,16 +240,17 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.hide()
         return False
 
-    def on_active_changed(self, *_):
-        active = self.is_active()
-        if active:
-            self.had_focus = True
-        elif self.had_focus and self.get_visible() and not self.passive:
-            # The user clicked somewhere else: that is the dismiss gesture.
+    def on_panel_press(self, *_):
+        self.press_on_panel = True
+        self.claim_focus()
+
+    def on_surface_press(self, *_):
+        if not self.press_on_panel and not self.passive:
             self.hide()
 
     # ---- the card
     def clear_card(self):
+        self.reply_text = ""
         for w in (self.query, self.reply, self.activity):
             w.set_text("")
             w.set_visible(False)
@@ -224,7 +258,11 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.card.set_visible(False)
 
     def show_reply(self, text, error=False):
-        self.reply.set_text(text)
+        self.reply_text = text
+        try:
+            self.reply.set_markup(markup(text))
+        except Exception:  # noqa: BLE001
+            self.reply.set_text(text)
         self.reply.set_visible(bool(text))
         if error:
             self.reply.add_css_class("error")
@@ -261,7 +299,7 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.set_state("working", "working")
             self.show_activity("thinking…")
         elif kind == "text_delta":
-            self.show_reply(self.reply.get_text() + ev.get("text", ""))
+            self.show_reply(self.reply_text + ev.get("text", ""))
         elif kind == "text":
             self.show_reply(ev.get("text", ""))
         elif kind == "tool_start":
@@ -288,7 +326,7 @@ class ShellWindow(Gtk.ApplicationWindow):
         elif kind == "done":
             self.busy = False
             self.set_state("idle")
-            if ev.get("summary") and ev.get("ok") is False and not self.reply.get_text():
+            if ev.get("summary") and ev.get("ok") is False and not self.reply_text:
                 self.show_reply(ev["summary"], error=True)
             self.show_activity(ev.get("stats") or "")
             if not self.get_visible():
@@ -304,9 +342,9 @@ class ShellWindow(Gtk.ApplicationWindow):
     def add_approval(self, ev):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["approval"])
         card.append(Gtk.Label(label=f"{ev.get('tool')} · {ev.get('tier')} · needs your OK", xalign=0, css_classes=["approval-title"]))
-        card.append(Gtk.Label(label=ev.get("summary", ""), xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, css_classes=["approval-detail"]))
+        card.append(Gtk.Label(label=ev.get("summary", ""), xalign=0, wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR, max_width_chars=44, css_classes=["approval-detail"]))
         if ev.get("reason"):
-            card.append(Gtk.Label(label=ev["reason"], xalign=0, wrap=True, css_classes=["activity"]))
+            card.append(Gtk.Label(label=ev["reason"], xalign=0, wrap=True, max_width_chars=44, css_classes=["activity"]))
         row = Gtk.Box(spacing=6)
         for text, allow, remember, css in (("Allow", True, False, "suggested-action"), ("Always this task", True, True, ""), ("Deny", False, False, "destructive-action")):
             b = Gtk.Button(label=text, css_classes=[css] if css else [])
@@ -344,7 +382,7 @@ class ShellWindow(Gtk.ApplicationWindow):
     def poll_control(self):
         st = run(["slate-desktop", "status"])
         if '"controlling":true' in st.replace(" ", ""):
-            self.set_state("controlling", "using your mouse and keyboard · Esc takes them back")
+            self.set_state("controlling", "Esc takes back control")
         elif self.glyph.has_css_class("controlling"):
             self.set_state("working" if self.busy else "idle")
         return True
