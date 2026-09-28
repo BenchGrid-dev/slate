@@ -245,7 +245,7 @@ fn walk(
 
 /// The container each seat has focused, by seat name.
 pub fn seat_focus() -> Result<std::collections::HashMap<String, i64>> {
-    let seats = ipc(5, "")?; // GET_SEATS
+    let seats = ipc(101, "")?; // GET_SEATS (sway extension)
     let mut out = std::collections::HashMap::new();
     if let Some(arr) = seats.as_array() {
         for s in arr {
