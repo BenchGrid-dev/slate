@@ -312,31 +312,59 @@ fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     });
                 }
                 let gi = |k: &str| args.get(k).and_then(Value::as_i64);
-                let (dx, dy, dw, dh) = win.deco;
-                if gi("width").is_some() || gi("height").is_some() {
-                    let cw = gi("width")
-                        .unwrap_or(win.width.unwrap_or(800) as i64)
-                        .max(100);
-                    let ch = gi("height")
-                        .unwrap_or(win.height.unwrap_or(600) as i64)
-                        .max(100);
+                let want_w = gi("width").map(|v| v.max(100));
+                let want_h = gi("height").map(|v| v.max(100));
+                let want_x = gi("x");
+                let want_y = gi("y");
+                if want_w.is_some() || want_h.is_some() || want_x.is_some() || want_y.is_some() {
                     sway::command_for_con(con, "floating enable")?;
-                    // sway sizes the container (title bar + borders); the agent asked for content.
-                    sway::command_for_con(
-                        con,
-                        &format!("resize set {} px {} px", cw + dw as i64, ch + dh as i64),
-                    )?;
-                    done.push(format!("size {cw}x{ch}"));
-                }
-                if gi("x").is_some() || gi("y").is_some() {
-                    let cx = gi("x").unwrap_or(win.x.unwrap_or(0) as i64);
-                    let cy = gi("y").unwrap_or(win.y.unwrap_or(0) as i64);
-                    sway::command_for_con(con, "floating enable")?;
-                    sway::command_for_con(
-                        con,
-                        &format!("move position {} px {} px", cx - dx as i64, cy - dy as i64),
-                    )?;
-                    done.push(format!("position {cx},{cy}"));
+                    // sway acts on the container (title bar, borders) while the agent talks
+                    // about content pixels, and the mapping differs between tiled and floating
+                    // windows. Apply, measure, and correct once instead of guessing.
+                    let mut cur = win.clone();
+                    for _ in 0..2 {
+                        let (cx, cy) = (cur.x.unwrap_or(0) as i64, cur.y.unwrap_or(0) as i64);
+                        let (cw, ch) = (
+                            cur.width.unwrap_or(0) as i64,
+                            cur.height.unwrap_or(0) as i64,
+                        );
+                        let ex = want_x.map(|v| v - cx).unwrap_or(0);
+                        let ey = want_y.map(|v| v - cy).unwrap_or(0);
+                        let ew = want_w.map(|v| v - cw).unwrap_or(0);
+                        let eh = want_h.map(|v| v - ch).unwrap_or(0);
+                        if ex == 0 && ey == 0 && ew == 0 && eh == 0 {
+                            break;
+                        }
+                        if ew != 0 || eh != 0 {
+                            sway::command_for_con(
+                                con,
+                                &format!(
+                                    "resize set {} px {} px",
+                                    cw + ew + cur.deco.2 as i64,
+                                    ch + eh + cur.deco.3 as i64
+                                ),
+                            )?;
+                        }
+                        if ex != 0 || ey != 0 {
+                            sway::command_for_con(
+                                con,
+                                &format!(
+                                    "move position {} px {} px",
+                                    cx + ex - cur.deco.0 as i64,
+                                    cy + ey - cur.deco.1 as i64
+                                ),
+                            )?;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                        cur = resolve(d, &win.id)?;
+                    }
+                    done.push(format!(
+                        "now at {},{} {}x{}",
+                        cur.x.unwrap_or(0),
+                        cur.y.unwrap_or(0),
+                        cur.width.unwrap_or(0),
+                        cur.height.unwrap_or(0)
+                    ));
                 }
                 text(format!(
                     "{}: {}",
