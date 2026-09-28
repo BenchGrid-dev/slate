@@ -25,6 +25,8 @@ pub struct WindowGeometry {
     pub content: Rect,
     pub focused: bool,
     pub output: Option<String>,
+    /// Title bar drawn by the compositor (relative to the workspace origin); zero height = none.
+    pub deco: Rect,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -224,6 +226,12 @@ fn walk(
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             output: current_output.map(str::to_string),
+            deco: node.get("deco_rect").map(rect).unwrap_or(Rect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            }),
         });
     }
     for key in ["nodes", "floating_nodes"] {
@@ -233,4 +241,21 @@ fn walk(
             }
         }
     }
+}
+
+/// The container each seat has focused, by seat name.
+pub fn seat_focus() -> Result<std::collections::HashMap<String, i64>> {
+    let seats = ipc(5, "")?; // GET_SEATS
+    let mut out = std::collections::HashMap::new();
+    if let Some(arr) = seats.as_array() {
+        for s in arr {
+            if let (Some(n), Some(f)) = (
+                s.get("name").and_then(Value::as_str),
+                s.get("focus").and_then(Value::as_i64),
+            ) {
+                out.insert(n.to_string(), f);
+            }
+        }
+    }
+    Ok(out)
 }

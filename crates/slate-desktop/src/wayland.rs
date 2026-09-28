@@ -90,6 +90,8 @@ pub struct State {
     pending_outputs: HashMap<u32, Output>,
     transient_ready: Option<u32>,
     capture: CaptureState,
+    /// Names the compositor gave the seats we bound (proxy id -> name).
+    seat_names: HashMap<u32, String>,
 }
 
 pub struct Desktop {
@@ -105,6 +107,8 @@ pub struct Desktop {
     _toplevel_list: list::ExtForeignToplevelListV1,
     _transient: tseat::ExtTransientSeatV1,
     pub seat_name: Option<u32>,
+    agent_seat: wl_seat::WlSeat,
+    user_seat: wl_seat::WlSeat,
     pointer: vp::ZwlrVirtualPointerV1,
     keyboard: vk::ZwpVirtualKeyboardV1,
     /// Virtual devices on the user's own seat, for the GTK4 fallback.
@@ -223,6 +227,8 @@ impl Desktop {
             _toplevel_list: toplevel_list,
             _transient: transient,
             seat_name: Some(seat_name),
+            agent_seat: seat.clone(),
+            user_seat: user_seat.clone(),
             pointer,
             keyboard,
             user_pointer,
@@ -251,6 +257,16 @@ impl Desktop {
     pub fn roundtrip(&mut self) -> Result<()> {
         self.queue.roundtrip(&mut self.state)?;
         Ok(())
+    }
+
+    /// The compositor's name for a seat (e.g. "seat0", "transient-3"), once known.
+    pub fn seat_display_name(&mut self, seat: Seat) -> Option<String> {
+        let _ = self.roundtrip();
+        let id = match seat {
+            Seat::Agent => self.agent_seat.id().protocol_id(),
+            Seat::User => self.user_seat.id().protocol_id(),
+        };
+        self.state.seat_names.get(&id).cloned()
     }
 
     fn now_ms(&self) -> u32 {
@@ -874,7 +890,20 @@ impl Dispatch<frame::ExtImageCopyCaptureFrameV1, ()> for State {
     }
 }
 
-delegate_noop!(State: ignore wl_seat::WlSeat);
+impl Dispatch<wl_seat::WlSeat, ()> for State {
+    fn event(
+        st: &mut Self,
+        seat: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Name { name } = event {
+            st.seat_names.insert(seat.id().protocol_id(), name);
+        }
+    }
+}
 delegate_noop!(State: ignore wl_shm::WlShm);
 delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(State: ignore wl_buffer::WlBuffer);

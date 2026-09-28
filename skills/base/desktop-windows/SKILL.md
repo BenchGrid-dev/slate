@@ -17,7 +17,7 @@ You have MCP tools under the `desktop` server. Prefer them over keyboard shortcu
 | bring to front | `desktop_focus` |
 | close | `desktop_close` (never guess a shortcut) |
 | look at a window | `desktop_screenshot` with the window; coordinates in the image are the ones `desktop_click` takes |
-| type into an app | `desktop_click` inside it first, then `desktop_type` / `desktop_key` |
+| type into an app | `desktop_type` / `desktop_key` **with `window` set**: the tool focuses that window for the seat in use, verifies, and reports where the text went. Never type without naming the window. |
 
 After `desktop_click`, `desktop_type` and `desktop_key` you get a screenshot of the window taken right after the action. Look at it: only report "clicked X" or "typed Y" if the screenshot shows the effect (a dialog closed, text in the field, a page changed). If nothing changed, say so and try something else (a different spot, `seat: "user"`, or a different approach) rather than claiming success.
 

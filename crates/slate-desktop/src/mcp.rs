@@ -13,6 +13,9 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Window {
     pub id: String,
+    /// Compositor title bar (screen pixels), if any. Not shown to agents.
+    #[serde(skip)]
+    pub titlebar: Option<(i32, i32, i32, i32)>,
     /// Compositor container id (sway), for close/focus. Not shown to agents.
     #[serde(skip)]
     pub con_id: Option<i64>,
@@ -43,6 +46,19 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 .as_ref()
                 .and_then(|(ws, _)| ws.iter().find(|w| w.identifier == t.identifier));
             Window {
+                titlebar: g.and_then(|g| {
+                    if g.deco.height > 0 {
+                        let area = sway::usable_area().ok()?;
+                        Some((
+                            g.deco.x + area.x,
+                            g.deco.y + area.y,
+                            g.deco.width,
+                            g.deco.height,
+                        ))
+                    } else {
+                        None
+                    }
+                }),
                 con_id: g.map(|g| g.con_id),
                 deco: g
                     .map(|g| {
@@ -156,13 +172,13 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_type",
-            "description": "Type text with the agent's own keyboard into whatever the agent seat has focused (click a window first). Newlines press Return.",
-            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
+            "description": "Type text into a window. Always pass `window`: the tool focuses it for the seat in use and verifies before typing, and the result says which window received the text. Newlines press Return.",
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
         },
         {
             "name": "desktop_key",
             "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'shift+Tab', 'Escape'. Keys go to the app the agent seat has focused (click a window first). Window-manager shortcuts differ per desktop; use desktop_close / desktop_focus instead of guessing them.",
-            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
+            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
         },
         {
             "name": "desktop_close",
@@ -223,6 +239,58 @@ fn point(d: &mut Desktop, args: &Value) -> Result<(f64, f64)> {
             Ok((wx as f64 + x, wy as f64 + y))
         }
         _ => Ok((x, y)),
+    }
+}
+
+/// The window a seat currently has focused, if the compositor tells us.
+fn focused_window(d: &mut Desktop, seat: Seat) -> Option<Window> {
+    let name = d.seat_display_name(seat)?;
+    let con = *sway::seat_focus().ok()?.get(&name)?;
+    windows(d).ok()?.into_iter().find(|w| w.con_id == Some(con))
+}
+
+/// Make sure `seat` will type into `win`: focus it, then verify. For the agent seat
+/// this is a click on the compositor's title bar (or the top edge of the content
+/// when the app draws its own), for the user's seat a compositor focus command.
+fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
+    if focused_window(d, seat)
+        .map(|w| w.id == win.id)
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    match seat {
+        Seat::Agent => {
+            let (x, y) = match win.titlebar {
+                Some((tx, ty, tw, th)) => {
+                    (tx as f64 + tw as f64 / 2.0, ty as f64 + th as f64 / 2.0)
+                }
+                None => (
+                    win.x.unwrap_or(0) as f64 + win.width.unwrap_or(200) as f64 / 2.0,
+                    win.y.unwrap_or(0) as f64 + 6.0,
+                ),
+            };
+            d.click(seat, x, y, "left", 1)?;
+        }
+        Seat::User => {
+            let con = win
+                .con_id
+                .ok_or_else(|| anyhow!("no compositor handle for {}", win.id))?;
+            sway::command_for_con(con, "focus")?;
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    match focused_window(d, seat) {
+        Some(w) if w.id == win.id => Ok(()),
+        Some(w) => {
+            anyhow::bail!(
+            "could not focus {} ({}); the {} seat is on {} ({}). Click inside the target first.",
+            win.id, win.title, if seat == Seat::User { "user's" } else { "agent" }, w.id, w.title
+        )
+        }
+        None => anyhow::bail!(
+            "could not determine the seat's focus; click inside the target window first"
+        ),
     }
 }
 
@@ -329,18 +397,30 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 d.scroll(seat, x, y, dx, dy)?;
                 text(format!("scrolled dx={dx} dy={dy} at {x:.0},{y:.0}{via}"))
             }
-            "desktop_type" => {
-                let t = args.get("text").and_then(Value::as_str).unwrap_or("");
-                d.type_text(seat, t)?;
-                let r = text(format!("typed {} characters{via}", t.chars().count()));
-                let lw = d.last_window.clone();
-                with_verify(d, r, lw.as_deref(), args)
-            }
-            "desktop_key" => {
-                let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
-                d.key(seat, c)?;
-                let r = text(format!("pressed {c}{via}"));
-                let lw = d.last_window.clone();
+            "desktop_type" | "desktop_key" => {
+                // Where will this go? Focus the requested window first, and always say
+                // which window received the input.
+                let target = match args.get("window").and_then(Value::as_str) {
+                    Some(w) if !w.is_empty() => Some(resolve(d, w)?),
+                    _ => None,
+                };
+                if let Some(win) = &target {
+                    ensure_focus(d, seat, win)?;
+                    d.last_window = Some(win.id.clone());
+                }
+                let into = focused_window(d, seat)
+                    .map(|w| format!(" into {} ({})", w.app_id, w.title))
+                    .unwrap_or_else(|| " (focus unknown: click the target window first)".into());
+                let r = if name == "desktop_type" {
+                    let t = args.get("text").and_then(Value::as_str).unwrap_or("");
+                    d.type_text(seat, t)?;
+                    text(format!("typed {} characters{via}{into}", t.chars().count()))
+                } else {
+                    let c = args.get("combo").and_then(Value::as_str).unwrap_or("");
+                    d.key(seat, c)?;
+                    text(format!("pressed {c}{via}{into}"))
+                };
+                let lw = target.map(|w| w.id).or_else(|| d.last_window.clone());
                 with_verify(d, r, lw.as_deref(), args)
             }
             "desktop_window_set" => {

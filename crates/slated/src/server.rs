@@ -272,6 +272,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             backend,
             prompt,
             cwd,
+            auto_approve,
         } => {
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
             let task_id = new_task_id();
@@ -287,6 +288,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 touched: vec![cwd],
                 remembered: Default::default(),
                 undone: false,
+                auto_approve,
             };
             if let Err(e) = st.tasks.insert(task.clone()) {
                 return Reply::Error {
@@ -371,7 +373,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             let remembered = task_id
                 .as_ref()
                 .and_then(|id| st.tasks.get(id))
-                .map(|t| t.remembered.contains(&tool_name))
+                .map(|t| t.remembered.contains(&tool_name) || t.auto_approve)
                 .unwrap_or(false);
             let mut snapshot = None;
             let decision = match verdict.tier {
@@ -455,10 +457,22 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
         } => {
             let verdict = policy::classify(&tool_name, &tool_input);
             let summary = summarize_tool(&tool_name, &tool_input);
+            let auto = task_id
+                .as_ref()
+                .and_then(|id| {
+                    state
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .tasks
+                        .get(id)
+                        .map(|t| t.auto_approve)
+                })
+                .unwrap_or(false);
             // The backend consults the permission tool for some tools regardless of the
-            // hook's answer (e.g. AskUserQuestion). Observe-tier calls never need a human.
-            if verdict.tier == Tier::Observe {
-                let st = state.lock().unwrap_or_else(|e| e.into_inner());
+            // hook's answer (e.g. AskUserQuestion). Observe-tier calls never need a human,
+            // and neither does anything in an auto-approve task.
+            if verdict.tier == Tier::Observe || auto {
+                let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
                 st.log(AuditEntry {
                     ts: now_millis(),
                     task_id: task_id.clone(),
@@ -470,9 +484,18 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                     decision: Some(Decision::Allow),
                     snapshot: None,
                 });
+                if auto && verdict.tier != Tier::Observe {
+                    if let Some(id) = &task_id {
+                        st.ensure_snapshot(id);
+                    }
+                }
                 return Reply::Approval {
                     allow: true,
-                    message: "observe-tier tool, allowed by policy".into(),
+                    message: if auto {
+                        "auto-approve is on for this task".into()
+                    } else {
+                        "observe-tier tool, allowed by policy".into()
+                    },
                 };
             }
             let approval_id = new_task_id();

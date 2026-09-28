@@ -19,6 +19,8 @@ pub struct App {
     session: Session,
     verbose: bool,
     daemon: Option<Daemon>,
+    /// `/auto on`: Confirm-tier actions run without asking for the rest of the session.
+    auto_approve: bool,
     slate_bin: PathBuf,
     /// `slate-desktop`, when we are on a Wayland desktop and the binary exists.
     desktop_bin: Option<PathBuf>,
@@ -45,7 +47,9 @@ impl App {
         } else {
             None
         };
+        let auto_approve = cfg.auto_approve;
         Ok(Self {
+            auto_approve,
             cfg,
             backend,
             shell,
@@ -79,10 +83,22 @@ impl App {
             ),
             _ => cwd.display().to_string(),
         };
-        format!("{} {} ", dim(&shown), cyan("❯"))
+        let mark = if self.auto_approve {
+            yellow("⚡")
+        } else {
+            cyan("❯")
+        };
+        format!("{} {} ", dim(&shown), mark)
+    }
+
+    fn set_title(&self, state: &str) {
+        // OSC 0: terminal title. mako's click action focuses the window titled "slash…".
+        print!("\x1b]0;slash {state}\x07");
+        render::flush();
     }
 
     pub fn run(&mut self) -> Result<i32> {
+        self.set_title("· ready");
         let slated_note = match self.daemon.as_mut() {
             Some(d) => {
                 if d.snapshots_enabled() {
@@ -195,6 +211,7 @@ impl App {
                 println!("  /audit [N]              recent audit entries");
                 println!("  /tasks                  recent tasks");
                 println!("  /remember <text>        store a memory; /memories [query] lists them");
+                println!("  /auto [on|off]          bypass approvals: Confirm-tier actions run without asking (still audited, still snapshotted)");
                 println!("  /verbose                toggle raw event output");
                 println!("  /quit, /exit            leave slash");
                 println!();
@@ -425,6 +442,26 @@ impl App {
                 }
                 None
             }
+            "auto" => {
+                match args.trim() {
+                    "on" | "1" | "true" => self.auto_approve = true,
+                    "off" | "0" | "false" => self.auto_approve = false,
+                    "" => {}
+                    other => {
+                        println!("{} /auto on|off (got {other:?})", red("error:"));
+                        return None;
+                    }
+                }
+                println!(
+                    "{}",
+                    if self.auto_approve {
+                        yellow("⚡ auto-approve on: the agent will not ask before Confirm-tier actions (every action is still audited and file changes snapshotted)")
+                    } else {
+                        dim("auto-approve off: Confirm-tier actions ask first")
+                    }
+                );
+                None
+            }
             "verbose" => {
                 self.verbose = !self.verbose;
                 println!(
@@ -488,8 +525,9 @@ impl App {
         let cwd = self.shell.cwd().to_path_buf();
         let verbose = self.verbose;
         let backend_name = self.backend.name();
+        let auto_approve = self.auto_approve;
         let task_id = match self.daemon() {
-            Some(d) => match d.task_start(backend_name, prompt, &cwd) {
+            Some(d) => match d.task_start(backend_name, prompt, &cwd, auto_approve) {
                 Ok(id) => Some(id),
                 Err(e) => {
                     println!("{} slated: {e:#}", yellow("warning:"));
@@ -562,6 +600,7 @@ impl App {
             }
             render::flush();
         };
+        self.set_title("▸ working");
         let req = TurnRequest {
             prompt,
             context: &context,
@@ -582,6 +621,7 @@ impl App {
         if let Some(a) = attachment {
             a.stop();
         }
+        self.set_title("· ready");
         if let Some(id) = task_id {
             if let Some(d) = self.daemon() {
                 d.task_end(&id, ok);

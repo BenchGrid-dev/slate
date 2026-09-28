@@ -78,6 +78,10 @@ pub enum Request {
         backend: Backend,
         prompt: String,
         cwd: PathBuf,
+        /// The user asked not to be prompted for this task: Confirm-tier calls are
+        /// allowed (and audited as such) instead of asking.
+        #[serde(default)]
+        auto_approve: bool,
     },
     TaskEnd {
         task_id: String,

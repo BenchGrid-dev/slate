@@ -8,3 +8,8 @@ default-timeout=6000
 anchor=top-right
 margin=12
 padding=10
+
+# Clicking a Slate notification brings the slash window (approval, task result) back.
+[app-name=Slate]
+on-button-left=exec swaymsg '[title="^slash"] focus'
+on-button-right=dismiss

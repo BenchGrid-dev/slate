@@ -131,6 +131,12 @@ def main():
         check("side_by_side: windows do not overlap and share a row", no_overlap and same_row, f"{wa['x']},{wa['y']} {wa['width']}x{wa['height']} | {wb['x']},{wb['y']} {wb['width']}x{wb['height']}")
         on_screen = all(w["y"] < 80 and w["y"] + w["height"] <= 800 and w["x"] >= 0 and w["x"] + w["width"] <= 1280 for w in (wa, wb))
         check("side_by_side: windows fill the screen below the panel without overflowing", on_screen, f"y={wa['y']} bottom={wa['y']+wa['height']}")
+        # typing with `window` goes to that window even though another one was clicked last
+        m.tool("desktop_click", window=a, x=100, y=100, verify=False)
+        marker_b = os.path.join(tempfile.gettempdir(), f"slate-e2e-b-{int(time.time())}.txt")
+        r, _ = m.tool("desktop_type", window=b, text=f"echo into-b > {marker_b}\n", verify=False)
+        okb = wait_for(lambda: os.path.exists(marker_b), 8)
+        check("desktop_type with window focuses that window first", bool(okb) and "into foot" in r, r[:80])
         m.tool("desktop_window_set", window=a, x=100, y=100, width=500, height=400)
         time.sleep(0.5)
         wa = {w["id"]: w for w in m.windows()}[a]

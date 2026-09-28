@@ -91,7 +91,13 @@ impl Daemon {
         }
     }
 
-    pub fn task_start(&mut self, backend: &str, prompt: &str, cwd: &Path) -> Result<String> {
+    pub fn task_start(
+        &mut self,
+        backend: &str,
+        prompt: &str,
+        cwd: &Path,
+        auto_approve: bool,
+    ) -> Result<String> {
         let backend = match backend {
             "claude" => Backend::Claude,
             "codex" => Backend::Codex,
@@ -101,6 +107,7 @@ impl Daemon {
             backend,
             prompt: prompt.into(),
             cwd: cwd.to_path_buf(),
+            auto_approve,
         })? {
             Reply::TaskStarted { task_id } => Ok(task_id),
             Reply::Error { message } => bail!("{message}"),
@@ -200,6 +207,7 @@ impl Attachment {
 
 fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, bool) {
     let mut out = std::io::stdout().lock();
+    let _ = write!(out, "\x1b]0;slash ⏸ approval needed\x07");
     let _ = writeln!(out);
     let _ = writeln!(out, "{} {} {}", yellow("⏸"), bold(tool_name), cyan(summary));
     let _ = writeln!(

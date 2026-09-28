@@ -24,6 +24,8 @@ pub struct Task {
     pub remembered: HashSet<String>,
     #[serde(default)]
     pub undone: bool,
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 impl Task {
