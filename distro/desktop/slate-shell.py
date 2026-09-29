@@ -295,7 +295,10 @@ class ShellWindow(Gtk.ApplicationWindow):
 
     def go_passive(self, keep=False):
         self.passive = True
-        self.user_focus = seat0_focus()
+        # Releasing the keyboard makes the compositor hand focus back to the person's
+        # previous window, which looks like them moving on. Settle first, then watch.
+        self.user_focus = None
+        self.passive_since = time.monotonic()
         self.set_shape(active=False)
         self.set_visible(True)
         if not keep:
@@ -608,8 +611,11 @@ class ShellWindow(Gtk.ApplicationWindow):
                 GLib.idle_add(self.on_user_focus, focus)
 
     def on_user_focus(self, con):
+        settling = time.monotonic() - getattr(self, "passive_since", 0.0) < 1.5
         previous, self.user_focus = self.user_focus, con
-        if previous is not None and con != previous and self.get_visible() and self.passive and not self.approvals:
+        if settling or previous is None:
+            return False
+        if con != previous and self.get_visible() and self.passive and not self.approvals:
             self.hide()
         return False
 
