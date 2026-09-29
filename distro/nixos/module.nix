@@ -68,6 +68,22 @@ let
     EOF
     chmod +x $out/bin/*
   '';
+  # The password dialog sudo uses when a tool call (no tty) needs root: the person
+  # at the desktop types the password, sudo gets it, the agent sees only the outcome.
+  slateAskpass = pkgs.stdenv.mkDerivation {
+    pname = "slate-askpass";
+    version = pkg.version;
+    src = ../desktop/slate-askpass.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slate-askpass
+      chmod +x $out/bin/slate-askpass
+    '';
+    meta.mainProgram = "slate-askpass";
+  };
   # The floating Slate panel: layer-shell window driving `slash --serve`.
   slateShell = pkgs.stdenv.mkDerivation {
     pname = "slate-shell";
@@ -183,7 +199,7 @@ in
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings slateShell
+        slateSettings slateShell slateAskpass
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -211,12 +227,24 @@ in
         QT_LINUX_ACCESSIBILITY_ALWAYS_ON = "1";
         GNOME_ACCESSIBILITY = "1";
         ACCESSIBILITY_ENABLED = "1";
+        # sudo without a terminal (every agent tool call) asks the person through this
+        # dialog; SSH_ASKPASS covers ssh and git the same way.
+        SUDO_ASKPASS = "${slateAskpass}/bin/slate-askpass";
+        SSH_ASKPASS = "${slateAskpass}/bin/slate-askpass";
+        SSH_ASKPASS_REQUIRE = "prefer";
       })
     ];
 
     users.users = lib.genAttrs cfg.loginShellUsers (_: {
       shell = "/run/current-system/sw/bin/slash";
     });
+
+    # Root with consent: sudo reads SUDO_ASKPASS from the caller's environment and, with
+    # no tty (an agent's tool call), uses it instead of failing. Each use asks the person.
+    security.sudo.extraConfig = lib.mkIf cfg.desktop.enable ''
+      Defaults env_keep += "SUDO_ASKPASS"
+      Defaults !requiretty
+    '';
 
     programs.sway = lib.mkIf cfg.sway.enable {
       enable = true;

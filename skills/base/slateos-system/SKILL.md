@@ -25,7 +25,7 @@ Tier: observe (nothing persists).
 
 ## Root
 
-Editing `/etc/slateos` and rebuilding need root. Slate cannot type the user's password for you and you must never ask for it in chat. If `sudo` fails without a terminal, stop and tell the user exactly which command to run themselves.
+Editing `/etc/slateos` and rebuilding need root. Run the command with plain `sudo` (never `sudo -S`, never `echo password |`, never ask for a password in chat). On the SlateOS desktop, sudo opens a password dialog for the person at the screen; they type it, the command runs, and you only see the result. Tell the user before the first sudo of a task what it will run, since the dialog does not show the command. If sudo fails with "no askpass program" or "a terminal is required", there is no desktop session: give the user the exact command to run themselves.
 
 ## Undo
 
