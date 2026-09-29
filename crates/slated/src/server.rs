@@ -260,7 +260,7 @@ fn handle_conn(stream: UnixStream, state: Shared) -> Result<()> {
         // The shell that ran this task is gone mid-turn (window closed, Ctrl-C, crash):
         // end the task, or the desktop would show "working" until it aged out.
         if orphaned {
-            let _ = dispatch(Request::TaskEnd { task_id, ok: false }, state);
+            let _ = dispatch(Request::TaskEnd { task_id, ok: false }, &state);
         }
     }
     Ok(())
