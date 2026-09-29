@@ -23,6 +23,7 @@ SWAY_D = os.path.join(HOME, ".config/slate/sway.d/theme.conf")
 WAYBAR_USER = os.path.join(HOME, ".config/waybar")
 MAKO_USER = os.path.join(HOME, ".config/mako/config")
 FUZZEL_USER = os.path.join(HOME, ".config/fuzzel/fuzzel.ini")
+FOOT_USER = os.path.join(HOME, ".config/foot/foot.ini")
 SYSTEM_WAYBAR = "/etc/xdg/waybar"
 DEFAULT_WALLPAPER = "/etc/slate/wallpaper.png"
 
@@ -82,6 +83,24 @@ def swaymsg(command):
     return run(["swaymsg", command])
 
 
+def signal_processes(names, sig):
+    """Send `sig` to every process whose comm is one of `names` (NixOS wraps binaries as
+    .name-wrapped, so plain pkill -x misses them)."""
+    import signal as _signal  # noqa: F401
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            comm = open(f"/proc/{pid}/comm").read().strip()
+        except OSError:
+            continue
+        if comm in names:
+            try:
+                os.kill(int(pid), sig)
+            except OSError:
+                pass
+
+
 def apply(state):
     t = THEMES[state["theme"]]
     wallpaper = state.get("wallpaper") or DEFAULT_WALLPAPER
@@ -105,7 +124,18 @@ def apply(state):
     src = os.path.join(SYSTEM_WAYBAR, t["waybar_css"])
     if os.path.exists(src):
         shutil.copyfile(src, os.path.join(WAYBAR_USER, "style.css"))
-        run(["pkill", "-USR2", "-x", "waybar"])
+        import signal
+        signal_processes(("waybar", ".waybar-wrapped"), signal.SIGUSR2)
+
+    # foot: new terminals start with the theme (initial-color-theme); running ones are
+    # told to switch (foot: SIGUSR1 = dark, SIGUSR2 = light).
+    os.makedirs(os.path.dirname(FOOT_USER), exist_ok=True)
+    with open(FOOT_USER, "w") as f:
+        f.write("# written by slate-theme; the system defaults live in /etc/xdg/foot/foot.ini\n")
+        f.write("include=/etc/xdg/foot/foot.ini\n\n[main]\n")
+        f.write(f"initial-color-theme={state['theme']}\n")
+    import signal as _sig
+    signal_processes(("foot", ".foot-wrapped", "footclient"), _sig.SIGUSR1 if state["theme"] == "dark" else _sig.SIGUSR2)
 
     # mako: rewrite the user's config from the system one with the theme's colours.
     base = "/etc/xdg/mako/config"

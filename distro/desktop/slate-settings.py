@@ -111,7 +111,8 @@ class DisplayPage(Gtk.Box):
 
     # ---- data
     def refresh(self):
-        self.outputs = swaymsg("-t", "get_outputs", as_json=True) or []
+        # The agent's background screen (HEADLESS-*) is not a display the person can see.
+        self.outputs = [o for o in (swaymsg("-t", "get_outputs", as_json=True) or []) if not o["name"].startswith("HEADLESS-")]
         self.output_model.splice(0, self.output_model.get_n_items(), [o["name"] for o in self.outputs])
         self.fill_modes()
 
