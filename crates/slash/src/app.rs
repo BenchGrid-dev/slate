@@ -777,8 +777,19 @@ impl App {
             let _ = writeln!(out, "{ev}");
             let _ = out.flush();
         };
+        // Serve mode: a turn is over when the agent process is, not when it first says
+        // so (a backend can report intermediate results); the last `done` is kept and
+        // sent after run_turn returns.
+        let last_done: std::cell::RefCell<Option<serde_json::Value>> =
+            std::cell::RefCell::new(None);
         let mut on_event = |ev: Event| {
             if json {
+                if let Event::Done { ok, summary, stats } = &ev {
+                    *last_done.borrow_mut() = Some(
+                        serde_json::json!({"event": "done", "ok": ok, "summary": summary, "stats": stats}),
+                    );
+                    return;
+                }
                 let v = match &ev {
                     Event::SessionStarted(id) => serde_json::json!({"event": "session", "id": id}),
                     Event::TextDelta(t) => serde_json::json!({"event": "text_delta", "text": t}),
@@ -872,6 +883,12 @@ impl App {
         };
         let result = self.backend.run_turn(req, &mut on_event);
         let ok = result.is_ok();
+        if ok && self.json {
+            let done = last_done.borrow_mut().take().unwrap_or_else(
+                || serde_json::json!({"event": "done", "ok": true, "summary": null, "stats": null}),
+            );
+            self.emit(done);
+        }
         if let Err(e) = result {
             if self.json {
                 self.emit(serde_json::json!({"event": "error", "text": format!("{e:#}")}));
