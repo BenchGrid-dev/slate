@@ -373,6 +373,18 @@ pub fn fix_layout() -> Result<Option<String>> {
         run_command(&c)?;
     }
     let first = real.first().map(|r| r.0.clone());
+    // The person's input devices must stay on the real screens: absolute devices
+    // (tablets, touch, the pointer of a virtual machine) map onto the whole layout,
+    // which now includes the far-away background screen. Map every real pointer,
+    // touch and tablet device to the region the real outputs cover; our own
+    // virtual pointers (the agent's) are left alone.
+    let region = (
+        0i64,
+        0i64,
+        real.iter().map(|r| r.3).sum::<i64>().max(1),
+        real_height(arr).max(1),
+    );
+    map_inputs_to_region(region);
     // The person must never end up on the background screen: their focus goes there
     // only by accident (an output moved under the cursor, a window mapped there at
     // login). Bring focus and cursor back to the real screen when that happens.
@@ -385,6 +397,59 @@ pub fn fix_layout() -> Result<Option<String>> {
         }
     }
     Ok(first)
+}
+
+fn real_height(outputs: &[Value]) -> i64 {
+    outputs
+        .iter()
+        .filter(|o| {
+            !crate::mcp::is_background_output(o.get("name").and_then(Value::as_str).unwrap_or(""))
+        })
+        .filter_map(|o| o.get("rect")?.get("height")?.as_i64())
+        .max()
+        .unwrap_or(0)
+}
+
+/// (region, device identifiers) last mapped.
+type Mapping = ((i64, i64, i64, i64), Vec<String>);
+static MAPPED: std::sync::Mutex<Option<Mapping>> = std::sync::Mutex::new(None);
+
+/// `input <id> map_to_region` for every real pointer/touch/tablet device, re-issued
+/// only when the region or the set of devices changes.
+fn map_inputs_to_region(region: (i64, i64, i64, i64)) {
+    let Ok(inputs) = ipc(100, "") else { return }; // GET_INPUTS
+    let mut ids: Vec<String> = inputs
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter(|i| {
+                    matches!(
+                        i.get("type").and_then(Value::as_str),
+                        Some("pointer" | "touch" | "tablet_tool")
+                    )
+                })
+                .filter_map(|i| i.get("identifier").and_then(Value::as_str))
+                .filter(|id| !id.to_ascii_lowercase().contains("virtual"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    let mut last = MAPPED.lock().unwrap_or_else(|e| e.into_inner());
+    if last
+        .as_ref()
+        .map(|(r, i)| *r == region && *i == ids)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    for id in &ids {
+        let _ = run_command(&format!(
+            "input \"{}\" map_to_region {} {} {} {}",
+            id, region.0, region.1, region.2, region.3
+        ));
+    }
+    *last = Some((region, ids));
 }
 
 /// Is the default seat's focused workspace on a background output?
