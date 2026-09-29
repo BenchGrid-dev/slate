@@ -116,8 +116,8 @@ def main():
 
     # 1b. window management: two terminals side by side, non-overlapping, inside the screen.
     before2 = {w["id"] for w in m.windows()}
-    m.tool("desktop_launch", command="foot", where="here")
-    m.tool("desktop_launch", command="foot", where="here")
+    m.tool("desktop_launch", command="foot", args=["bash"], where="here")
+    m.tool("desktop_launch", command="foot", args=["bash"], where="here")
     two = wait_for(lambda: (lambda ws: ws if len(ws) >= 2 else None)([w for w in m.windows() if w["app_id"] == "foot" and w["id"] not in before2]), 15)
     check("two terminals launched", bool(two))
     if two:

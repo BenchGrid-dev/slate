@@ -32,12 +32,8 @@ pub fn run() -> Result<()> {
     // must start on a real screen (sway would otherwise focus the first output, which
     // is the headless one).
     if sway::available() {
-        match sway::fix_layout() {
-            Ok(Some(first)) => {
-                let _ = sway::run_command(&format!("focus output {first}"));
-            }
-            Ok(None) => {}
-            Err(e) => slate_proto::log!("slate-desktop daemon: layout: {e:#}"),
+        if let Err(e) = sway::fix_layout() {
+            slate_proto::log!("slate-desktop daemon: layout: {e:#}");
         }
     }
     let mut desktop = Desktop::connect()?;

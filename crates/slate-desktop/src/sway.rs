@@ -368,10 +368,40 @@ pub fn fix_layout() -> Result<Option<String>> {
             cmds.push(format!("output {name} position 0 30000"));
         }
     }
+    let moved = !cmds.is_empty();
     for c in cmds {
         run_command(&c)?;
     }
-    Ok(real.first().map(|r| r.0.clone()))
+    let first = real.first().map(|r| r.0.clone());
+    // The person must never end up on the background screen: their focus goes there
+    // only by accident (an output moved under the cursor, a window mapped there at
+    // login). Bring focus and cursor back to the real screen when that happens.
+    if let Some(f) = &first {
+        if moved || person_is_on_background()? {
+            let _ = run_command(&format!("focus output {f}"));
+            if let Some((_, _, _, w)) = real.first() {
+                let _ = run_command(&format!("seat seat0 cursor set {} {}", w / 2, 300));
+            }
+        }
+    }
+    Ok(first)
+}
+
+/// Is the default seat's focused workspace on a background output?
+fn person_is_on_background() -> Result<bool> {
+    let ws = ipc(1, "")?; // GET_WORKSPACES
+    Ok(ws
+        .as_array()
+        .map(|a| {
+            a.iter().any(|w| {
+                w.get("focused").and_then(Value::as_bool).unwrap_or(false)
+                    && w.get("output")
+                        .and_then(Value::as_str)
+                        .map(crate::mcp::is_background_output)
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false))
 }
 
 /// The container each seat has focused, by seat name.
