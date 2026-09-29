@@ -140,6 +140,8 @@ pub struct WorkspaceGeometry {
     /// Usable area: the output minus panels.
     pub rect: Rect,
     pub focused: bool,
+    /// Shown on its output right now.
+    pub visible: bool,
     pub output: Option<String>,
 }
 
@@ -164,15 +166,46 @@ pub fn tree_full() -> Result<(
 }
 
 /// The usable rectangle of the focused workspace (falls back to the first output).
+/// The usable area of the person's screen: the visible workspace of a real output (the
+/// focused one first), never the agent's background screen.
 pub fn usable_area() -> Result<Rect> {
     let (_, outputs, workspaces) = tree_full()?;
-    if let Some(ws) = workspaces.iter().find(|w| w.focused).or(workspaces.first()) {
+    let real = |w: &&WorkspaceGeometry| {
+        w.output
+            .as_deref()
+            .map(|o| !crate::mcp::is_background_output(o))
+            .unwrap_or(true)
+    };
+    if let Some(ws) = workspaces
+        .iter()
+        .filter(real)
+        .find(|w| w.focused && w.visible)
+        .or_else(|| workspaces.iter().filter(real).find(|w| w.visible))
+        .or_else(|| workspaces.iter().find(real))
+    {
         return Ok(ws.rect.clone());
     }
     outputs
-        .first()
+        .iter()
+        .find(|o| !crate::mcp::is_background_output(&o.name))
+        .or(outputs.first())
         .map(|o| o.rect.clone())
         .ok_or_else(|| anyhow::anyhow!("no outputs"))
+}
+
+/// The usable area of the workspace shown on `output` (for windows that live there).
+pub fn area_for_output(output: &str) -> Option<Rect> {
+    let (_, _, workspaces) = tree_full().ok()?;
+    workspaces
+        .iter()
+        .filter(|w| w.output.as_deref() == Some(output))
+        .find(|w| w.visible)
+        .or_else(|| {
+            workspaces
+                .iter()
+                .find(|w| w.output.as_deref() == Some(output))
+        })
+        .map(|w| w.rect.clone())
 }
 
 fn walk(
@@ -209,6 +242,10 @@ fn walk(
                                 .get("visible")
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
+                    visible: node
+                        .get("visible")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     output: output.map(str::to_string),
                 });
             }

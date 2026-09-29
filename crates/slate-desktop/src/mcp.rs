@@ -135,7 +135,11 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
             Window {
                 titlebar: g.and_then(|g| {
                     if g.deco.height > 0 {
-                        let area = sway::usable_area().ok()?;
+                        let area = g
+                            .output
+                            .as_deref()
+                            .and_then(sway::area_for_output)
+                            .or_else(|| sway::usable_area().ok())?;
                         Some((
                             g.deco.x + area.x,
                             g.deco.y + area.y,
