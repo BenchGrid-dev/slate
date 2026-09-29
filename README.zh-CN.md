@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://slate.benchgrid.dev">
+    <img src="https://slate.benchgrid.dev/opengraph-image" width="1200" alt="BenchGrid 出品的 Slash 与 SlateOS — A little less human. A lot more possible.">
+  </a>
+</p>
+
 <h1 align="center">SlateOS</h1>
 
 <p align="center">

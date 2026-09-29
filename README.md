@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://slate.benchgrid.dev">
+    <img src="https://slate.benchgrid.dev/opengraph-image" width="1200" alt="Slash &amp; SlateOS by BenchGrid — A little less human. A lot more possible.">
+  </a>
+</p>
+
 <h1 align="center">SlateOS</h1>
 
 <p align="center">
