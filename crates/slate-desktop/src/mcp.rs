@@ -110,6 +110,8 @@ pub struct Window {
     pub app_id: String,
     pub title: String,
     pub focused: bool,
+    /// "screen" (on the user's display) or "background" (on the agent's own, unseen output).
+    pub location: String,
     /// Absolute content rectangle, when the compositor tells us.
     pub x: Option<i32>,
     pub y: Option<i32>,
@@ -160,6 +162,15 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 app_id: t.app_id,
                 title: t.title,
                 focused: g.map(|g| g.focused).unwrap_or(false),
+                location: if g
+                    .and_then(|g| g.output.as_deref())
+                    .map(is_background_output)
+                    .unwrap_or(false)
+                {
+                    "background".into()
+                } else {
+                    "screen".into()
+                },
                 x: g.map(|g| g.content.x),
                 y: g.map(|g| g.content.y),
                 width: g.map(|g| g.content.width),
@@ -167,6 +178,36 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
             }
         })
         .collect())
+}
+
+/// The agent's own screen: a headless output the person never sees. Windows there are
+/// "in the background"; `workspace agent` is assigned to it by the SlateOS sway profile.
+pub const BACKGROUND_WORKSPACE: &str = "agent";
+
+pub fn is_background_output(name: &str) -> bool {
+    name.starts_with("HEADLESS-")
+}
+
+/// The background output, if the compositor has one.
+fn background_output() -> Option<String> {
+    let (_, outs) = sway::tree().ok()?;
+    outs.into_iter()
+        .map(|o| o.name)
+        .find(|n| is_background_output(n))
+}
+
+/// The user's output: the first one that is not the background.
+fn screen_output() -> Option<String> {
+    let (_, outs) = sway::tree().ok()?;
+    outs.into_iter()
+        .map(|o| o.name)
+        .find(|n| !is_background_output(n))
+}
+
+fn background_count(d: &mut Desktop) -> usize {
+    windows(d)
+        .map(|ws| ws.iter().filter(|w| w.location == "background").count())
+        .unwrap_or(0)
 }
 
 /// The compositor window an element belongs to (by the pid the tree was read from).
@@ -237,7 +278,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "desktop_windows",
-            "description": "List open windows on the user's desktop: id, app_id, title, focus, and content position/size in screen pixels.",
+            "description": "List open windows: id, app_id, title, focus, location (\"screen\" = visible to the user, \"background\" = on the agent's own unseen screen), and content position/size in layout pixels.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
@@ -284,7 +325,7 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_focus",
-            "description": "Bring a window to the front and give it keyboard focus for the human's seat. Usually unnecessary: desktop_click already focuses the window for the agent's own seat.",
+            "description": "Bring a window to the front on the user's screen (this also gives it the user's keyboard focus, so use it only when the user asked to see or use that window). For a background window use desktop_show.",
             "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}, "required": ["window"]}
         },
         {
@@ -317,8 +358,18 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_launch",
-            "description": "Start a program on the user's desktop (e.g. 'foot', 'firefox'). Returns the pid. Use desktop_windows afterwards to find its window.",
-            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}, "required": ["command"]}
+            "description": "Start a program and wait for its window. `where` = \"background\" (default): the window opens on the agent's own screen, which the user never sees, so you can work without disturbing them; \"here\": on the user's screen, for tasks the user wants to watch or that involve what they are doing. Returns the window id and where it is.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}, "where": {"type": "string", "enum": ["background", "here"]}}, "required": ["command"]}
+        },
+        {
+            "name": "desktop_show",
+            "description": "Bring a background window (or all of them, when no window is given) to the user's screen, e.g. when the user says \"show me\" or a result should be looked at.",
+            "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}}
+        },
+        {
+            "name": "desktop_hide",
+            "description": "Move a window (or every non-terminal window on the user's screen, when no window is given) to the agent's background screen, out of the user's way.",
+            "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}}
         },
         {
             "name": "desktop_elements",
@@ -487,7 +538,8 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
     // Status and cancel never touch the seat.
     match name {
         "desktop_status" => {
-            return json!({"content": [{"type": "text", "text": json!({"controlling": takeover_active()}).to_string()}]});
+            let bg = background_count(d);
+            return json!({"content": [{"type": "text", "text": json!({"controlling": takeover_active(), "background_windows": bg, "background_screen": background_output().is_some()}).to_string()}]});
         }
         "desktop_takeover_cancel" => {
             takeover_cancel();
@@ -904,8 +956,110 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                             .collect()
                     })
                     .unwrap_or_default();
+                let bg = background_output();
+                let wanted = args
+                    .get("where")
+                    .and_then(Value::as_str)
+                    .unwrap_or("background");
+                let target = if wanted == "here" || bg.is_none() {
+                    screen_output().map(|o| format!("move container to output {o}"))
+                } else {
+                    Some(format!(
+                        "move container to workspace {BACKGROUND_WORKSPACE}"
+                    ))
+                };
+                let before: std::collections::HashSet<String> =
+                    windows(d)?.into_iter().map(|w| w.id).collect();
                 let pid = launch(cmd, &a)?;
-                text(format!("started {cmd} (pid {pid})"))
+                // A rule keyed on the pid catches the window before it is shown.
+                if let Some(t) = &target {
+                    let _ = sway::run_command(&format!("for_window [pid={pid}] {t}"));
+                }
+                // Wait for the window (up to 8 s), place it if the rule missed, report it.
+                let mut placed: Option<Window> = None;
+                for _ in 0..32 {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    if let Ok(ws) = windows(d) {
+                        if let Some(w) = ws.into_iter().find(|w| !before.contains(&w.id)) {
+                            placed = Some(w);
+                            break;
+                        }
+                    }
+                }
+                match placed {
+                    Some(mut w) => {
+                        let want_bg = target.as_deref().map(|t| t.contains("workspace")).unwrap_or(false);
+                        if want_bg && w.location != "background" {
+                            if let Some(con) = w.con_id {
+                                let _ = sway::command_for_con(con, &format!("move container to workspace {BACKGROUND_WORKSPACE}"));
+                                std::thread::sleep(std::time::Duration::from_millis(200));
+                                if let Ok(ws) = windows(d) {
+                                    if let Some(n) = ws.into_iter().find(|x| x.id == w.id) { w = n; }
+                                }
+                            }
+                        }
+                        d.last_window = Some(w.id.clone());
+                        text(format!(
+                            "started {cmd} (pid {pid}): window {} ({}) is {}{}",
+                            w.id,
+                            w.title,
+                            if w.location == "background" { "in the background (the user does not see it; desktop_show brings it to their screen)" } else { "on the user's screen" },
+                            if bg.is_none() && wanted != "here" { "; this desktop has no background screen" } else { "" }
+                        ))
+                    }
+                    None => text(format!("started {cmd} (pid {pid}); no window appeared within 8 s (a background service, or it handed off to a running instance). Use desktop_windows.")),
+                }
+            }
+            "desktop_show" | "desktop_hide" => {
+                let to_bg = name == "desktop_hide";
+                let bg = background_output();
+                if to_bg && bg.is_none() {
+                    anyhow::bail!("this desktop has no background screen (the SlateOS profile creates one at login)");
+                }
+                let wins = match args.get("window").and_then(Value::as_str) {
+                    Some(w) if !w.is_empty() => vec![resolve(d, w)?],
+                    _ => windows(d)?
+                        .into_iter()
+                        .filter(|w| {
+                            if to_bg {
+                                w.location == "screen" && w.app_id != "foot"
+                            } else {
+                                w.location == "background"
+                            }
+                        })
+                        .collect(),
+                };
+                let screen = screen_output().ok_or_else(|| anyhow!("no output"))?;
+                let mut moved = vec![];
+                for w in &wins {
+                    let Some(con) = w.con_id else { continue };
+                    let cmd = if to_bg {
+                        format!("move container to workspace {BACKGROUND_WORKSPACE}")
+                    } else {
+                        format!("move container to output {screen}, focus")
+                    };
+                    if sway::command_for_con(con, &cmd).is_ok() {
+                        moved.push(format!("{} ({})", w.id, w.title));
+                    }
+                }
+                text(if moved.is_empty() {
+                    if to_bg {
+                        "nothing to hide".to_string()
+                    } else {
+                        "no windows in the background".to_string()
+                    }
+                } else {
+                    format!(
+                        "{} {}: {}",
+                        if to_bg {
+                            "hidden in the background"
+                        } else {
+                            "brought to the user's screen"
+                        },
+                        moved.len(),
+                        moved.join(", ")
+                    )
+                })
             }
             other => anyhow::bail!("unknown tool {other}"),
         })

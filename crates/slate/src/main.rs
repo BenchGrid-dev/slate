@@ -135,7 +135,14 @@ fn main() -> Result<()> {
         }
         "agent-status" => {
             // {"text","tooltip","class"} for waybar's custom module; never fails.
-            if desktop_controlling() {
+            let desktop = desktop_status();
+            let bg = desktop["background_windows"].as_u64().unwrap_or(0);
+            let bg_suffix = if bg > 0 {
+                format!(" · {bg} in background")
+            } else {
+                String::new()
+            };
+            if desktop["controlling"].as_bool().unwrap_or(false) {
                 println!(
                     "{}",
                     serde_json::json!({"text": "◆ controlling", "tooltip": "Slate is using your mouse and keyboard. Press Esc to take them back.", "class": "controlling"})
@@ -153,17 +160,29 @@ fn main() -> Result<()> {
                                     < 30 * 60 * 1000 =>
                         {
                             (
-                                "◆ working".to_string(),
+                                format!("◆ working{bg_suffix}"),
                                 t.prompt.lines().next().unwrap_or("").to_string(),
                                 "working".to_string(),
                             )
                         }
                         Some(t) => (
-                            "◆ Slate".to_string(),
-                            format!("last task: {}", t.prompt.lines().next().unwrap_or("")),
+                            format!("◆ Slate{bg_suffix}"),
+                            format!(
+                                "last task: {}{}",
+                                t.prompt.lines().next().unwrap_or(""),
+                                if bg > 0 {
+                                    " · middle-click to show the background windows"
+                                } else {
+                                    ""
+                                }
+                            ),
                             "idle".to_string(),
                         ),
-                        None => ("◆ Slate".into(), "no tasks yet".into(), "idle".into()),
+                        None => (
+                            format!("◆ Slate{bg_suffix}"),
+                            "no tasks yet".into(),
+                            "idle".into(),
+                        ),
                     },
                     _ => (
                         "◇ Slate".into(),
@@ -401,28 +420,28 @@ fn skills_list() -> Result<()> {
 }
 
 /// Ask the desktop daemon whether it is borrowing the user's seat right now.
-fn desktop_controlling() -> bool {
+/// The desktop daemon's status object (controlling, background_windows…), or an empty object.
+fn desktop_status() -> serde_json::Value {
     use std::io::{BufRead, BufReader, Write};
     let Ok(mut stream) =
         std::os::unix::net::UnixStream::connect(slate_proto::desktop_socket_path())
     else {
-        return false;
+        return serde_json::json!({});
     };
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
     if stream
         .write_all(b"{\"name\":\"desktop_status\",\"args\":{}}\n")
         .is_err()
     {
-        return false;
+        return serde_json::json!({});
     }
     let mut line = String::new();
     if BufReader::new(stream).read_line(&mut line).is_err() {
-        return false;
+        return serde_json::json!({});
     }
     serde_json::from_str::<serde_json::Value>(&line)
         .ok()
         .and_then(|v| v["content"][0]["text"].as_str().map(str::to_string))
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| v["controlling"].as_bool())
-        .unwrap_or(false)
+        .unwrap_or_else(|| serde_json::json!({}))
 }

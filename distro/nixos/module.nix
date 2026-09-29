@@ -84,6 +84,17 @@ let
     '';
     meta.mainProgram = "slate-askpass";
   };
+  # The session: sway with the headless backend next to DRM, so it can create the agent's
+  # background screen. If that combination fails to start on some hardware, plain sway.
+  slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
+    start=$(date +%s)
+    WLR_BACKENDS=drm,libinput,headless ${pkgs.sway}/bin/sway "$@"
+    code=$?
+    if [ $code -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
+      exec ${pkgs.sway}/bin/sway "$@"
+    fi
+    exit $code
+  '';
   # The floating Slate panel: layer-shell window driving `slash --serve`.
   slateShell = pkgs.stdenv.mkDerivation {
     pname = "slate-shell";
@@ -199,7 +210,7 @@ in
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings slateShell slateAskpass
+        slateSettings slateShell slateAskpass slateosSession
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -295,10 +306,10 @@ in
       enable = true;
       settings.default_session =
         if cfg.desktop.autologinUser != null then {
-          command = "${pkgs.sway}/bin/sway";
+          command = "${slateosSession}/bin/slateos-session";
           user = cfg.desktop.autologinUser;
         } else {
-          command = "${pkgs.tuigreet}/bin/tuigreet --time --remember --cmd ${pkgs.sway}/bin/sway";
+          command = "${pkgs.tuigreet}/bin/tuigreet --time --remember --cmd ${slateosSession}/bin/slateos-session";
           user = "greeter";
         };
     };

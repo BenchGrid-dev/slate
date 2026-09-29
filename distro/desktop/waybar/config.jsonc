@@ -39,7 +39,7 @@
         "interval": 1,
         "format": "{}",
         "on-click": "slate-shell",
-        "on-click-middle": "sh -c \"swaymsg '[title=^slash] focus' | grep -q true || foot -e slash\"",
+        "on-click-middle": "slate-desktop show",
         "on-click-right": "slate-settings"
     }
 }

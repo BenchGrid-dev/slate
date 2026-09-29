@@ -43,7 +43,9 @@ usage:
   slate-desktop read WINDOW               readable text from the accessibility tree
   slate-desktop element-click ID [ACTION] activate an element (action, or pointer fallback)
   slate-desktop element-set-text ID TEXT  set an editable element's text
-  slate-desktop launch CMD [ARGS...]      start a program on this display
+  slate-desktop launch [--here] CMD [ARGS...]  start a program (background screen unless --here)
+  slate-desktop show [WINDOW]             bring background windows to the user's screen
+  slate-desktop hide [WINDOW]             move windows to the background screen
   slate-desktop seats                     which window each seat has focused
   slate-desktop status                    is the agent controlling the user's seat right now
   slate-desktop takeover-cancel           stop borrowing the user's seat (bound to Esc in sway's controlling mode)
@@ -164,6 +166,18 @@ fn main() -> Result<()> {
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }
+        "show" | "hide" => {
+            let r = mcp::cli_call(
+                if cmd == "show" {
+                    "desktop_show"
+                } else {
+                    "desktop_hide"
+                },
+                json!({"window": args.get(1).cloned()}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
         "takeover-cancel" => {
             let r = mcp::cli_call("desktop_takeover_cancel", json!({}))?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
@@ -193,12 +207,17 @@ fn main() -> Result<()> {
             Ok(())
         }
         "launch" => {
-            if args.len() < 2 {
+            let mut rest: Vec<String> = args[1..].to_vec();
+            let here = rest.first().map(|a| a == "--here").unwrap_or(false);
+            if here {
+                rest.remove(0);
+            }
+            if rest.is_empty() {
                 usage();
             }
             let r = mcp::cli_call(
                 "desktop_launch",
-                json!({"command": args[1], "args": args[2..]}),
+                json!({"command": rest[0], "args": rest[1..], "where": if here { "here" } else { "background" }}),
             )?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())

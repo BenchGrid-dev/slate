@@ -7,16 +7,30 @@ description: Manage desktop windows on SlateOS (open, arrange, move, resize, foc
 
 You have MCP tools under the `desktop` server. Prefer them over keyboard shortcuts; the window manager's shortcuts differ per machine and keys you guess land in whatever window is focused.
 
+## Where to work: the user's screen or your own
+
+You have a second screen the user never sees (the "background"). Decide per task:
+
+| The task | Where |
+|---|---|
+| Delivers a result: convert, download, fill in, look something up, prepare a document, run a long job | **background** (the default of `desktop_launch`). The user keeps their screen; you hand over the result. |
+| Helps with what the user is doing now: "this window", "the page I have open", "click that", fix the spreadsheet they are looking at | **here**: act on their window in place, elements first; `desktop_launch` with `where: "here"` if you must open something for them to see. |
+| The user says "show me" / "let me see" | `desktop_show` (all background windows, or one). |
+| The user says "get that out of my way" / "do it in the background" | `desktop_hide`. |
+
+When unsure, use the background: a task done there and shown at the end costs the user nothing; a window popping up over their work interrupts them. Windows already on the user's screen stay there unless they ask; do not raise or focus them for your own convenience (`desktop_focus` also takes the user's keyboard focus). Say where you worked when you report: "prepared in the background, `desktop_show` to see it".
+
 ## Windows
 
 | Want | Use |
 |---|---|
 | see what is open | `desktop_windows` (ids, app_id, title, position, size) |
-| open an app | `desktop_launch` (`firefox`, `foot`, `thunar`, `libreoffice`, `thunderbird`, `mousepad`, `zathura`, `imv`, `mpv`) |
+| open an app | `desktop_launch` (`firefox`, `foot`, `thunar`, `libreoffice`, `thunderbird`, `mousepad`, `zathura`, `imv`, `mpv`); `where` picks background (default) or here |
+| show / hide background windows | `desktop_show` / `desktop_hide` |
 | two or more windows side by side / stacked / grid | `desktop_arrange` with `layout` and an ordered `windows` list |
 | maximise one window | `desktop_arrange` layout `maximize`, or `desktop_window_set` fullscreen |
 | move or resize | `desktop_window_set` with x, y, width, height |
-| bring to front | `desktop_focus` |
+| bring to front on the user's screen | `desktop_focus` (takes their keyboard focus: only when they asked) |
 | close | `desktop_close` (never guess a shortcut) |
 
 ## Inside an application: elements first, pixels second

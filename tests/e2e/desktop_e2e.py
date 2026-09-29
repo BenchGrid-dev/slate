@@ -83,7 +83,7 @@ def main():
     marker = os.path.join(tempfile.gettempdir(), f"slate-e2e-{int(time.time())}.txt")
     # An explicit shell: on Slate the login shell is slash, which would send typed
     # text to the agent instead of running it.
-    m.tool("desktop_launch", command="foot", args=["bash"])
+    m.tool("desktop_launch", command="foot", args=["bash"], where="here")
     foot = wait_for(lambda: find(m, "foot", before))
     check("launch foot appears in windows", foot is not None)
     if foot:
@@ -116,8 +116,8 @@ def main():
 
     # 1b. window management: two terminals side by side, non-overlapping, inside the screen.
     before2 = {w["id"] for w in m.windows()}
-    m.tool("desktop_launch", command="foot")
-    m.tool("desktop_launch", command="foot")
+    m.tool("desktop_launch", command="foot", where="here")
+    m.tool("desktop_launch", command="foot", where="here")
     two = wait_for(lambda: (lambda ws: ws if len(ws) >= 2 else None)([w for w in m.windows() if w["app_id"] == "foot" and w["id"] not in before2]), 15)
     check("two terminals launched", bool(two))
     if two:
@@ -159,7 +159,7 @@ def main():
     # A private profile and --no-remote guarantee a fresh instance: plain `firefox` would
     # hand the request to an already running Firefox and exit.
     profile = tempfile.mkdtemp(prefix="slate-e2e-ff-")
-    m.tool("desktop_launch", command="firefox", args=["--no-remote", "--profile", profile, "about:blank"])
+    m.tool("desktop_launch", command="firefox", args=["--no-remote", "--profile", profile, "about:blank"], where="here")
     ff = wait_for(lambda: find(m, "firefox", before_ff), 40)
     check("launch firefox appears in windows", ff is not None)
     if ff:
@@ -212,9 +212,28 @@ def main():
         gone = wait_for(lambda: find(m, "firefox", before_ff) is None, 15)
         check("desktop_close closes the firefox window", bool(gone))
 
+    # The agent's background screen: launch there, show, hide.
+    status = json.loads(m.tool("desktop_status")[0])
+    if status.get("background_screen"):
+        before_bg = {w["id"] for w in m.windows()}
+        r, _ = m.tool("desktop_launch", command="foot", args=["-e", "sh", "-c", "sleep 60"], where="background")
+        bgw = wait_for(lambda: find(m, "foot", before_bg), 15)
+        check("desktop_launch (background) opens the window on the agent's screen", bgw is not None and bgw["location"] == "background", (bgw or {}).get("location", r[:60]))
+        if bgw:
+            m.tool("desktop_show", window=bgw["id"])
+            shown = wait_for(lambda: (lambda w: w and w["location"] == "screen")(find(m, "foot", before_bg)), 10)
+            check("desktop_show brings it to the user's screen", bool(shown))
+            m.tool("desktop_hide", window=bgw["id"])
+            hidden = wait_for(lambda: (lambda w: w and w["location"] == "background")(find(m, "foot", before_bg)), 10)
+            check("desktop_hide sends it back", bool(hidden))
+            m.tool("desktop_close", window=bgw["id"])
+            wait_for(lambda: find(m, "foot", before_bg) is None, 10)
+    else:
+        print("SKIP background screen: this compositor has no headless output")
+
     # GTK3 through the tree: Thunar's location entry, set and activated over the bus.
     before_th = {w["id"] for w in m.windows()}
-    m.tool("desktop_launch", command="thunar", args=["/tmp"])
+    m.tool("desktop_launch", command="thunar", args=["/tmp"], where="here")
     th = wait_for(lambda: find(m, "thunar", before_th), 20)
     check("launch thunar appears in windows", th is not None)
     if th:

@@ -11,6 +11,12 @@ font pango:Inter Medium 10
 output HEADLESS-1 resolution 1280x800
 output * bg /etc/slate/wallpaper.png fill
 
+# The agent's own screen: a headless output nobody sees, far from the real ones so the
+# cursor cannot wander onto it. Agent windows live on workspace "agent" there; Super+b
+# brings them over ("show me") and back.
+workspace agent output HEADLESS-1
+output HEADLESS-1 resolution 1920x1080 position 20000 0 bg #0c0d12 solid_color
+
 # Per-user overrides written by the settings app and by agents (display, keys…).
 # Kept outside /etc so the system profile stays pristine and a bad setting is one file.
 include ~/.config/slate/sway.d/*.conf
@@ -40,6 +46,7 @@ bindsym $mod+e exec $files
 bindsym $mod+t exec mousepad
 bindsym $mod+comma exec slate-settings
 bindsym $mod+s exec slate-shell
+bindsym $mod+b exec slate-desktop show
 bindsym $mod+q kill
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+e exec swaymsg exit
@@ -77,7 +84,8 @@ bar {
 
 # The agent seat must exist before any app starts (apps ignore seats added later):
 # hand the display to systemd and start the supervised daemon first.
-exec systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart slate-desktop.service
+# The background screen must exist before the daemon binds its pointers.
+exec swaymsg create_output; sleep 0.5; systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart slate-desktop.service
 exec mako
 exec sleep 2 && slate-shell --hidden
 exec sleep 1 && foot

@@ -5,6 +5,7 @@
 //! Everything here runs on one thread; callers use [`Desktop`] directly.
 
 use crate::keymap::{self, Keymap};
+use crate::sway;
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -64,6 +65,9 @@ pub struct Toplevel {
 }
 
 #[derive(Debug, Clone)]
+/// (output name, logical extent, layout origin)
+type OutputHit = (String, (i32, i32), (f64, f64));
+
 pub struct Output {
     pub name: String,
     pub width: i32,
@@ -110,6 +114,11 @@ pub struct Desktop {
     agent_seat: wl_seat::WlSeat,
     user_seat: wl_seat::WlSeat,
     pointer: vp::ZwlrVirtualPointerV1,
+    /// The agent seat's pointer per output (a virtual pointer maps to one output; the
+    /// agent's background screen is a second output).
+    agent_pointers: HashMap<String, vp::ZwlrVirtualPointerV1>,
+    /// Output the agent pointer was last moved on; button events follow the move.
+    agent_pointer_output: Option<String>,
     keyboard: vk::ZwpVirtualKeyboardV1,
     /// Virtual devices on the user's own seat, for the GTK4 fallback.
     user_pointer: vp::ZwlrVirtualPointerV1,
@@ -194,6 +203,13 @@ impl Desktop {
         let output = state.outputs.first().map(|o| o.proxy.clone());
         let pointer =
             vp_mgr.create_virtual_pointer_with_output(Some(&seat), output.as_ref(), &qh, ());
+        let mut agent_pointers = HashMap::new();
+        for o in &state.outputs {
+            agent_pointers.insert(
+                o.name.clone(),
+                vp_mgr.create_virtual_pointer_with_output(Some(&seat), Some(&o.proxy), &qh, ()),
+            );
+        }
         let keyboard = vk_mgr.create_virtual_keyboard(&seat, &qh, ());
         // The user's seat: the first wl_seat global that is not ours.
         let mut user_seat_name = None;
@@ -230,6 +246,8 @@ impl Desktop {
             agent_seat: seat.clone(),
             user_seat: user_seat.clone(),
             pointer,
+            agent_pointers,
+            agent_pointer_output: None,
             keyboard,
             user_pointer,
             user_keyboard,
@@ -275,9 +293,44 @@ impl Desktop {
 
     fn ptr(&self, seat: Seat) -> &vp::ZwlrVirtualPointerV1 {
         match seat {
-            Seat::Agent => &self.pointer,
+            Seat::Agent => self
+                .agent_pointer_output
+                .as_ref()
+                .and_then(|n| self.agent_pointers.get(n))
+                .unwrap_or(&self.pointer),
             Seat::User => &self.user_pointer,
         }
+    }
+
+    /// The output under layout point (x, y): name, logical extent, origin. Without sway
+    /// (no layout information) the first output at the origin.
+    fn output_at(&self, x: f64, y: f64) -> Option<OutputHit> {
+        if sway::available() {
+            if let Ok((_, outs)) = sway::tree() {
+                for o in &outs {
+                    let r = &o.rect;
+                    if x >= r.x as f64
+                        && y >= r.y as f64
+                        && x < (r.x + r.width) as f64
+                        && y < (r.y + r.height) as f64
+                    {
+                        if let Some(so) = self.state.outputs.iter().find(|s| s.name == o.name) {
+                            return Some((
+                                o.name.clone(),
+                                (so.width.max(1), so.height.max(1)),
+                                (r.x as f64, r.y as f64),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let o = self.state.outputs.first()?;
+        Some((
+            o.name.clone(),
+            (o.width.max(1), o.height.max(1)),
+            (0.0, 0.0),
+        ))
     }
 
     fn kbd(&self, seat: Seat) -> &vk::ZwpVirtualKeyboardV1 {
@@ -393,10 +446,26 @@ impl Desktop {
 
     /// Move the agent pointer to absolute output coordinates.
     pub fn pointer_move(&mut self, seat: Seat, x: f64, y: f64) -> Result<()> {
-        let (w, h) = self.extent()?;
+        // Layout coordinates → the output under them, in that output's own space.
+        let (w, h, ox, oy) = match (seat, self.output_at(x, y)) {
+            (Seat::Agent, Some((name, (w, h), (ox, oy)))) => {
+                self.agent_pointer_output = Some(name);
+                (w, h, ox, oy)
+            }
+            _ => {
+                let (w, h) = self.extent()?;
+                (w, h, 0.0, 0.0)
+            }
+        };
         let t = self.now_ms();
         let p = self.ptr(seat);
-        p.motion_absolute(t, x.max(0.0) as u32, y.max(0.0) as u32, w as u32, h as u32);
+        p.motion_absolute(
+            t,
+            (x - ox).max(0.0) as u32,
+            (y - oy).max(0.0) as u32,
+            w as u32,
+            h as u32,
+        );
         p.frame();
         self.queue.flush()?;
         self.roundtrip()
