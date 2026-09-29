@@ -610,18 +610,37 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
         );
     }
     // Re-adding a floating container puts it on top of the pile; size and position
-    // are restored in the same command so nothing else changes.
+    // are restored in the same command so nothing else changes. `move position`
+    // places the title bar's top-left corner (workspace-relative), which is what
+    // deco_rect gives; without a title bar it is the container itself.
+    let (px, py) = if me.deco.height > 0 {
+        (me.deco.x, me.deco.y)
+    } else {
+        (me.rect.x - ws.x, me.rect.y - ws.y)
+    };
     sway::command_for_con(
         con,
         &format!(
             "floating disable, floating enable, resize set {} px {} px, move position {} px {} px",
-            me.content.width,
-            me.content.height,
-            me.rect.x - ws.x,
-            me.rect.y - ws.y
+            me.content.width, me.content.height, px, py
         ),
     )?;
     std::thread::sleep(std::time::Duration::from_millis(150));
+    // Click where the window is now, not where it was.
+    if let Ok((geos, _)) = sway::tree() {
+        if let Some(g) = geos.iter().find(|g| g.con_id == con) {
+            if g.deco.height > 0 {
+                return Ok((
+                    ws.x as f64 + g.deco.x as f64 + g.deco.width as f64 / 2.0,
+                    ws.y as f64 + g.deco.y as f64 + g.deco.height as f64 / 2.0,
+                ));
+            }
+            return Ok((
+                g.content.x as f64 + g.content.width as f64 / 2.0,
+                g.content.y as f64 + 6.0,
+            ));
+        }
+    }
     Ok(centre)
 }
 
