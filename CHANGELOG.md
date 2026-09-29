@@ -7,7 +7,7 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 - Desktop: windows the agent opens in the background no longer flash on the user's screen first (they map straight onto the background screen). A program the agent's engine starts from the shell is moved to the background as it appears, unless `desktop_launch` asked for it on the user's screen. `desktop_focus` on a background window brings it to the user instead of pulling the user's focus onto the background screen, and the user's seat refuses to type there.
 - Panel: workspace 1 is always shown, also when it has no windows.
 - CLI: `slate-desktop type | key | click` take `--window W`.
-- Fix: focusing a window for the agent's seat clicked the middle of its title bar, which could belong to a window stacked above it; the click now lands where the window is visible, and a covered background window is brought to the top of the pile first.
+- Fix: focusing a window for the agent's seat clicked the middle of its title bar, which could belong to a window stacked above it; the click now lands where the window is visible, and a covered background window is moved to a free spot for that click (which raises it) and put back.
 
 ## 0.0.17 — 2026-09-29
 

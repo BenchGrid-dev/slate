@@ -541,9 +541,10 @@ fn focused_window(d: &mut Desktop, seat: Seat) -> Option<Window> {
 
 /// A point on `win` where a click reaches it: on its title bar (or the top strip of
 /// its content when the app draws its own), away from anything stacked above it.
-/// Background windows pile up in the middle of the agent's screen, so a covered
-/// window there is first brought to the top of the pile (its size and place kept).
-fn focus_point(win: &Window) -> Result<(f64, f64)> {
+/// Background windows pile up in the middle of the agent's screen; a covered window
+/// there is moved to a free corner for the click (which also raises it) and the
+/// returned command puts it back afterwards.
+fn focus_point(win: &Window) -> Result<((f64, f64), Option<(i64, String)>)> {
     let bar: (f64, f64, f64, f64) = match win.titlebar {
         Some((tx, ty, tw, th)) => (tx as f64, ty as f64, tw as f64, th as f64),
         None => (
@@ -555,13 +556,13 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
     };
     let centre = (bar.0 + bar.2 / 2.0, bar.1 + bar.3 / 2.0);
     let Some(con) = win.con_id else {
-        return Ok(centre);
+        return Ok((centre, None));
     };
     let Ok((geos, _)) = sway::tree() else {
-        return Ok(centre);
+        return Ok((centre, None));
     };
     let Some(me) = geos.iter().find(|g| g.con_id == con) else {
-        return Ok(centre);
+        return Ok((centre, None));
     };
     // Title bars are drawn above the container rectangle, relative to the workspace.
     let ws = sway::area_for_output(me.output.as_deref().unwrap_or("")).unwrap_or(sway::Rect {
@@ -593,12 +594,12 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
     };
     let y = centre.1;
     if !covered(centre.0, y) {
-        return Ok(centre);
+        return Ok((centre, None));
     }
     let mut x = bar.0 + 16.0;
     while x < bar.0 + bar.2 - 8.0 {
         if !covered(x, y) {
-            return Ok((x, y));
+            return Ok(((x, y), None));
         }
         x += 40.0;
     }
@@ -609,39 +610,41 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
             win.title
         );
     }
-    // Re-adding a floating container puts it on top of the pile; size and position
-    // are restored in the same command so nothing else changes. `move position`
-    // places the title bar's top-left corner (workspace-relative), which is what
-    // deco_rect gives; without a title bar it is the container itself.
-    let (px, py) = if me.deco.height > 0 {
+    // `move position` places the title bar's top-left corner, workspace-relative
+    // (deco_rect); without a title bar, the container itself.
+    let has_bar = me.deco.height > 0;
+    let bar_h = if has_bar { me.deco.height } else { 0 };
+    let (home_x, home_y) = if has_bar {
         (me.deco.x, me.deco.y)
     } else {
         (me.rect.x - ws.x, me.rect.y - ws.y)
     };
-    sway::command_for_con(
-        con,
-        &format!(
-            "floating disable, floating enable, resize set {} px {} px, move position {} px {} px",
-            me.content.width, me.content.height, px, py
-        ),
-    )?;
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    // Click where the window is now, not where it was.
-    if let Ok((geos, _)) = sway::tree() {
-        if let Some(g) = geos.iter().find(|g| g.con_id == con) {
-            if g.deco.height > 0 {
-                return Ok((
-                    ws.x as f64 + g.deco.x as f64 + g.deco.width as f64 / 2.0,
-                    ws.y as f64 + g.deco.y as f64 + g.deco.height as f64 / 2.0,
-                ));
-            }
-            return Ok((
-                g.content.x as f64 + g.content.width as f64 / 2.0,
-                g.content.y as f64 + 6.0,
-            ));
+    let (w, h) = (me.rect.width, me.rect.height + bar_h);
+    let spots = [
+        (0, 0),
+        (ws.width - w, 0),
+        (0, ws.height - h),
+        (ws.width - w, ws.height - h),
+        ((ws.width - w) / 2, 0),
+    ];
+    for (tx, ty) in spots {
+        let px = (ws.x + tx) as f64 + w as f64 / 2.0;
+        let py = (ws.y + ty) as f64 + if has_bar { bar_h as f64 / 2.0 } else { 6.0 };
+        if covered(px, py) {
+            continue;
         }
+        sway::command_for_con(con, &format!("move position {tx} px {ty} px"))?;
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        return Ok((
+            (px, py),
+            Some((con, format!("move position {home_x} px {home_y} px"))),
+        ));
     }
-    Ok(centre)
+    anyhow::bail!(
+        "{} ({}) is covered by other windows on the background screen and no free spot was found; close or move some of them",
+        win.id,
+        win.title
+    )
 }
 
 /// Make sure `seat` will type into `win`: focus it, then verify. For the agent seat
@@ -656,8 +659,13 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
     }
     match seat {
         Seat::Agent => {
-            let (x, y) = focus_point(win)?;
-            d.click(seat, x, y, "left", 1)?;
+            let ((x, y), put_back) = focus_point(win)?;
+            let clicked = d.click(seat, x, y, "left", 1);
+            if let Some((con, cmd)) = put_back {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                let _ = sway::command_for_con(con, &cmd);
+            }
+            clicked?;
         }
         Seat::User => {
             if win.location == "background" {
