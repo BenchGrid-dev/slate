@@ -859,7 +859,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slash"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "dirs",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "slate"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "serde",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "slate-desktop"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "base64",
@@ -904,7 +904,7 @@ dependencies = [
 
 [[package]]
 name = "slate-proto"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "serde",
  "serde_json",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "slated"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "dirs",

@@ -161,8 +161,8 @@ Terminal                         Desktop prompt
 | [`slate`](crates/slate) | Management CLI, agent hooks, MCP tools, and OS Skills installation. |
 | [`slate-desktop`](crates/slate-desktop) | Wayland seat ownership, window capture, input, window management, and desktop MCP tools. |
 | [`slate-proto`](crates/slate-proto) | Shared protocol types for local process communication. |
-| [`skills/base`](skills/base) | Eight task guides covering audio, brightness, displays, windows, networking, services, system configuration, and undo. |
-| [`distro`](distro) | NixOS module, sway profile, panel, launcher, notifications, and Python/GTK4 prompt and settings applications. |
+| [`skills/base`](skills/base) | Thirteen task guides: audio, brightness, displays, windows and applications, networking, services, system configuration, undo, office documents, mail and calendar, PDFs, media playback, text editing. |
+| [`distro`](distro) | NixOS module, sway profile, panel, launcher, notifications, the application suite, and Python/GTK4 prompt and settings applications. |
 
 The runtime is written in **Rust**. Local services communicate over Unix sockets; agent-facing tools use **MCP**. See the [architecture document](docs/architecture.md) and [architecture decisions](docs/decisions/README.md) for design rationale and open questions.
 

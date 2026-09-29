@@ -33,7 +33,9 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 
 ## What `services.slate.desktop.enable` adds
 
-- sway configured as a conventional stacking desktop (floating windows with title bars), a quiet dark theme (Inter, JetBrains Mono, Font Awesome icons, dark GTK/libadwaita via dconf), waybar with the Slate status module, fuzzel, mako, foot, Firefox, Thunar, a text editor, an image viewer.
+- sway configured as a conventional stacking desktop (floating windows with title bars), a quiet dark theme (Inter, JetBrains Mono, Font Awesome icons, dark GTK/libadwaita via dconf), waybar with the Slate status module, fuzzel, mako, foot.
+- Applications, chosen so that the agent can work in them: each exposes an accessibility tree and has a command-line or D-Bus path for the common tasks. `desktop.apps = "minimal"` installs Firefox, Thunar, Mousepad, imv and pavucontrol; `"full"` (the default) adds LibreOffice, Thunderbird (mail, calendar, contacts), zathura (PDF) and mpv. Each has an OS Skill.
+- Accessibility on for every toolkit (the bus enabled, `NO_AT_BRIDGE` unset, the Firefox/Chromium/Qt switches), so `desktop_elements` and friends see GTK3, GTK4, Firefox, LibreOffice and Qt applications.
 - `slate-desktop daemon` as a supervised user service started first by sway, so the agent seat predates every app.
 - The Slate prompt (`slate-shell`, `Mod+s` or the panel button) and the settings app (`slate-settings`, `Mod+comma`).
 - greetd: autologin into sway for `desktop.autologinUser`, or tuigreet.
@@ -46,6 +48,7 @@ Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `
 |---|---|---|
 | `fallbackShell` | bash | The POSIX shell slash uses for `!` lines and non-interactive invocations |
 | `snapshotRoot` | the user's home | A user-owned btrfs subvolume slated snapshots for undo; set it when home is not one |
+| `desktop.apps` | `"full"` | `"full"` or `"minimal"` application set (see above) |
 | `agents` | `[ pkgs.claude-code ]` | Agent CLIs to install |
 | `sway.enable` | true | Enable sway with the tools slate-desktop relies on |
 | `package` | the flake's `slate` | Override the Slate package |

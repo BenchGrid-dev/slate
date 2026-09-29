@@ -161,8 +161,8 @@ Terminal                         Desktop prompt
 | [`slate`](crates/slate) | 管理 CLI、Agent hooks、MCP 工具与 OS Skills 安装。 |
 | [`slate-desktop`](crates/slate-desktop) | Wayland 席位管理、窗口截图、输入、窗口管理与桌面 MCP 工具。 |
 | [`slate-proto`](crates/slate-proto) | 本地进程通信共享的协议类型。 |
-| [`skills/base`](skills/base) | 八类任务指南，覆盖音量、亮度、显示、窗口、网络、服务、系统配置与撤销。 |
-| [`distro`](distro) | NixOS 模块、sway 配置、顶栏、启动器、通知，以及 Python/GTK4 编写的输入框和设置应用。 |
+| [`skills/base`](skills/base) | 十三类任务指南：音量、亮度、显示、窗口与应用、网络、服务、系统配置、撤销、办公文档、邮件与日历、PDF、媒体播放、文本编辑。 |
+| [`distro`](distro) | NixOS 模块、sway 配置、顶栏、启动器、通知、应用套件，以及 Python/GTK4 编写的输入框和设置应用。 |
 
 运行时使用 **Rust** 编写。本地服务通过 Unix socket 通信，面向 Agent 的工具使用 **MCP**。设计依据与未决问题见[架构文档](docs/architecture.md)和[架构决策记录](docs/decisions/README.md)。
 
