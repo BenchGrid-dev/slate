@@ -4,6 +4,7 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Live and installer image: `nix build .#iso` (`nixosConfigurations.iso-x86_64-linux` / `iso-aarch64-linux`) boots into the SlateOS desktop; `slateos-install --disk --user --host` partitions (EFI + btrfs with per-user home subvolumes), writes `/etc/slateos/configuration.nix` from a template with the full application set, and runs `nixos-install` from the image's store.
 - Root with consent: `sudo` (and `ssh`) without a terminal ask the person through `slate-askpass`, a desktop dialog; the password goes to sudo only and each use asks again. The system skill and slash's prompt tell the agent to run plain `sudo`. System changes (`slateos-rebuild switch`, package installs) are now possible from a task.
 
 ## 0.0.12 — 2026-09-28

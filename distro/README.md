@@ -1,6 +1,6 @@
 # SlateOS on NixOS
 
-SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.nix`), the desktop profile (`desktop/`: sway, waybar, fuzzel, mako, foot, wallpaper), the settings app (`desktop/slate-settings.py`) and the Slate prompt (`desktop/slate-shell.py`). There is no installable image yet; the module turns any NixOS machine into SlateOS.
+SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.nix`), the desktop profile (`desktop/`: sway, waybar, fuzzel, mako, foot, wallpaper), the settings app, the Slate prompt, the password dialog, and the live/installer image (`iso/`). The module turns any NixOS machine into SlateOS; the image installs it on a blank disk.
 
 ```nix
 # flake.nix of your system
@@ -73,10 +73,28 @@ The symlink keeps `nixos-rebuild` and channel-based tooling working; `slateos-re
 
 The base system, its modules and the `nixos-*` tools come from nixpkgs, which is MIT-licensed: modifying, renaming and redistributing them is permitted as long as the copyright notice travels with the code (SlateOS consumes nixpkgs as a flake input and does not copy it). Nix itself (LGPL 2.1) is used unmodified. "NixOS" is a trademark of the NixOS Foundation (registered in 2026, policy in preparation); SlateOS uses the name only to say what it is built on, ships no NixOS logos, and does not call itself NixOS. Internal markers such as `/etc/NIXOS`, the `nixos` channel name and `ID_LIKE=nixos` stay, because the tooling depends on them.
 
-## What the installer will have to do
+## The live and installer image
 
-- Create every user's home as its own btrfs subvolume, owned by the user (snapshots and undo need it).
-- Sign the user in to their agent on first boot (`claude auth login` / `codex login`).
+```
+nix build .#iso                       # the image for the building machine's architecture
+ls result/iso/                        # slateos-<label>-<arch>.iso
+```
+
+Both `x86_64-linux` and `aarch64-linux` are defined (`nixosConfigurations.iso-<arch>`). The image boots into the SlateOS desktop as the live user `slate` (no password), with NetworkManager, the Slate runtime, the minimal application set and the installer. Nothing on disk is touched until you run the installer.
+
+From a terminal in the live desktop:
+
+```
+sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox --tz Europe/Berlin
+```
+
+It asks for the disk name again and for the user's password, then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the full application set, copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
+
+Status: the image builds and boots to the desktop; the installer script is written against the layout above and has been tried on a virtual disk. Report what happens on real hardware.
+
+## What the installer does not do yet
+
+- Encryption (LUKS) and dual boot.
+- A graphical installer; `slateos-install` is a command.
+- Agent sign-in on first boot (Settings → AI does it after login).
 - Ship the patched compositor once the seat-filtering and ghost-cursor patches exist (ADR 0007).
-- Give the agent a consented path to root for system changes (open question in `docs/architecture.md`).
-- Preinstall the base OS Skills.

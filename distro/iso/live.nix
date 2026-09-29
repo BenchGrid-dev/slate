@@ -57,5 +57,4 @@ in
   nix.registry.nixpkgs.flake = nixpkgs;
   nix.registry.slate.flake = self;
 
-  system.stateVersion = lib.mkDefault "26.05";
 }

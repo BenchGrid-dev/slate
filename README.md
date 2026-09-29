@@ -27,7 +27,7 @@ The central idea is simple: **an agent should have its own place on your desktop
 
 The repository contains both the Slate runtime and the SlateOS desktop configuration. You can start with the conversational shell or deploy the integrated desktop.
 
-> **Project status:** Pre-alpha · current version **0.0.11**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; an installable ISO is planned. See [project status](#project-status) for current boundaries.
+> **Project status:** Pre-alpha · current version **0.0.12**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; a live/installer image builds from the flake and is being tested. See [project status](#project-status) for current boundaries.
 
 ## Why SlateOS
 
@@ -193,7 +193,7 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
 | Desktop control | Dedicated agent seat, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo asks the person through a dialog). | Codex approval integration, agent identity isolation, a polkit agent for GUI privilege requests. |
-| Distribution | NixOS module, desktop profile, settings app, and SlateOS system command wrappers. | Installable image, installer, and first-run setup. |
+| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with `slateos-install`. | Image testing on real hardware, graphical installer, first-run agent sign-in. |
 
 **Application compatibility matters.** The agent seat has been verified with foot, Firefox, and GTK3/Thunar when the seat exists before the application starts. Tested GTK4/libadwaita applications require the user-seat fallback. Qt, Chromium/Electron, and Flatpak coverage is still being investigated. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
 
