@@ -97,10 +97,10 @@ impl A11y {
             .context("connecting to the accessibility bus")?;
         // Toolkits only publish their trees while the bus says accessibility is on
         // (GNOME's session sets this; a plain compositor session does not).
-        let _ = launcher.set_property("IsEnabled", true).or_else(|_| {
-            Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Status")
-                .and_then(|p| p.set_property("IsEnabled", true))
-        });
+        if let Ok(status) = Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Status")
+        {
+            let _ = status.set_property("IsEnabled", true);
+        }
         Ok(Self {
             conn,
             handles: HashMap::new(),
@@ -215,7 +215,27 @@ impl A11y {
                 return Ok(nodes);
             }
         }
-        self.nodes_recursive(app)
+        self.nodes_recursive(app, None)
+    }
+
+    /// The nodes to work with for one frame: the cache when it covers the frame, else a
+    /// walk from the frame (GTK4 only caches what an AT has already asked for).
+    fn nodes_for_frame(&self, app: &Ref, title: &str) -> Result<(Vec<Node>, Ref)> {
+        let nodes = self.nodes_of(app)?;
+        let frame = self
+            .frame_of(&nodes, app, title)
+            .ok_or_else(|| anyhow!("the application exposes no window on the accessibility bus"))?;
+        let frame_ref = frame.r.clone();
+        let under = self.subtree(&nodes, &frame_ref).len();
+        if under >= 30 {
+            return Ok((nodes, frame_ref));
+        }
+        let walked = self.nodes_recursive(&frame_ref, Some(app.clone()))?;
+        if walked.len() > under {
+            Ok((walked, frame_ref))
+        } else {
+            Ok((nodes, frame_ref))
+        }
     }
 
     fn nodes_from_cache(&self, app: &Ref) -> Result<Vec<Node>> {
@@ -262,10 +282,10 @@ impl A11y {
             .collect())
     }
 
-    fn nodes_recursive(&self, app: &Ref) -> Result<Vec<Node>> {
+    fn nodes_recursive(&self, root: &Ref, root_parent: Option<Ref>) -> Result<Vec<Node>> {
         let mut out = vec![];
         let mut queue = std::collections::VecDeque::new();
-        queue.push_back((app.clone(), None));
+        queue.push_back((root.clone(), root_parent));
         while let Some((r, parent)) = queue.pop_front() {
             if out.len() >= MAX_NODES {
                 break;
@@ -397,12 +417,12 @@ impl A11y {
         all: bool,
     ) -> Result<Vec<Element>> {
         let app = self.application_for(pid, app_hint)?;
-        let nodes = self.nodes_of(&app)?;
-        let frame = self
-            .frame_of(&nodes, &app, title)
-            .ok_or_else(|| anyhow!("the application exposes no window on the accessibility bus"))?;
-        let frame_ref = frame.r.clone();
-        let frame_title = frame.name.clone();
+        let (nodes, frame_ref) = self.nodes_for_frame(&app, title)?;
+        let frame_title = nodes
+            .iter()
+            .find(|n| n.r == frame_ref)
+            .map(|n| n.name.clone())
+            .unwrap_or_default();
         let sub = self.subtree(&nodes, &frame_ref);
         let total = sub.len();
         let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
@@ -465,12 +485,12 @@ impl A11y {
     /// The readable content of the window as an outline: headings, text, links, labels.
     pub fn read(&mut self, pid: u32, app_hint: &str, title: &str) -> Result<String> {
         let app = self.application_for(pid, app_hint)?;
-        let nodes = self.nodes_of(&app)?;
-        let frame = self
-            .frame_of(&nodes, &app, title)
-            .ok_or_else(|| anyhow!("the application exposes no window on the accessibility bus"))?;
-        let frame_ref = frame.r.clone();
-        let frame_title = frame.name.clone();
+        let (nodes, frame_ref) = self.nodes_for_frame(&app, title)?;
+        let frame_title = nodes
+            .iter()
+            .find(|n| n.r == frame_ref)
+            .map(|n| n.name.clone())
+            .unwrap_or_default();
         let sub = self.subtree(&nodes, &frame_ref);
         let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
         let mut out = String::new();
