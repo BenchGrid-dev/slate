@@ -90,7 +90,7 @@ sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox --tz Europe/B
 
 It asks for the disk name again and for the user's password, then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the full application set, copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
 
-Status: the image builds and boots to the desktop; the installer script is written against the layout above and has been tried on a virtual disk. Report what happens on real hardware.
+Status: the aarch64 image builds (about 2.9 GB) and boots to the graphical target in QEMU (verified over the serial console: greetd starts, the getty greets as SlateOS); the installer's partitioning, subvolume and configuration steps have been exercised on a loop device (`--dry-run`). A complete install on real hardware or in a virtual machine has not been run yet. Report what happens.
 
 ## What the installer does not do yet
 
