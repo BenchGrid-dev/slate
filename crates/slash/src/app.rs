@@ -40,6 +40,8 @@ enum ClientMsg {
     Command {
         line: String,
     },
+    /// Interrupt the turn in progress (handled on the reader thread, at once).
+    Cancel,
     Quit,
 }
 
@@ -163,6 +165,10 @@ impl App {
                             let _ = w.send((allow, remember));
                         }
                     }
+                    Ok(ClientMsg::Cancel) => {
+                        // Interrupt the agent now; the main thread sees the turn end.
+                        backend::cancel_current_turn();
+                    }
                     Ok(msg) => {
                         if tx.send(msg).is_err() {
                             break;
@@ -206,7 +212,7 @@ impl App {
                     }
                     self.emit(serde_json::json!({"event": "done", "ok": true, "summary": null, "stats": null}));
                 }
-                ClientMsg::Approve { .. } => {}
+                ClientMsg::Approve { .. } | ClientMsg::Cancel => {}
                 ClientMsg::Quit => return Ok(0),
             }
         }

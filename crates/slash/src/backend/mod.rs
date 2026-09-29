@@ -40,6 +40,23 @@ pub enum Event {
     Other(String),
 }
 
+/// Pid of the agent process of the turn in progress (0 when none), so another thread can
+/// interrupt it (serve mode's `cancel`; the terminal's Ctrl-C reaches it as SIGINT anyway).
+pub static CURRENT_CHILD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Interrupt the turn in progress. Returns whether there was one.
+pub fn cancel_current_turn() -> bool {
+    let pid = CURRENT_CHILD.load(std::sync::atomic::Ordering::SeqCst);
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: plain signal to a child we spawned; a stale pid is harmless (ESRCH).
+    unsafe {
+        libc::kill(pid as i32, libc::SIGINT);
+    }
+    true
+}
+
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     /// Session context to attach as system-prompt material.

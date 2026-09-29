@@ -111,6 +111,7 @@ impl Backend for Codex {
             .command(&req)
             .spawn()
             .with_context(|| format!("launching {} (is Codex installed?)", self.cfg.bin))?;
+        super::CURRENT_CHILD.store(child.id(), std::sync::atomic::Ordering::SeqCst);
 
         let stdout = child.stdout.take().context("no stdout")?;
         let mut stderr = child.stderr.take().context("no stderr")?;
@@ -131,6 +132,7 @@ impl Backend for Codex {
             on_event(ev);
         })?;
 
+        super::CURRENT_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
         let status = child.wait()?;
         let err = stderr_thread.join().unwrap_or_default();
         self.thread_id = thread_id;

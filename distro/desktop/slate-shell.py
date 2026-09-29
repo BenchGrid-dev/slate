@@ -57,6 +57,10 @@ entry.ask placeholder, entry.ask text placeholder { color: #8a90a0; }
 .approval-title { color: #b26a00; font-weight: 600; font-size: 13px; }
 .approval-detail { font-family: monospace; color: #1c1f27; font-size: 12px; }
 .approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
+.queue { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 14px; padding: 8px 12px; }
+.queue-title { color: #8a90a0; font-size: 11px; font-weight: 600; }
+.queue-text { color: #1c1f27; font-size: 13px; }
+.queue-btn { min-height: 22px; min-width: 22px; padding: 0 4px; color: #6b7080; }
 """
 
 CSS = b"""
@@ -84,7 +88,21 @@ entry.ask placeholder, entry.ask text placeholder { color: #6b7080; }
 .approval-title { color: #e5a35a; font-weight: 600; font-size: 13px; }
 .approval-detail { font-family: monospace; color: #d7dae2; font-size: 12px; }
 .approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
+.queue { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 8px 12px; }
+.queue-title { color: #6b7080; font-size: 11px; font-weight: 600; }
+.queue-text { color: #d7dae2; font-size: 13px; }
+.queue-btn { min-height: 22px; min-width: 22px; padding: 0 4px; color: #9ba1b0; }
 """
+
+
+def theme_is_dark(style=None):
+    """The desktop's theme: slate-theme's choice first (it is what the person set), the
+    toolkit's colour-scheme flag otherwise."""
+    try:
+        with open(os.path.expanduser("~/.config/slate/theme.json")) as f:
+            return json.load(f).get("theme", "dark") != "light"
+    except Exception:  # noqa: BLE001
+        return style.get_dark() if style is not None else True
 
 
 def markup(text):
@@ -110,6 +128,18 @@ def tool_label(name):
         if len(parts) == 3:
             return parts[2] if parts[2].startswith(parts[1]) else f"{parts[1]}: {parts[2]}"
     return name
+
+
+def seat0_focus():
+    """The container the person's seat has focused (None if unknown)."""
+    try:
+        seats = json.loads(subprocess.run(["swaymsg", "-t", "get_seats"], capture_output=True, text=True, timeout=3).stdout)
+        for s in seats:
+            if s.get("name") == "seat0":
+                return s.get("focus")
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def run(cmd):
@@ -193,6 +223,14 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.card.append(w)
         root.append(self.card)
 
+        # Messages typed while Slate works wait here; each can be edited, sent now
+        # (steering: the current turn is interrupted) or dropped. They go out one by
+        # one when a turn ends.
+        self.queue_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, css_classes=["queue"], width_request=WIDTH, visible=False)
+        self.queue_box.append(Gtk.Label(label="Queued", xalign=0, css_classes=["queue-title"]))
+        root.append(self.queue_box)
+        self.queue = []  # [(row widget, text)]
+
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
@@ -211,6 +249,7 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.press_on_panel = False
 
         self.busy = False
+        self.steer_text = None
         self.reply_text = ""
         self.thinking_text = ""
         self.activity_text = ""
@@ -226,6 +265,10 @@ class ShellWindow(Gtk.ApplicationWindow):
         # seconds (screenshots, launches) and a blocked main loop freezes the overlay,
         # which, while it holds the keyboard, freezes the whole desktop.
         threading.Thread(target=self._poll_control_thread, daemon=True).start()
+        # When the person's focus moves to another window while the prompt is shown
+        # passively, they have moved on: put the prompt away (approvals stay).
+        self.user_focus = None
+        threading.Thread(target=self._watch_user_focus, daemon=True).start()
 
     # ---- showing and hiding
     def set_shape(self, active):
@@ -237,6 +280,7 @@ class ShellWindow(Gtk.ApplicationWindow):
 
     def show_active(self):
         """Open for typing: takes the keyboard; a click anywhere else dismisses it."""
+        self.apply_theme_now()
         self.cancel_hide_timer()
         self.passive = False
         self.set_shape(active=True)
@@ -251,6 +295,7 @@ class ShellWindow(Gtk.ApplicationWindow):
 
     def go_passive(self, keep=False):
         self.passive = True
+        self.user_focus = seat0_focus()
         self.set_shape(active=False)
         self.set_visible(True)
         if not keep:
@@ -269,6 +314,12 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.passive = False
         if not self.busy and not self.approvals:
             self.clear_card()
+        self.apply_theme_now()
+
+    def apply_theme_now(self):
+        app = self.get_application()
+        if app is not None and hasattr(app, "apply_css"):
+            app.apply_css(Adw.StyleManager.get_default())
 
     def toggle(self):
         if self.get_visible() and not self.passive:
@@ -420,6 +471,9 @@ class ShellWindow(Gtk.ApplicationWindow):
             if self.tick_timer is not None:
                 GLib.source_remove(self.tick_timer)
                 self.tick_timer = None
+            # Anything queued (or a steering message) goes out now.
+            if self.send_next_queued():
+                self.cancel_hide_timer()
         elif kind == "exited":
             self.busy = False
             self.set_state("idle", "offline")
@@ -448,17 +502,79 @@ class ShellWindow(Gtk.ApplicationWindow):
     def answer(self, approval_id, allow, remember):
         self.session.send({"op": "approve", "id": approval_id, "allow": allow, "remember": remember})
 
+    # ---- the queue
+    def enqueue(self, text):
+        row = Gtk.Box(spacing=6, css_classes=["queue-row"])
+        label = Gtk.Label(label=text, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END, max_width_chars=34, css_classes=["queue-text"])
+        row.append(label)
+        for icon, tip, fn in (("document-edit-symbolic", "Edit", self.queue_edit), ("media-skip-forward-symbolic", "Send now (interrupts the current work)", self.queue_steer), ("window-close-symbolic", "Remove", self.queue_delete)):
+            b = Gtk.Button(icon_name=icon, css_classes=["flat", "queue-btn"], tooltip_text=tip)
+            b.connect("clicked", lambda _b, r=row, f=fn: f(r))
+            row.append(b)
+        self.queue.append((row, text))
+        self.queue_box.append(row)
+        self.queue_box.set_visible(True)
+        self.hint.set_text(f"working · {len(self.queue)} queued")
+
+    def queue_remove(self, row):
+        self.queue = [(r, t) for (r, t) in self.queue if r is not row]
+        self.queue_box.remove(row)
+        self.queue_box.set_visible(bool(self.queue))
+        return True
+
+    def queue_text(self, row):
+        return next((t for (r, t) in self.queue if r is row), "")
+
+    def queue_edit(self, row):
+        text = self.queue_text(row)
+        self.queue_remove(row)
+        self.entry.set_text(text)
+        self.entry.set_position(-1)
+        self.claim_focus() if self.passive else self.entry.grab_focus()
+
+    def queue_delete(self, row):
+        self.queue_remove(row)
+
+    def queue_steer(self, row):
+        text = self.queue_text(row)
+        self.queue_remove(row)
+        if self.busy:
+            # Interrupt what Slate is doing; the message goes out as soon as the turn ends.
+            self.steer_text = text
+            self.session.send({"op": "cancel"})
+            self.show_activity("interrupting…")
+        else:
+            self.send_prompt(text)
+
+    def send_next_queued(self):
+        if self.steer_text is not None:
+            text, self.steer_text = self.steer_text, None
+            self.send_prompt("(You interrupted the previous task to say this; take it into account.) " + text)
+            return True
+        if self.queue:
+            row, text = self.queue[0]
+            self.queue_remove(row)
+            self.send_prompt(text)
+            return True
+        return False
+
+    def send_prompt(self, text):
+        self.clear_card()
+        self.query.set_text(text)
+        self.query.set_visible(True)
+        self.card.set_visible(True)
+        self.session.send({"op": "prompt", "text": text})
+
     # ---- input
     def on_send(self, *_):
         text = self.entry.get_text().strip()
         if not text:
             return
         self.entry.set_text("")
-        self.clear_card()
-        self.query.set_text(text)
-        self.query.set_visible(True)
-        self.card.set_visible(True)
-        self.session.send({"op": "prompt", "text": text})
+        if self.busy:
+            self.enqueue(text)
+            return
+        self.send_prompt(text)
 
     def on_key(self, _ctrl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
@@ -474,6 +590,28 @@ class ShellWindow(Gtk.ApplicationWindow):
                 self.controlling = controlling
                 GLib.idle_add(self.on_control_changed)
             time.sleep(2)
+
+    def _watch_user_focus(self):
+        try:
+            p = subprocess.Popen(["swaymsg", "-t", "subscribe", "-m", '["window"]'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except Exception:  # noqa: BLE001
+            return
+        for line in p.stdout:
+            try:
+                ev = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            if ev.get("change") != "focus":
+                continue
+            focus = seat0_focus()
+            if focus is not None:
+                GLib.idle_add(self.on_user_focus, focus)
+
+    def on_user_focus(self, con):
+        previous, self.user_focus = self.user_focus, con
+        if previous is not None and con != previous and self.get_visible() and self.passive and not self.approvals:
+            self.hide()
+        return False
 
     def on_control_changed(self):
         if self.controlling:
@@ -504,7 +642,7 @@ class App(Adw.Application):
         style.connect("notify::dark", lambda s, _p: self.apply_css(s))
 
     def apply_css(self, style):
-        self.provider.load_from_data(CSS if style.get_dark() else CSS_LIGHT)
+        self.provider.load_from_data(CSS if theme_is_dark(style) else CSS_LIGHT)
 
     def do_activate(self):
         # First launch shows the prompt (or starts hidden with --hidden, as the

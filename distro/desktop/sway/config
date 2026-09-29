@@ -17,6 +17,11 @@ output * bg /etc/slate/wallpaper.png fill
 # Super+b brings them over ("show me") and back.
 workspace agent output HEADLESS-1
 output HEADLESS-1 resolution 1920x1080 bg #0c0d12 solid_color
+# The "AI" workspace, left of 1 on the person's screen: a live, read-only view of the
+# agent's screen (wl-mirror), so you can watch it work without moving anything.
+for_window [app_id="at.yrlf.wl_mirror"] move container to workspace "0:AI", fullscreen enable
+bindsym $mod+grave workspace "0:AI"
+bindsym $mod+0 workspace "0:AI"
 
 # Conventional stacking desktop: every app window floats with a title bar.
 for_window [app_id=".*"] floating enable
@@ -92,3 +97,4 @@ exec sh -c "swaymsg -t get_outputs | grep -q HEADLESS || swaymsg create_output; 
 exec mako
 exec sleep 3 && slate-shell --hidden
 exec sleep 3 && foot
+exec sleep 4 && wl-mirror HEADLESS-1

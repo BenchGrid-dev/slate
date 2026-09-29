@@ -113,6 +113,7 @@ impl Backend for ClaudeCode {
             .command(&req)
             .spawn()
             .with_context(|| format!("launching {} (is Claude Code installed?)", self.cfg.bin))?;
+        super::CURRENT_CHILD.store(child.id(), std::sync::atomic::Ordering::SeqCst);
 
         {
             let mut stdin = child.stdin.take().context("no stdin")?;
@@ -141,6 +142,7 @@ impl Backend for ClaudeCode {
             },
         )?;
 
+        super::CURRENT_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
         let status = child.wait()?;
         let err = stderr_thread.join().unwrap_or_default();
         self.session_id = session_id;

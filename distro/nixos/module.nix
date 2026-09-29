@@ -229,7 +229,7 @@ in
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
-        firefox thunar mousepad imv pavucontrol
+        firefox thunar mousepad imv pavucontrol wl-mirror
         papirus-icon-theme adwaita-icon-theme gnome-themes-extra
       ])
       ++ lib.optionals (cfg.desktop.enable && cfg.desktop.apps == "full") (with pkgs; [

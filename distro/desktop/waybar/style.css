@@ -21,3 +21,17 @@ window#waybar { background: rgba(14, 16, 22, 0.78); color: #d7dae2; }
 #custom-slate.off { color: #6b7080; }
 tooltip { background: rgba(22, 24, 32, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 8px; }
 tooltip label { color: #d7dae2; }
+
+/* The dock at the bottom: pinned apps, then open windows. */
+window#waybar.dock { background: transparent; }
+window#waybar.dock > box { margin: 0 0 6px 0; }
+#custom-dock-launcher, #custom-dock-files, #custom-dock-browser, #custom-dock-terminal, #custom-dock-settings {
+    font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 17px; padding: 0 13px; border-radius: 10px; margin: 4px 1px; }
+#taskbar { margin-left: 6px; }
+#taskbar button { padding: 0 8px; margin: 4px 1px; border-radius: 10px; border: none; }
+window#waybar.dock > box { background: rgba(14, 16, 22, 0.80); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 14px; padding: 0 6px; }
+#custom-dock-launcher, #custom-dock-files, #custom-dock-browser, #custom-dock-terminal, #custom-dock-settings { color: #d7dae2; }
+#custom-dock-launcher:hover, #custom-dock-files:hover, #custom-dock-browser:hover, #custom-dock-terminal:hover, #custom-dock-settings:hover { background: rgba(255, 255, 255, 0.10); }
+#taskbar button:hover { background: rgba(255, 255, 255, 0.10); box-shadow: none; }
+#taskbar button.active { background: rgba(124, 156, 245, 0.35); }
+#taskbar button.minimized { opacity: 0.5; }

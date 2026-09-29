@@ -33,14 +33,14 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 
 ## What `services.slate.desktop.enable` adds
 
-- sway configured as a conventional stacking desktop (floating windows with title bars), a quiet dark theme (Inter, JetBrains Mono, Font Awesome icons, dark GTK/libadwaita via dconf), waybar with the Slate status module, fuzzel, mako, foot.
+- sway configured as a conventional stacking desktop (floating windows with title bars), a quiet dark theme (Inter, JetBrains Mono, Font Awesome icons, dark GTK/libadwaita via dconf), waybar as the top panel (workspaces, clock, network, sound, the Slate status) and as a bottom dock (pinned apps and open windows), fuzzel, mako, foot.
 - Applications, chosen so that the agent can work in them: each exposes an accessibility tree and has a command-line or D-Bus path for the common tasks. `desktop.apps = "minimal"` installs Firefox, Thunar, Mousepad, imv and pavucontrol; `"full"` (the default) adds LibreOffice, Thunderbird (mail, calendar, contacts), zathura (PDF) and mpv. Each has an OS Skill.
 - Accessibility on for every toolkit (the bus enabled, `NO_AT_BRIDGE` unset, the Firefox/Chromium/Qt switches), so `desktop_elements` and friends see GTK3, GTK4, Firefox, LibreOffice and Qt applications.
 - `slate-desktop daemon` as a supervised user service started first by sway, so the agent seat predates every app.
 - The Slate prompt (`slate-shell`, `Mod+s` or the panel button) and the settings app (`slate-settings`, `Mod+comma`).
 - greetd: autologin into sway for `desktop.autologinUser`, or tuigreet.
 
-Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+b` show the agent's background windows · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
+Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+grave` / `Mod+0` the AI workspace (a live view of the agent's screen) · `Mod+b` show the agent's background windows · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
 
 ## Appearance
 

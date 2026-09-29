@@ -1,8 +1,10 @@
+[
 {
     "layer": "top",
     "position": "top",
     "height": 30,
     "spacing": 0,
+    "name": "panel",
     "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
     "modules-center": ["clock"],
     "modules-right": ["tray", "network", "wireplumber", "custom/slate"],
@@ -11,7 +13,11 @@
         "tooltip-format": "Applications (Super+Space)",
         "on-click": "fuzzel"
     },
-    "sway/workspaces": { "disable-scroll": true, "format": "{name}" },
+    "sway/workspaces": {
+        "disable-scroll": true,
+        "format": "{icon}",
+        "format-icons": { "0:AI": "◆ AI", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "default": "{name}" }
+    },
     "sway/window": { "max-length": 48, "tooltip": false },
     "clock": { "format": "{:%a %d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
     "tray": { "spacing": 10 },
@@ -42,4 +48,29 @@
         "on-click-middle": "slate-desktop show",
         "on-click-right": "slate-settings"
     }
+},
+{
+    "name": "dock",
+    "layer": "top",
+    "position": "bottom",
+    "height": 46,
+    "spacing": 4,
+    "modules-left": [],
+    "modules-center": ["custom/dock-launcher", "custom/dock-files", "custom/dock-browser", "custom/dock-terminal", "custom/dock-settings", "wlr/taskbar"],
+    "modules-right": [],
+    "custom/dock-launcher": { "format": "", "tooltip-format": "Applications", "on-click": "fuzzel" },
+    "custom/dock-files": { "format": "", "tooltip-format": "Files", "on-click": "thunar" },
+    "custom/dock-browser": { "format": "", "tooltip-format": "Firefox", "on-click": "firefox" },
+    "custom/dock-terminal": { "format": "", "tooltip-format": "Terminal", "on-click": "foot" },
+    "custom/dock-settings": { "format": "", "tooltip-format": "Settings", "on-click": "slate-settings" },
+    "wlr/taskbar": {
+        "format": "{icon}",
+        "icon-size": 24,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close",
+        "on-click-right": "minimize-raise",
+        "ignore-list": ["slate-shell", "wl-mirror"]
+    }
 }
+]
