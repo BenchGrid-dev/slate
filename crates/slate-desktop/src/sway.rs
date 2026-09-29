@@ -279,6 +279,64 @@ fn walk(
     }
 }
 
+/// Keep the real outputs where a desktop without a background screen would have them
+/// (in a row from (0,0), their order preserved) and the headless output far away, so the
+/// cursor cannot reach it. sway places unpositioned outputs after positioned ones, at
+/// their y, which is why every output gets an explicit position. Returns the name of
+/// the first real output.
+pub fn fix_layout() -> Result<Option<String>> {
+    let outs = ipc(3, "")?; // GET_OUTPUTS
+    let Some(arr) = outs.as_array() else {
+        return Ok(None);
+    };
+    let mut real: Vec<(String, i64, i64, i64)> = vec![];
+    let mut headless: Vec<(String, i64, i64)> = vec![];
+    for o in arr {
+        let name = o
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let active = o.get("active").and_then(Value::as_bool).unwrap_or(true);
+        if name.is_empty() || !active {
+            continue;
+        }
+        let r = o.get("rect").cloned().unwrap_or_default();
+        let (x, y, w) = (
+            r.get("x").and_then(Value::as_i64).unwrap_or(0),
+            r.get("y").and_then(Value::as_i64).unwrap_or(0),
+            r.get("width").and_then(Value::as_i64).unwrap_or(0),
+        );
+        if crate::mcp::is_background_output(&name) {
+            headless.push((name, x, y));
+        } else {
+            real.push((name, x, y, w));
+        }
+    }
+    if headless.is_empty() {
+        return Ok(real.first().map(|r| r.0.clone()));
+    }
+    real.sort_by_key(|r| (r.2, r.1));
+    let min_y = real.iter().map(|r| r.2).min().unwrap_or(0);
+    let mut x = 0;
+    let mut cmds = vec![];
+    for (name, ox, oy, w) in &real {
+        if *ox != x || *oy != min_y || min_y != 0 {
+            cmds.push(format!("output {name} position {x} 0"));
+        }
+        x += w;
+    }
+    for (name, hx, hy) in &headless {
+        if *hx != 0 || *hy != 30000 {
+            cmds.push(format!("output {name} position 0 30000"));
+        }
+    }
+    for c in cmds {
+        run_command(&c)?;
+    }
+    Ok(real.first().map(|r| r.0.clone()))
+}
+
 /// The container each seat has focused, by seat name.
 pub fn seat_focus() -> Result<std::collections::HashMap<String, i64>> {
     let seats = ipc(101, "")?; // GET_SEATS (sway extension)

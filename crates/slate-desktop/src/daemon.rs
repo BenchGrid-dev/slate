@@ -7,6 +7,7 @@
 //! `{"name": "...", "args": {...}}` -> the MCP result object.
 
 use crate::mcp;
+use crate::sway;
 use crate::wayland::Desktop;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -27,6 +28,18 @@ pub fn run() -> Result<()> {
         }
         std::fs::remove_file(&path)?;
     }
+    // The background screen must not displace the real ones, and the person's focus
+    // must start on a real screen (sway would otherwise focus the first output, which
+    // is the headless one).
+    if sway::available() {
+        match sway::fix_layout() {
+            Ok(Some(first)) => {
+                let _ = sway::run_command(&format!("focus output {first}"));
+            }
+            Ok(None) => {}
+            Err(e) => slate_proto::log!("slate-desktop daemon: layout: {e:#}"),
+        }
+    }
     let mut desktop = Desktop::connect()?;
     desktop.settle()?;
     let listener =
@@ -35,9 +48,18 @@ pub fn run() -> Result<()> {
         "slate-desktop daemon: agent seat ready, listening on {}",
         path.display()
     );
-    std::thread::spawn(|| loop {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        mcp::takeover_tick();
+    std::thread::spawn(|| {
+        let mut n = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            mcp::takeover_tick();
+            n += 1;
+            // Every 5 s: a hotplugged or reconfigured output may have been auto-placed
+            // next to the background screen.
+            if n % 10 == 0 && sway::available() {
+                let _ = sway::fix_layout();
+            }
+        }
     });
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
