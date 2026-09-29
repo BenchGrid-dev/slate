@@ -53,6 +53,9 @@ in
   environment.etc."slateos/src".source = self;
   environment.etc."slateos/template.nix".source = ./template.nix;
 
+  # The agent CLIs (Claude Code, Codex) are unfree packages.
+  nixpkgs.config.allowUnfree = true;
+
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.registry.nixpkgs.flake = nixpkgs;
   nix.registry.slate.flake = self;
