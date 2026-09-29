@@ -80,6 +80,7 @@ pub struct A11y {
     /// element id -> (pid, frame title) the element was read from.
     origins: HashMap<String, (u32, String)>,
     next: u32,
+    last_total: usize,
 }
 
 impl A11y {
@@ -94,12 +95,19 @@ impl A11y {
         let conn = zbus::blocking::connection::Builder::address(address.as_str())?
             .build()
             .context("connecting to the accessibility bus")?;
+        // Toolkits only publish their trees while the bus says accessibility is on
+        // (GNOME's session sets this; a plain compositor session does not).
+        let _ = launcher.set_property("IsEnabled", true).or_else(|_| {
+            Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Status")
+                .and_then(|p| p.set_property("IsEnabled", true))
+        });
         Ok(Self {
             conn,
             handles: HashMap::new(),
             ids: HashMap::new(),
             origins: HashMap::new(),
             next: 1,
+            last_total: 0,
         })
     }
 
@@ -396,10 +404,14 @@ impl A11y {
         let frame_ref = frame.r.clone();
         let frame_title = frame.name.clone();
         let sub = self.subtree(&nodes, &frame_ref);
+        let total = sub.len();
+        let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
         let q = query.map(|s| s.to_ascii_lowercase());
         let mut out = vec![];
         for n in sub {
-            if !has_state(n.states, STATE_SHOWING) || !has_state(n.states, STATE_VISIBLE) {
+            if (uses_showing && !has_state(n.states, STATE_SHOWING))
+                || !has_state(n.states, STATE_VISIBLE)
+            {
                 continue;
             }
             let interactive = is_interactive_role(n.role)
@@ -441,7 +453,13 @@ impl A11y {
             }
         }
         out.sort_by_key(|e| (e.y.unwrap_or(0) / 8, e.x.unwrap_or(0)));
+        self.last_total = total;
         Ok(out)
+    }
+
+    /// How many nodes the last `elements` call saw under the frame (for the summary line).
+    pub fn last_total(&self) -> usize {
+        self.last_total
     }
 
     /// The readable content of the window as an outline: headings, text, links, labels.
@@ -453,9 +471,11 @@ impl A11y {
             .ok_or_else(|| anyhow!("the application exposes no window on the accessibility bus"))?;
         let frame_ref = frame.r.clone();
         let frame_title = frame.name.clone();
+        let sub = self.subtree(&nodes, &frame_ref);
+        let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
         let mut out = String::new();
-        for n in self.subtree(&nodes, &frame_ref) {
-            if !has_state(n.states, STATE_SHOWING) {
+        for n in sub {
+            if uses_showing && !has_state(n.states, STATE_SHOWING) {
                 continue;
             }
             let role = self.role_name(n);
@@ -898,7 +918,8 @@ fn interesting_states(states: u64) -> Vec<String> {
             .into(),
         );
     }
-    if !has_state(states, STATE_ENABLED) || !has_state(states, STATE_SENSITIVE) {
+    // GTK3 sets both, GTK4 only SENSITIVE: disabled means neither is set.
+    if !has_state(states, STATE_ENABLED) && !has_state(states, STATE_SENSITIVE) {
         out.push("disabled".into());
     }
     if has_state(states, STATE_EDITABLE) {

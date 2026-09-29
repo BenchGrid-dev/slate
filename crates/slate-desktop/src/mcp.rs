@@ -795,16 +795,17 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     .and_then(Value::as_str)
                     .filter(|q| !q.is_empty());
                 let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
-                let (elements, title) = (
-                    with_a11y(|a| a.elements(pid, &win.app_id, &win.title, query, all))?,
-                    win.title.clone(),
-                );
+                let (elements, total) = with_a11y(|a| {
+                    let e = a.elements(pid, &win.app_id, &win.title, query, all)?;
+                    Ok((e, a.last_total()))
+                })?;
                 d.last_window = Some(win.id.clone());
                 let mut lines = vec![format!(
-                    "{} elements in {} ({}) — coordinates are window-relative",
+                    "{} elements (of {} nodes) in {} ({}) — coordinates are window-relative",
                     elements.len(),
+                    total,
                     win.id,
-                    title
+                    win.title
                 )];
                 for e in &elements {
                     let mut l = format!("{}  {}", e.id, e.role);
