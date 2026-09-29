@@ -18,6 +18,8 @@ You have a second screen the user never sees (the "background"). Decide per task
 | The user says "show me" / "let me see" | `desktop_show` (all background windows, or one). |
 | The user says "get that out of my way" / "do it in the background" | `desktop_hide`. |
 
+Open applications with `desktop_launch`, never from the shell (`firefox &`, `xdg-open`, `libreoffice file.odt` in a terminal command). A program started from the shell appears on the user's screen and takes their focus for a moment before the desktop moves it to the background; `desktop_launch` opens it in the right place from the start and gives you the window id.
+
 When unsure, use the background: a task done there and shown at the end costs the user nothing; a window popping up over their work interrupts them. Windows already on the user's screen stay there unless they ask; do not raise or focus them for your own convenience (`desktop_focus` also takes the user's keyboard focus). Say where you worked when you report: "prepared in the background, `desktop_show` to see it".
 
 ## Windows

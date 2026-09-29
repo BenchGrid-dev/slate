@@ -57,6 +57,26 @@ pub fn run() -> Result<()> {
             }
         }
     });
+    // Windows the agent's engine starts from the shell would open on the person's
+    // screen; the watcher moves them to the background as they appear.
+    std::thread::spawn(|| loop {
+        if sway::available() {
+            let r = sway::watch_windows(|change, con| {
+                if change == "new" {
+                    let id = con.get("id").and_then(Value::as_i64);
+                    let pid = con.get("pid").and_then(Value::as_u64).map(|p| p as u32);
+                    let app = con.get("app_id").and_then(Value::as_str).unwrap_or("");
+                    if let Some(id) = id {
+                        mcp::place_new_window(id, pid, app);
+                    }
+                }
+            });
+            if let Err(e) = r {
+                slate_proto::log!("slate-desktop daemon: window watcher: {e:#}");
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    });
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
         if let Err(e) = handle(&mut desktop, stream) {

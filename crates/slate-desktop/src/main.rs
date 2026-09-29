@@ -25,6 +25,14 @@ fn take_seat(args: &mut Vec<String>) -> Seat {
     Seat::Agent
 }
 
+/// `--window W` anywhere in the arguments: the window an input command targets.
+fn take_window(args: &mut Vec<String>) -> Option<String> {
+    let i = args.iter().position(|a| a == "--window")?;
+    let v = args.get(i + 1).cloned();
+    args.drain(i..=(i + 1).min(args.len() - 1));
+    v
+}
+
 fn usage() -> ! {
     eprintln!(
         "slate-desktop {}
@@ -39,6 +47,7 @@ usage:
   slate-desktop type TEXT
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
       input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
+      and --window W (focus that window first; click/move coordinates become window-relative)
   slate-desktop elements WINDOW [QUERY]   interactive elements from the accessibility tree
   slate-desktop read WINDOW               readable text from the accessibility tree
   slate-desktop element-click ID [ACTION] activate an element (action, or pointer fallback)
@@ -60,6 +69,7 @@ usage:
 fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let seat = take_seat(&mut args);
+    let window = take_window(&mut args);
     let cmd = args.first().map(String::as_str).unwrap_or("");
     match cmd {
         "daemon" => daemon::run(),
@@ -101,7 +111,7 @@ fn main() -> Result<()> {
             let r = if cmd == "click" {
                 mcp::cli_call(
                     "desktop_click",
-                    json!({"x": x, "y": y, "button": args.get(3).cloned().unwrap_or_else(|| "left".into()), "seat": seat_s, "verify": false}),
+                    json!({"x": x, "y": y, "button": args.get(3).cloned().unwrap_or_else(|| "left".into()), "seat": seat_s, "verify": false, "window": window}),
                 )?
             } else {
                 mcp::cli_call("desktop_move", json!({"x": x, "y": y, "seat": seat_s}))?
@@ -114,7 +124,7 @@ fn main() -> Result<()> {
             let seat_s = if seat == Seat::User { "user" } else { "agent" };
             let r = mcp::cli_call(
                 "desktop_type",
-                json!({"text": text, "seat": seat_s, "verify": false}),
+                json!({"text": text, "seat": seat_s, "verify": false, "window": window}),
             )?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
@@ -124,7 +134,7 @@ fn main() -> Result<()> {
             let seat_s = if seat == Seat::User { "user" } else { "agent" };
             let r = mcp::cli_call(
                 "desktop_key",
-                json!({"combo": combo, "seat": seat_s, "verify": false}),
+                json!({"combo": combo, "seat": seat_s, "verify": false, "window": window}),
             )?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())

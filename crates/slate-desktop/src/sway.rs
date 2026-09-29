@@ -68,24 +68,57 @@ fn socket_path() -> Option<PathBuf> {
     candidates.into_iter().map(|(_, p)| p).find(|p| alive(p))
 }
 
-fn ipc(msg_type: u32, payload: &str) -> Result<Value> {
-    let path =
-        socket_path().context("no sway IPC socket (SWAYSOCK unset and none in XDG_RUNTIME_DIR)")?;
-    let mut s = UnixStream::connect(&path)?;
+fn send_msg(s: &mut UnixStream, msg_type: u32, payload: &str) -> Result<()> {
     let mut msg = b"i3-ipc".to_vec();
     msg.extend_from_slice(&(payload.len() as u32).to_ne_bytes());
     msg.extend_from_slice(&msg_type.to_ne_bytes());
     msg.extend_from_slice(payload.as_bytes());
     s.write_all(&msg)?;
+    Ok(())
+}
+
+/// One reply or event: (message type, payload).
+fn read_msg(s: &mut UnixStream) -> Result<(u32, Value)> {
     let mut header = [0u8; 14];
     s.read_exact(&mut header)?;
     if &header[..6] != b"i3-ipc" {
         bail!("bad IPC reply header");
     }
     let len = u32::from_ne_bytes(header[6..10].try_into().unwrap()) as usize;
+    let kind = u32::from_ne_bytes(header[10..14].try_into().unwrap());
     let mut body = vec![0u8; len];
     s.read_exact(&mut body)?;
-    Ok(serde_json::from_slice(&body)?)
+    Ok((kind, serde_json::from_slice(&body)?))
+}
+
+fn ipc(msg_type: u32, payload: &str) -> Result<Value> {
+    let path =
+        socket_path().context("no sway IPC socket (SWAYSOCK unset and none in XDG_RUNTIME_DIR)")?;
+    let mut s = UnixStream::connect(&path)?;
+    send_msg(&mut s, msg_type, payload)?;
+    Ok(read_msg(&mut s)?.1)
+}
+
+/// Follow sway's window events until the connection drops. `on_event` gets the
+/// change ("new", "close", "focus", "move", ...) and the container node.
+pub fn watch_windows(mut on_event: impl FnMut(&str, &Value)) -> Result<()> {
+    let path = socket_path().context("no sway IPC socket")?;
+    let mut s = UnixStream::connect(&path)?;
+    send_msg(&mut s, 2, "[\"window\"]")?; // SUBSCRIBE
+    let (_, reply) = read_msg(&mut s)?;
+    if !reply
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        bail!("sway refused the window subscription: {reply}");
+    }
+    loop {
+        let (_, ev) = read_msg(&mut s)?;
+        let change = ev.get("change").and_then(Value::as_str).unwrap_or("");
+        let con = ev.get("container").cloned().unwrap_or(Value::Null);
+        on_event(change, &con);
+    }
 }
 
 pub fn available() -> bool {

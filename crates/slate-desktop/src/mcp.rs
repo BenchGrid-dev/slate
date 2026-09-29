@@ -188,6 +188,92 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
 /// "in the background"; `workspace agent` is assigned to it by the SlateOS sway profile.
 pub const BACKGROUND_WORKSPACE: &str = "agent";
 
+/// Pids `desktop_launch` was asked to open on the user's screen (`where: "here"`),
+/// with when: the window watcher leaves those alone.
+static HERE_PIDS: std::sync::Mutex<Vec<(u32, std::time::Instant)>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn allow_on_screen(pid: u32) {
+    let mut v = HERE_PIDS.lock().unwrap_or_else(|e| e.into_inner());
+    v.retain(|(_, t)| t.elapsed() < std::time::Duration::from_secs(120));
+    v.push((pid, std::time::Instant::now()));
+}
+
+fn allowed_on_screen(pid: u32) -> bool {
+    let v = HERE_PIDS.lock().unwrap_or_else(|e| e.into_inner());
+    v.iter()
+        .any(|(p, t)| *p == pid && t.elapsed() < std::time::Duration::from_secs(120))
+}
+
+/// Was this process started by the agent's engine (directly or through any number
+/// of shells)? slash marks the engine's environment, which everything it starts
+/// inherits; the process tree is the fallback.
+pub fn spawned_by_agent(pid: u32) -> bool {
+    if let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) {
+        let key = format!("{}=", slate_proto::ENV_TASK);
+        if env
+            .split(|b| *b == 0)
+            .any(|kv| kv.starts_with(key.as_bytes()))
+        {
+            return true;
+        }
+    }
+    let mut p = pid;
+    for _ in 0..64 {
+        let Ok(status) = std::fs::read_to_string(format!("/proc/{p}/status")) else {
+            break;
+        };
+        let mut name = "";
+        let mut ppid = 0u32;
+        for line in status.lines() {
+            if let Some(v) = line.strip_prefix("Name:") {
+                name = v.trim();
+            } else if let Some(v) = line.strip_prefix("PPid:") {
+                ppid = v.trim().parse().unwrap_or(0);
+            }
+        }
+        let base = name.trim_start_matches('.').trim_end_matches("-wrapped");
+        if matches!(base, "claude" | "codex") {
+            return true;
+        }
+        if ppid <= 1 {
+            break;
+        }
+        p = ppid;
+    }
+    false
+}
+
+/// A window just appeared (the daemon's window watcher). If the agent's engine
+/// started its process and nobody asked for it on the user's screen, it goes to the
+/// background screen: the agent works there unless the user wants to watch.
+pub fn place_new_window(con_id: i64, pid: Option<u32>, app_id: &str) {
+    let Some(pid) = pid else { return };
+    if background_output().is_none() || allowed_on_screen(pid) || !spawned_by_agent(pid) {
+        return;
+    }
+    if let Ok((wins, _)) = sway::tree() {
+        if let Some(w) = wins.iter().find(|w| w.con_id == con_id) {
+            if w.output
+                .as_deref()
+                .map(is_background_output)
+                .unwrap_or(false)
+            {
+                return;
+            }
+        }
+    }
+    match sway::command_for_con(
+        con_id,
+        &format!("move container to workspace {BACKGROUND_WORKSPACE}"),
+    ) {
+        Ok(()) => slate_proto::log!(
+            "slate-desktop: {app_id} (pid {pid}) was started by the agent: moved to the background screen"
+        ),
+        Err(e) => slate_proto::log!("slate-desktop: placing {app_id} (pid {pid}): {e:#}"),
+    }
+}
+
 pub fn is_background_output(name: &str) -> bool {
     name.starts_with("HEADLESS-")
 }
@@ -477,6 +563,12 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
             d.click(seat, x, y, "left", 1)?;
         }
         Seat::User => {
+            if win.location == "background" {
+                anyhow::bail!(
+                    "{} ({}) is in the background, where the user's seat cannot go. Use the agent seat, or desktop_show it first.",
+                    win.id, win.title
+                );
+            }
             let con = win
                 .con_id
                 .ok_or_else(|| anyhow!("no compositor handle for {}", win.id))?;
@@ -827,18 +919,25 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         win.id
                     )
                 })?;
-                let cmd = if name == "desktop_close" {
-                    "kill"
-                } else {
-                    "focus"
-                };
-                sway::command_for_con(con, cmd)?;
-                text(format!(
-                    "{} {} ({})",
-                    if cmd == "kill" { "closed" } else { "focused" },
-                    win.id,
-                    win.title
-                ))
+                if name == "desktop_close" {
+                    sway::command_for_con(con, "kill")?;
+                    return Ok(text(format!("closed {} ({})", win.id, win.title)));
+                }
+                // Focusing a background window would drag the user's focus onto the
+                // background screen; bring the window to them instead.
+                if win.location == "background" {
+                    let screen = screen_output().ok_or_else(|| anyhow!("no output"))?;
+                    sway::command_for_con(
+                        con,
+                        &format!("move container to output {screen}, focus"),
+                    )?;
+                    return Ok(text(format!(
+                        "{} ({}) was in the background: brought to the user's screen and focused",
+                        win.id, win.title
+                    )));
+                }
+                sway::command_for_con(con, "focus")?;
+                text(format!("focused {} ({})", win.id, win.title))
             }
             "desktop_elements" => {
                 let w = args.get("window").and_then(Value::as_str).unwrap_or("");
@@ -965,19 +1064,23 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     .get("where")
                     .and_then(Value::as_str)
                     .unwrap_or("background");
+                // `assign`, not a for_window move: the window maps straight onto its
+                // workspace. A move after mapping would first give it the user's
+                // focus for a moment (the window flashes on their screen).
                 let target = if wanted == "here" || bg.is_none() {
-                    screen_output().map(|o| format!("move container to output {o}"))
+                    screen_output().map(|o| format!("output {o}"))
                 } else {
-                    Some(format!(
-                        "move container to workspace {BACKGROUND_WORKSPACE}"
-                    ))
+                    Some(format!("workspace {BACKGROUND_WORKSPACE}"))
                 };
                 let before: std::collections::HashSet<String> =
                     windows(d)?.into_iter().map(|w| w.id).collect();
                 let pid = launch(cmd, &a)?;
+                if wanted == "here" {
+                    allow_on_screen(pid);
+                }
                 // A rule keyed on the pid catches the window before it is shown.
                 if let Some(t) = &target {
-                    let _ = sway::run_command(&format!("for_window [pid={pid}] {t}"));
+                    let _ = sway::run_command(&format!("assign [pid={pid}] {t}"));
                 }
                 // Wait for the window (up to 8 s), place it if the rule missed, report it.
                 let mut placed: Option<Window> = None;
@@ -992,7 +1095,7 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 }
                 match placed {
                     Some(mut w) => {
-                        let want_bg = target.as_deref().map(|t| t.contains("workspace")).unwrap_or(false);
+                        let want_bg = target.as_deref().map(|t| t.starts_with("workspace")).unwrap_or(false);
                         if want_bg && w.location != "background" {
                             if let Some(con) = w.con_id {
                                 let _ = sway::command_for_con(con, &format!("move container to workspace {BACKGROUND_WORKSPACE}"));
