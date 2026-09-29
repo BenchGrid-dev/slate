@@ -563,17 +563,32 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
     let Some(me) = geos.iter().find(|g| g.con_id == con) else {
         return Ok(centre);
     };
+    // Title bars are drawn above the container rectangle, relative to the workspace.
+    let ws = sway::area_for_output(me.output.as_deref().unwrap_or("")).unwrap_or(sway::Rect {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    });
     let above: Vec<&sway::WindowGeometry> = geos
         .iter()
         .filter(|g| g.z > me.z && g.workspace == me.workspace && g.con_id != con)
         .collect();
+    let inside = |x: f64, y: f64, r: &sway::Rect| {
+        x >= r.x as f64
+            && x < (r.x + r.width) as f64
+            && y >= r.y as f64
+            && y < (r.y + r.height) as f64
+    };
     let covered = |x: f64, y: f64| {
         above.iter().any(|g| {
-            let r = &g.rect;
-            x >= r.x as f64
-                && x < (r.x + r.width) as f64
-                && y >= r.y as f64
-                && y < (r.y + r.height) as f64
+            let bar = sway::Rect {
+                x: ws.x + g.deco.x,
+                y: ws.y + g.deco.y,
+                width: g.deco.width,
+                height: g.deco.height,
+            };
+            inside(x, y, &g.rect) || (g.deco.height > 0 && inside(x, y, &bar))
         })
     };
     let y = centre.1;
@@ -596,12 +611,6 @@ fn focus_point(win: &Window) -> Result<(f64, f64)> {
     }
     // Re-adding a floating container puts it on top of the pile; size and position
     // are restored in the same command so nothing else changes.
-    let ws = sway::area_for_output(me.output.as_deref().unwrap_or("")).unwrap_or(sway::Rect {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-    });
     sway::command_for_con(
         con,
         &format!(
