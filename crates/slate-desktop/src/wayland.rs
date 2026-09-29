@@ -200,7 +200,13 @@ impl Desktop {
             .transient_ready
             .ok_or_else(|| anyhow!("compositor did not grant a transient seat"))?;
         let seat: wl_seat::WlSeat = globals.registry().bind(seat_name, 7, &qh, ());
-        let output = state.outputs.first().map(|o| o.proxy.clone());
+        // The person's screen: the first output that is not the agent's background one.
+        let output = state
+            .outputs
+            .iter()
+            .find(|o| !crate::mcp::is_background_output(&o.name))
+            .or(state.outputs.first())
+            .map(|o| o.proxy.clone());
         let pointer =
             vp_mgr.create_virtual_pointer_with_output(Some(&seat), output.as_ref(), &qh, ());
         let mut agent_pointers = HashMap::new();
@@ -325,7 +331,7 @@ impl Desktop {
                 }
             }
         }
-        let o = self.state.outputs.first()?;
+        let o = self.primary_output()?;
         Some((
             o.name.clone(),
             (o.width.max(1), o.height.max(1)),
@@ -594,12 +600,17 @@ impl Desktop {
         self.roundtrip()
     }
 
-    fn extent(&self) -> Result<(i32, i32)> {
-        let o = self
-            .state
+    /// The person's screen: the first output that is not the agent's background one.
+    fn primary_output(&self) -> Option<&Output> {
+        self.state
             .outputs
-            .first()
-            .ok_or_else(|| anyhow!("no outputs"))?;
+            .iter()
+            .find(|o| !crate::mcp::is_background_output(&o.name))
+            .or(self.state.outputs.first())
+    }
+
+    fn extent(&self) -> Result<(i32, i32)> {
+        let o = self.primary_output().ok_or_else(|| anyhow!("no outputs"))?;
         Ok((o.width.max(1), o.height.max(1)))
     }
 
@@ -629,9 +640,7 @@ impl Desktop {
             }
             None => {
                 let o = self
-                    .state
-                    .outputs
-                    .first()
+                    .primary_output()
                     .ok_or_else(|| anyhow!("no outputs"))?
                     .proxy
                     .clone();
