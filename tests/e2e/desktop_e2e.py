@@ -183,16 +183,23 @@ def main():
         try:
             body, _ = m.tool("desktop_read", window=ff["id"])
             check("desktop_read returns the page heading from the accessibility tree", "SLATE-E2E-HEADING" in body, body[:80].replace("\n", " | "))
-            elems, _ = m.tool("desktop_elements", window=ff["id"], query="SLATE-E2E")
-            link = next((l for l in elems.splitlines() if "link" in l and "SLATE-E2E-LINK" in l), None)
+            def find_link():
+                elems, _ = m.tool("desktop_elements", window=ff["id"], query="SLATE-E2E")
+                return next((l for l in elems.splitlines() if "link" in l and "SLATE-E2E-LINK" in l), None)
+            # Browsers fill their accessibility cache lazily after a load: retry briefly.
+            link = wait_for(find_link, 10, 1)
+            elems = link or ""
             check("desktop_elements lists the page link with window-relative extents", link is not None and "@" in (link or ""), (link or elems[:80]))
-            entries, _ = m.tool("desktop_elements", window=ff["id"], query="entry")
-            entry = next((l for l in entries.splitlines() if l.startswith("e") and "entry" in l), None)
+            def find_entry():
+                entries, _ = m.tool("desktop_elements", window=ff["id"], query="entry")
+                return next((l for l in entries.splitlines() if l.startswith("e") and " entry " in l), None)
+            entry = wait_for(find_entry, 10, 1)
+            entries = entry or ""
             if entry:
                 eid = entry.split()[0]
                 m.tool("desktop_element_set_text", id=eid, text="SLATE-E2E-VALUE", verify=False)
-                after, _ = m.tool("desktop_elements", window=ff["id"], query="entry")
-                check("desktop_element_set_text fills the input (value oracle)", "SLATE-E2E-VALUE" in after, after[:100].replace("\n", " | "))
+                after = wait_for(lambda: (lambda t: t if "SLATE-E2E-VALUE" in t else None)(m.tool("desktop_elements", window=ff["id"], query="entry")[0]), 8, 1)
+                check("desktop_element_set_text fills the input (value oracle)", bool(after), (after or "")[:100].replace("\n", " | "))
             else:
                 check("desktop_elements finds the text input", False, entries[:80])
             if link:

@@ -231,6 +231,35 @@ impl A11y {
         let frame_ref = frame.r.clone();
         let under = self.subtree(&nodes, &frame_ref).len();
         if under >= 30 {
+            // Browsers cache web content lazily: a document whose children are not in
+            // the cache yet is walked directly, which also makes the app cache it.
+            let mut nodes = nodes;
+            let mut extra = vec![];
+            {
+                let mut has_child: std::collections::HashSet<&Ref> =
+                    std::collections::HashSet::new();
+                for n in &nodes {
+                    if let Some(p) = &n.parent {
+                        has_child.insert(p);
+                    }
+                }
+                let docs: Vec<Ref> = self
+                    .subtree(&nodes, &frame_ref)
+                    .iter()
+                    .filter(|n| is_document_role(n.role) && !has_child.contains(&n.r))
+                    .map(|n| n.r.clone())
+                    .collect();
+                for d in docs {
+                    let parent = nodes
+                        .iter()
+                        .find(|n| n.r == d)
+                        .and_then(|n| n.parent.clone());
+                    if let Ok(walked) = self.nodes_recursive(&d, parent) {
+                        extra.extend(walked.into_iter().skip(1));
+                    }
+                }
+            }
+            nodes.extend(extra);
             return Ok((nodes, frame_ref));
         }
         let walked = self.nodes_recursive(&frame_ref, Some(app.clone()))?;
@@ -624,15 +653,29 @@ impl A11y {
         let ok: bool = match p.call("SetTextContents", &(text,)) {
             Ok(v) => v,
             Err(e) => {
-                if e.to_string().contains("UnknownMethod")
-                    || e.to_string().contains("UnknownInterface")
-                {
+                let msg = e.to_string();
+                if msg.contains("UnknownMethod") || msg.contains("UnknownInterface") {
                     return Ok(false);
                 }
                 return Err(e.into());
             }
         };
-        Ok(ok)
+        if !ok {
+            return Ok(false);
+        }
+        // Some toolkits (Firefox) say yes and change nothing: read it back.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let now = self.text_of(&r).unwrap_or_default();
+        Ok(now.trim() == text.trim())
+    }
+
+    fn text_of(&self, r: &Ref) -> Option<String> {
+        let p = self.proxy(r, IFACE_TEXT).ok()?;
+        let count: i32 = p.get_property("CharacterCount").ok()?;
+        if count <= 0 {
+            return Some(String::new());
+        }
+        p.call("GetText", &(0i32, count)).ok()
     }
 
     pub fn grab_focus(&self, id: &str) -> Result<bool> {
@@ -958,6 +1001,20 @@ fn derived_name(children: &HashMap<&Ref, Vec<&Node>>, r: &Ref, depth: usize) -> 
         }
     }
     parts.join(" ")
+}
+
+fn is_document_role(role: u32) -> bool {
+    matches!(
+        role_name(role),
+        Some(
+            "document frame"
+                | "document web"
+                | "document text"
+                | "document email"
+                | "document spreadsheet"
+                | "document presentation"
+        )
+    )
 }
 
 fn names_matter(role: u32) -> bool {
