@@ -192,7 +192,7 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 | --- | --- | --- |
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
 | Desktop control | Dedicated agent seat, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
-| Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, and scoped undo. | Codex approval integration, agent identity isolation, consented system privilege elevation. |
+| Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo asks the person through a dialog). | Codex approval integration, agent identity isolation, a polkit agent for GUI privilege requests. |
 | Distribution | NixOS module, desktop profile, settings app, and SlateOS system command wrappers. | Installable image, installer, and first-run setup. |
 
 **Application compatibility matters.** The agent seat has been verified with foot, Firefox, and GTK3/Thunar when the seat exists before the application starts. Tested GTK4/libadwaita applications require the user-seat fallback. Qt, Chromium/Electron, and Flatpak coverage is still being investigated. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.

@@ -192,7 +192,7 @@ Terminal                         Desktop prompt
 | --- | --- | --- |
 | Agent 交互 | Claude Code 与 Codex 适配；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
 | 桌面控制 | 独立 Agent 席位、无障碍树元素与动作（AT-SPI2）、按窗口截图、Unicode 输入、焦点验证、窗口排列及用户席位回退。 | 独立可见光标、合成器席位过滤和更多应用覆盖（Qt、Chromium、Flatpak）。 |
-| 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照及限定范围的撤销。 | Codex 审批集成、Agent 身份隔离、经用户授权的系统提权。 |
+| 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 通过桌面对话框向用户索要密码）。 | Codex 审批集成、Agent 身份隔离、面向图形应用提权请求的 polkit agent。 |
 | 发行版 | NixOS 模块、桌面配置、设置应用，以及 SlateOS 系统命令包装器。 | 可安装镜像、安装器与首次启动引导。 |
 
 **应用兼容性是当前工作的重点。** 在 Agent 席位先于应用创建的条件下，foot、Firefox 和 GTK3/Thunar 已通过验证。已测试的 GTK4/libadwaita 应用需要回退至用户席位。Qt、Chromium/Electron 和 Flatpak 的覆盖仍在探索中。当前桌面集成面向 sway 及其所需的 Wayland 协议，不能直接替换为 GNOME、KDE 或 X11。

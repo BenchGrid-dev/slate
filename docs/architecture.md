@@ -56,7 +56,7 @@ slated is the part of Slate that is an operating-system component rather than a 
 
 Responsibilities (implemented unless marked otherwise):
 
-- **Identity.** **Not started.** The design: agent tasks run as a separate Linux user, or as a dedicated session under the user's uid with its own cgroup, Landlock ruleset and polkit identity. **Open:** separate uid vs same uid with sandboxing; trade-offs are file ownership friction vs weaker isolation. Related and more urgent: the agent has no way to obtain root for system changes today (no password prompt, no polkit agent); a Slate-mediated privilege path is the next item on the roadmap.
+- **Identity.** **Not started.** The design: agent tasks run as a separate Linux user, or as a dedicated session under the user's uid with its own cgroup, Landlock ruleset and polkit identity. **Open:** separate uid vs same uid with sandboxing; trade-offs are file ownership friction vs weaker isolation. Root for system changes: sudo without a tty asks the person through `slate-askpass` (`SUDO_ASKPASS`), so the agent runs plain `sudo` and never sees the password; a polkit agent for GUI privilege requests is still open.
 - **Approval broker.** Implements Claude Code's permission-prompt MCP tool and Codex's approval flow. Classifies every requested action into a tier (below) and either allows, snapshots-then-allows, or surfaces a prompt to the user via slash or the desktop shell.
 - **Audit log.** Append-only log of every tool call: backend, session, what the agent saw (hash of screenshot / a11y snapshot), what it did, tier, outcome. Queryable via `slate audit`.
 - **Snapshots and undo.** On the first non-observe tool call of a task, take a read-only btrfs snapshot of the user's home (which must be a user-owned subvolume; see `decisions/0006-privilege-free-snapshots.md`). `/undo` diffs the snapshot against the live tree inside the directories the task touched and restores, deletes or recreates files accordingly. No privileges are needed. Non-filesystem side effects (emails sent, network calls) are unrecoverable and are therefore always tier Confirm. System-level state on NixOS (generations) is a separate, later concern.
@@ -150,7 +150,7 @@ A GUI task differs only at step 3 and 4: the skill says the app has no CLI, the 
 
 Each of these deserves an RFC. Open an issue labelled `rfc` or a PR under `docs/rfcs/`.
 
-- Root for system changes: how the agent obtains privileges for `nixos-rebuild` and friends with the user's consent (a Slate approval that unlocks polkit? a scoped sudo rule written by the installer?).
+- Root for system changes beyond the current answer (sudo asks the person through `slate-askpass` on every use): whether to add a polkit agent for GUI privilege requests, and whether the installer should scope any rules.
 - Agent identity: separate uid vs sandboxed same uid.
 - Filesystem snapshots for system state: btrfs (home, done) vs NixOS generations (system) vs both.
 - Compositor: keep sway with carried patches, or a thin compositor of our own.

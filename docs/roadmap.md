@@ -34,7 +34,7 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 - [x] btrfs snapshot before the first non-observe call of a task, `/undo`, `/undo --preview`, pruning
 - [x] Memory: remember / recall / forget MCP tools, `/remember` and `/memories`, listed at the start of every task
 - [x] systemd user service, notifications for terminal tasks, quiet tasks for the prompt
-- [ ] Root for system changes with the user's consent (the agent cannot run `nixos-rebuild` today)
+- [x] Root for system changes with the user's consent: sudo through the `slate-askpass` dialog
 - [ ] Codex approvals (Codex exec has no approval channel yet; runs under its sandbox)
 - [ ] Session context server (active windows, recent outputs); context is a per-turn delta today
 - [ ] Agent identity: separate uid / Landlock / cgroup
@@ -64,7 +64,7 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 
 - [x] NixOS module + flake: `services.slate.enable`, login shell, user services, desktop profile, SlateOS branding
 - [x] Base distribution: NixOS (ADR 0004)
-- [ ] Root/polkit story for system changes (shared with M2)
+- [x] Root with consent (sudo askpass); polkit agent for GUI requests still open
 - [ ] Compositor patches upstreamed or carried (seat filtering, ghost cursor)
 - [ ] Base OS Skills: browser, files, mail, calendar, printing, Bluetooth, power
 - [ ] Installable image and installer (homes as user-owned btrfs subvolumes, skills preinstalled, agent sign-in on first boot)

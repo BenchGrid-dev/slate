@@ -230,7 +230,6 @@ in
         # sudo without a terminal (every agent tool call) asks the person through this
         # dialog; SSH_ASKPASS covers ssh and git the same way.
         SUDO_ASKPASS = "${slateAskpass}/bin/slate-askpass";
-        SSH_ASKPASS = "${slateAskpass}/bin/slate-askpass";
         SSH_ASKPASS_REQUIRE = "prefer";
       })
     ];
@@ -239,6 +238,7 @@ in
       shell = "/run/current-system/sw/bin/slash";
     });
 
+    programs.ssh.askPassword = lib.mkIf cfg.desktop.enable "${slateAskpass}/bin/slate-askpass";
     # Root with consent: sudo reads SUDO_ASKPASS from the caller's environment and, with
     # no tty (an agent's tool call), uses it instead of failing. Each use asks the person.
     security.sudo.extraConfig = lib.mkIf cfg.desktop.enable ''

@@ -42,6 +42,10 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 
 Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
 
+## Root with consent
+
+Agent tool calls run without a terminal, so `sudo` could never ask for a password. The desktop profile sets `SUDO_ASKPASS` (and `SSH_ASKPASS`) to `slate-askpass`, a small dialog: when a task runs `sudo`, the person at the desktop sees "Slate needs your password", types it, and sudo runs the command. The password goes to sudo only; the agent sees the outcome. Every sudo asks again (no tty means no timestamp), so each administrative action is a deliberate answer, on top of Slate's own Confirm approval for the command. sudoers keeps the variable and drops `requiretty`. Cancelling the dialog fails the command.
+
 ## Other options
 
 | Option | Default | Meaning |

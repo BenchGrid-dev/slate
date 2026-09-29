@@ -2,6 +2,10 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- Root with consent: `sudo` (and `ssh`) without a terminal ask the person through `slate-askpass`, a desktop dialog; the password goes to sudo only and each use asks again. The system skill and slash's prompt tell the agent to run plain `sudo`. System changes (`slateos-rebuild switch`, package installs) are now possible from a task.
+
 ## 0.0.12 — 2026-09-28
 
 - slate-desktop: the accessibility tree as the first way to see and drive applications. `desktop_elements` lists a window's interactive elements (role, name, value, states, window-relative extents, actions), `desktop_read` returns its text, `desktop_element_click` activates an element through its accessibility action and `desktop_element_set_text` edits text over the bus; both work without a pointer or keyboard and in toolkits that ignore extra seats (GTK4). Pointer and typing fallbacks otherwise. Verified on GTK3 (Thunar, pavucontrol), GTK4 (settings app) and Firefox.
