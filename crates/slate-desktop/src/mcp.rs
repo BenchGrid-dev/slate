@@ -544,7 +544,10 @@ fn focused_window(d: &mut Desktop, seat: Seat) -> Option<Window> {
 /// Background windows pile up in the middle of the agent's screen; a covered window
 /// there is moved to a free corner for the click (which also raises it) and the
 /// returned command puts it back afterwards.
-fn focus_point(win: &Window) -> Result<((f64, f64), Option<(i64, String)>)> {
+/// Where to click, and a command (with its container) that undoes a temporary move.
+type FocusPlan = ((f64, f64), Option<(i64, String)>);
+
+fn focus_point(win: &Window) -> Result<FocusPlan> {
     let bar: (f64, f64, f64, f64) = match win.titlebar {
         Some((tx, ty, tw, th)) => (tx as f64, ty as f64, tw as f64, th as f64),
         None => (
