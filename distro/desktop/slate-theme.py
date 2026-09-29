@@ -13,7 +13,6 @@ the user's own config so it survives logins and never touches /etc.
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
 
@@ -119,11 +118,13 @@ def apply(state):
     for line in lines[1:]:
         swaymsg(line)
 
-    # waybar: the user's style overrides the system one; SIGUSR2 reloads it.
+    # waybar: the user's style overrides the system one; it imports the system file of
+    # the theme so system updates keep applying. SIGUSR2 reloads it.
     os.makedirs(WAYBAR_USER, exist_ok=True)
     src = os.path.join(SYSTEM_WAYBAR, t["waybar_css"])
     if os.path.exists(src):
-        shutil.copyfile(src, os.path.join(WAYBAR_USER, "style.css"))
+        with open(os.path.join(WAYBAR_USER, "style.css"), "w") as f:
+            f.write(f'/* written by slate-theme */\n@import url("file://{src}");\n')
         import signal
         signal_processes(("waybar", ".waybar-wrapped"), signal.SIGUSR2)
 

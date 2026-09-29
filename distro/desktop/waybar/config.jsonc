@@ -5,6 +5,7 @@
     "height": 30,
     "spacing": 0,
     "name": "panel",
+    "output": ["!HEADLESS-1", "!HEADLESS-2"],
     "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
     "modules-center": ["clock"],
     "modules-right": ["tray", "network", "wireplumber", "custom/slate"],
@@ -51,6 +52,7 @@
 },
 {
     "name": "dock",
+    "output": ["!HEADLESS-1", "!HEADLESS-2"],
     "layer": "top",
     "position": "bottom",
     "height": 46,
