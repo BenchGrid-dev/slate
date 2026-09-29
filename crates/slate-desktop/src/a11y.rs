@@ -79,6 +79,8 @@ pub struct A11y {
     ids: HashMap<Ref, String>,
     /// element id -> (pid, frame title) the element was read from.
     origins: HashMap<String, (u32, String)>,
+    /// element id -> the frame it was read under (for coordinate origins).
+    frames: HashMap<String, Ref>,
     next: u32,
     last_total: usize,
 }
@@ -106,6 +108,7 @@ impl A11y {
             handles: HashMap::new(),
             ids: HashMap::new(),
             origins: HashMap::new(),
+            frames: HashMap::new(),
             next: 1,
             last_total: 0,
         })
@@ -435,9 +438,22 @@ impl A11y {
         let sub = self.subtree(&nodes, &frame_ref);
         let total = sub.len();
         let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
+        // Toolkits with client-side shadows (Firefox) put the origin of "window
+        // coordinates" at the outer surface; the frame's own extents say by how much.
+        let origin = self
+            .extents(&frame_ref)
+            .map(|e| (e.0, e.1))
+            .unwrap_or((0, 0));
+        let mut children: HashMap<&Ref, Vec<&Node>> = HashMap::new();
+        for n in &sub {
+            if let Some(p) = &n.parent {
+                children.entry(p).or_default().push(n);
+            }
+        }
         let q = query.map(|s| s.to_ascii_lowercase());
         let mut out = vec![];
-        for n in sub {
+        for n in &sub {
+            let n = *n;
             if (uses_showing && !has_state(n.states, STATE_SHOWING))
                 || !has_state(n.states, STATE_VISIBLE)
             {
@@ -454,8 +470,14 @@ impl A11y {
                 continue;
             }
             let role = self.role_name(n);
+            // GTK4 rows and buttons carry their text in child labels.
+            let name = if n.name.trim().is_empty() {
+                derived_name(&children, &n.r, 0)
+            } else {
+                n.name.clone()
+            };
             if let Some(q) = &q {
-                if !n.name.to_ascii_lowercase().contains(q) && !role.contains(q.as_str()) {
+                if !name.to_ascii_lowercase().contains(q) && !role.contains(q.as_str()) {
                     continue;
                 }
             }
@@ -467,14 +489,15 @@ impl A11y {
             }
             let id = self.id_for(&n.r);
             self.origins.insert(id.clone(), (pid, frame_title.clone()));
+            self.frames.insert(id.clone(), frame_ref.clone());
             out.push(Element {
                 id,
                 role,
-                name: n.name.clone(),
+                name,
                 value: self.value_of(n),
                 states: interesting_states(n.states),
-                x: ext.map(|e| e.0),
-                y: ext.map(|e| e.1),
+                x: ext.map(|e| e.0 - origin.0),
+                y: ext.map(|e| e.1 - origin.1),
                 w: ext.map(|e| e.2),
                 h: ext.map(|e| e.3),
                 actions: self.actions(&n.r),
@@ -577,11 +600,19 @@ impl A11y {
         Ok(Some(action_label(i, &acts[i].0)))
     }
 
-    /// Element extents in window coordinates, for a pointer fallback.
+    /// Element extents in window-content coordinates, for a pointer fallback.
     pub fn element_extents(&self, id: &str) -> Result<(i32, i32, i32, i32)> {
         let r = self.lookup(id)?;
-        self.extents(&r)
-            .ok_or_else(|| anyhow!("element {id} has no extents"))
+        let (x, y, w, h) = self
+            .extents(&r)
+            .ok_or_else(|| anyhow!("element {id} has no extents"))?;
+        let origin = self
+            .frames
+            .get(id)
+            .and_then(|f| self.extents(f))
+            .map(|e| (e.0, e.1))
+            .unwrap_or((0, 0));
+        Ok((x - origin.0, y - origin.1, w, h))
     }
 
     /// Replace the text of an editable element. Ok(false) when it is not editable.
@@ -902,6 +933,31 @@ fn is_structural_role(role: u32) -> bool {
                 | "section"
         )
     ) || role_name(role).is_none()
+}
+
+/// The text of a nameless widget's descendants (labels, static text), a few levels deep.
+fn derived_name(children: &HashMap<&Ref, Vec<&Node>>, r: &Ref, depth: usize) -> String {
+    if depth > 3 {
+        return String::new();
+    }
+    let mut parts = vec![];
+    if let Some(cs) = children.get(r) {
+        for c in cs {
+            let own = c.name.trim();
+            if !own.is_empty() && !is_interactive_role(c.role) {
+                parts.push(own.to_string());
+            } else {
+                let d = derived_name(children, &c.r, depth + 1);
+                if !d.is_empty() {
+                    parts.push(d);
+                }
+            }
+            if parts.join(" ").len() > 120 {
+                break;
+            }
+        }
+    }
+    parts.join(" ")
 }
 
 fn names_matter(role: u32) -> bool {
