@@ -376,7 +376,10 @@ impl A11y {
             return vec![];
         };
         let acts: Vec<(String, String, String)> = p.call("GetActions", &()).unwrap_or_default();
-        acts.into_iter().map(|(n, _, _)| n).collect()
+        acts.into_iter()
+            .enumerate()
+            .map(|(i, (n, _, _))| action_label(i, &n))
+            .collect()
     }
 
     fn value_of(&self, n: &Node) -> Option<String> {
@@ -398,13 +401,19 @@ impl A11y {
         None
     }
 
+    /// One vocabulary for every toolkit: the AT-SPI table by number; the bus's own
+    /// name only for numbers newer than the table.
     fn role_name(&self, n: &Node) -> String {
-        if let Some(r) = &n.role_name {
-            return r.clone();
+        if let Some(r) = role_name(n.role) {
+            return r.to_string();
         }
-        role_name(n.role)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("role{}", n.role))
+        if let Some(r) = &n.role_name {
+            if !r.is_empty() {
+                slate_proto::log!("a11y: role {} is {:?}, not in the table", n.role, r);
+                return r.clone();
+            }
+        }
+        format!("role{}", n.role)
     }
 
     /// Interactive elements of the window (`pid`, `title`), window-relative extents.
@@ -434,11 +443,13 @@ impl A11y {
             {
                 continue;
             }
+            // Containers get actions and focusability in GTK4; keep the widgets a person
+            // would click, type into or read, not the boxes around them.
             let interactive = is_interactive_role(n.role)
-                || n.interfaces
-                    .iter()
-                    .any(|i| i == IFACE_ACTION || i == IFACE_EDITABLE)
-                || has_state(n.states, STATE_FOCUSABLE);
+                || (n.interfaces.iter().any(|i| i == IFACE_EDITABLE) && !is_container_role(n.role))
+                || (has_state(n.states, STATE_FOCUSABLE)
+                    && !is_container_role(n.role)
+                    && !is_structural_role(n.role));
             if !interactive && !all {
                 continue;
             }
@@ -544,7 +555,10 @@ impl A11y {
         let p = self.proxy(&r, IFACE_ACTION)?;
         let acts: Vec<(String, String, String)> = p.call("GetActions", &()).unwrap_or_default();
         let idx = match wanted {
-            Some(w) => acts.iter().position(|(n, _, _)| n.eq_ignore_ascii_case(w)),
+            Some(w) => acts
+                .iter()
+                .enumerate()
+                .position(|(i, (n, _, _))| n.eq_ignore_ascii_case(w) || action_label(i, n) == w),
             None => acts
                 .iter()
                 .position(|(n, _, _)| {
@@ -560,7 +574,7 @@ impl A11y {
         if !ok {
             anyhow::bail!("the application refused action {:?}", acts[i].0);
         }
-        Ok(Some(acts[i].0.clone()))
+        Ok(Some(action_label(i, &acts[i].0)))
     }
 
     /// Element extents in window coordinates, for a pointer fallback.
@@ -764,6 +778,9 @@ const ROLES: &[&str] = &[
     "suggestion",
     "push button menu",
     "switch",
+    // at-spi2-core 2.5x additions
+    "generic",
+    "text box",
 ];
 
 fn role_name(role: u32) -> Option<&'static str> {
@@ -821,6 +838,7 @@ fn is_container_role(role: u32) -> bool {
         role_name(role),
         Some(
             "frame"
+                | "generic"
                 | "window"
                 | "dialog"
                 | "panel"
@@ -849,6 +867,41 @@ fn is_container_role(role: u32) -> bool {
                 | "block quote"
         )
     )
+}
+
+/// Firefox reports actions with empty names; give them a stable label.
+fn action_label(i: usize, name: &str) -> String {
+    if name.chars().any(|c| c.is_alphanumeric()) {
+        name.to_string()
+    } else {
+        format!("action{i}")
+    }
+}
+
+/// Layout nodes that are never worth listing as elements.
+fn is_structural_role(role: u32) -> bool {
+    matches!(
+        role_name(role),
+        Some(
+            "filler"
+                | "panel"
+                | "grouping"
+                | "separator"
+                | "unknown"
+                | "invalid"
+                | "canvas"
+                | "drawing area"
+                | "image"
+                | "label"
+                | "static"
+                | "paragraph"
+                | "heading"
+                | "caption"
+                | "status bar"
+                | "generic"
+                | "section"
+        )
+    ) || role_name(role).is_none()
 }
 
 fn names_matter(role: u32) -> bool {
