@@ -95,6 +95,21 @@ let
     fi
     exit $code
   '';
+  # The appearance switch (dark / light / wallpaper); plain Python, no toolkit.
+  slateTheme = pkgs.stdenv.mkDerivation {
+    pname = "slate-theme";
+    version = pkg.version;
+    src = ../desktop/slate-theme.py;
+    dontUnpack = true;
+    buildInputs = [ pkgs.python3 ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slate-theme
+      chmod +x $out/bin/slate-theme
+      patchShebangs $out/bin/slate-theme
+    '';
+    meta.mainProgram = "slate-theme";
+  };
   # The floating Slate panel: layer-shell window driving `slash --serve`.
   slateShell = pkgs.stdenv.mkDerivation {
     pname = "slate-shell";
@@ -210,7 +225,7 @@ in
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings slateShell slateAskpass slateosSession
+        slateSettings slateShell slateAskpass slateosSession slateTheme dconf
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -297,6 +312,7 @@ in
       "sway/config".source = lib.mkForce ../desktop/sway/config;
       "xdg/waybar/config.jsonc".source = ../desktop/waybar/config.jsonc;
       "xdg/waybar/style.css".source = ../desktop/waybar/style.css;
+      "xdg/waybar/style-light.css".source = ../desktop/waybar/style-light.css;
       "xdg/fuzzel/fuzzel.ini".source = ../desktop/fuzzel/fuzzel.ini;
       "xdg/mako/config".source = ../desktop/mako/config;
       "xdg/foot/foot.ini".source = ../desktop/foot/foot.ini;

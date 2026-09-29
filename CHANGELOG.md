@@ -2,6 +2,11 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- Appearance: `slate-theme dark | light | wallpaper PATH` switches the whole desktop live (GTK/libadwaita through the colour-scheme key, sway colours and background, waybar, foot, mako, fuzzel, the Slate prompt) and remembers the choice; Settings → Appearance exposes it with a file chooser; the `appearance` skill lets the agent do it.
+- Fix: the person's focus and cursor can no longer end up on the agent's background screen (the daemon pulls them back; a window mapped there at login is brought over).
+
 ## 0.0.14 — 2026-09-29
 
 - The agent's own background screen: the SlateOS session runs sway with the headless backend and creates a second output nobody sees; `desktop_launch` opens windows there by default (`where: "background" | "here"`), `desktop_show` / `desktop_hide` move windows between the two screens (Super+b, panel middle click), `desktop_windows` reports each window's `location`, and the panel shows how many windows are in the background. The agent seat keeps one pointer per output. The desktop skill and slash's prompt say when to work where: results in the background, help with what the user is doing on their screen.

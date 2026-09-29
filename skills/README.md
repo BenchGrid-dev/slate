@@ -33,6 +33,7 @@ skills/base/<name>/
 | `pdf-zathura` | Text extraction first; zathura keys for showing a PDF |
 | `media-mpv` | Playback and control over mpv's IPC socket |
 | `text-mousepad` | Opening and editing text files in a window |
+| `appearance` | Dark / light theme and the desktop background (`slate-theme`) |
 
 ## Conventions
 

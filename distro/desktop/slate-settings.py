@@ -442,6 +442,73 @@ class AIPage(Gtk.Box):
         subprocess.Popen(["slate-shell", "--hidden"])
 
 
+class AppearancePage(Gtk.Box):
+    """Dark or light, and the desktop background; applied through slate-theme."""
+
+    def __init__(self, window):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.window = window
+        page = Adw.PreferencesPage()
+        self.append(page)
+        try:
+            self.state = json.loads(run(["slate-theme", "status"]) or "{}")
+        except Exception:  # noqa: BLE001
+            self.state = {}
+
+        theme = Adw.PreferencesGroup(title="Theme", description="Applies to windows, the panel, terminals, notifications and the launcher at once.")
+        page.add(theme)
+        self.theme_row = Adw.ComboRow(title="Appearance", model=Gtk.StringList.new(["Dark", "Light"]))
+        self.theme_row.set_selected(1 if self.state.get("theme") == "light" else 0)
+        self.theme_row.connect("notify::selected", self.on_theme)
+        theme.add(self.theme_row)
+
+        wall = Adw.PreferencesGroup(title="Desktop background")
+        page.add(wall)
+        self.wall_row = Adw.ActionRow(title="Image", subtitle=self.state.get("wallpaper", "default"))
+        choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        choose.connect("clicked", self.on_choose)
+        reset = Gtk.Button(label="Default", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        reset.connect("clicked", lambda *_: self.set_wallpaper("default"))
+        self.wall_row.add_suffix(choose)
+        self.wall_row.add_suffix(reset)
+        wall.add(self.wall_row)
+
+    def on_theme(self, *_):
+        name = "light" if self.theme_row.get_selected() == 1 else "dark"
+        run(["slate-theme", name], timeout=20)
+
+    def on_choose(self, *_):
+        dialog = Gtk.FileDialog(title="Choose a background image")
+        f = Gtk.FileFilter()
+        f.set_name("Images")
+        for m in ("image/png", "image/jpeg", "image/webp"):
+            f.add_mime_type(m)
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(f)
+        dialog.set_filters(filters)
+        pictures = os.path.expanduser("~/Pictures")
+        if os.path.isdir(pictures):
+            dialog.set_initial_folder(Gio.File.new_for_path(pictures))
+
+        def done(d, result):
+            try:
+                file = d.open_finish(result)
+            except Exception:  # noqa: BLE001
+                return
+            if file:
+                self.set_wallpaper(file.get_path())
+
+        dialog.open(self.window, None, done)
+
+    def set_wallpaper(self, path):
+        out = run(["slate-theme", "wallpaper", path], timeout=20)
+        try:
+            self.state = json.loads(out or "{}")
+        except Exception:  # noqa: BLE001
+            pass
+        self.wall_row.set_subtitle(self.state.get("wallpaper", path))
+
+
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Settings", default_width=820, default_height=560)
@@ -465,6 +532,7 @@ class Window(Adw.ApplicationWindow):
 
         pages = [
             ("Display", "video-display-symbolic", lambda: DisplayPage(self)),
+            ("Appearance", "preferences-desktop-appearance-symbolic", lambda: AppearancePage(self)),
             ("Sound", "audio-volume-high-symbolic", SoundPage),
             ("Network", "network-wireless-symbolic", NetworkPage),
             ("Slate", "starred-symbolic", SlatePage),

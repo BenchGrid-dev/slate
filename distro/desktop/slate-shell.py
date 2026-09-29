@@ -32,6 +32,33 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 WIDTH = 460
 PASSIVE_HIDE_SECONDS = 18
 
+CSS_LIGHT = b"""
+window.slate { background: transparent; }
+.pill { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 24px;
+        padding: 6px 14px 6px 12px; }
+.glyph { color: #3b6de8; font-size: 17px; margin-right: 8px; }
+@keyframes slate-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
+.glyph.working { animation: slate-pulse 1.2s ease-in-out infinite; }
+.glyph.controlling { color: #b26a00; animation: slate-pulse 0.7s ease-in-out infinite; }
+entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #1c1f27; font-size: 15px;
+                            caret-color: #3b6de8; min-height: 0; padding: 4px 0; }
+entry.ask placeholder, entry.ask text placeholder { color: #8a90a0; }
+.hint { color: #8a90a0; font-size: 12px; margin-left: 8px; }
+.hint.controlling { color: #b26a00; font-weight: 600; }
+.card { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 18px;
+        padding: 12px 16px; }
+.query { color: #6b7080; font-size: 13px; }
+.reply { color: #1c1f27; font-size: 14px; }
+.reply.error { color: #c0392b; }
+.activity { color: #8a90a0; font-size: 12px; }
+.activity.failed { color: #c0392b; }
+.thought { color: #7a8091; font-size: 12px; font-style: italic; }
+.approval { background: rgba(178, 106, 0, 0.08); border: 1px solid rgba(178, 106, 0, 0.45); border-radius: 12px; padding: 10px 12px; }
+.approval-title { color: #b26a00; font-weight: 600; font-size: 13px; }
+.approval-detail { font-family: monospace; color: #1c1f27; font-size: 12px; }
+.approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
+"""
+
 CSS = b"""
 window.slate { background: transparent; }
 .pill { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 24px;
@@ -468,9 +495,16 @@ class App(Adw.Application):
 
     def do_startup(self):
         Adw.Application.do_startup(self)
-        provider = Gtk.CssProvider()
-        provider.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # Follow the desktop's colour scheme (slate-theme dark|light), live.
+        style = Adw.StyleManager.get_default()
+        style.set_color_scheme(Adw.ColorScheme.DEFAULT)
+        self.apply_css(style)
+        style.connect("notify::dark", lambda s, _p: self.apply_css(s))
+
+    def apply_css(self, style):
+        self.provider.load_from_data(CSS if style.get_dark() else CSS_LIGHT)
 
     def do_activate(self):
         # First launch shows the prompt (or starts hidden with --hidden, as the

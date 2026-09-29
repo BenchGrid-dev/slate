@@ -18,10 +18,6 @@ output * bg /etc/slate/wallpaper.png fill
 workspace agent output HEADLESS-1
 output HEADLESS-1 resolution 1920x1080 bg #0c0d12 solid_color
 
-# Per-user overrides written by the settings app and by agents (display, keys…).
-# Kept outside /etc so the system profile stays pristine and a bad setting is one file.
-include ~/.config/slate/sway.d/*.conf
-
 # Conventional stacking desktop: every app window floats with a title bar.
 for_window [app_id=".*"] floating enable
 for_window [class=".*"] floating enable
@@ -78,6 +74,11 @@ bindsym XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
 mode "controlling" {
     bindsym Escape exec slate-desktop takeover-cancel; mode "default"
 }
+
+# Per-user overrides written by the settings app, slate-theme and agents (display,
+# colours, background, keys…). Last, so they win over the defaults above; kept outside
+# /etc so the system profile stays pristine and a bad setting is one file.
+include ~/.config/slate/sway.d/*.conf
 
 bar {
     swaybar_command waybar

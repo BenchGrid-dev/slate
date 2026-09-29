@@ -1,0 +1,5 @@
+name = "appearance"
+description = "Switch the desktop between dark and light, and set the desktop background."
+tiers = { default = "reversible" }
+requires = ["slate-theme"]
+applies_to = { distro = ["slateos"] }

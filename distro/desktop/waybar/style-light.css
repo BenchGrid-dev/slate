@@ -1,0 +1,23 @@
+/* SlateOS panel, light: quiet, translucent, one accent. */
+* { font-family: "Inter", "Noto Sans", "Font Awesome 6 Free", sans-serif; font-size: 13px; font-weight: 500; min-height: 0; }
+window#waybar { background: rgba(245, 246, 250, 0.86); color: #1c1f27; }
+#custom-launcher { color: #3b6de8; font-size: 15px; padding: 0 14px 0 16px; }
+#custom-launcher:hover { color: #1c1f27; }
+#workspaces { margin-right: 6px; }
+#workspaces button { color: #8a90a0; padding: 0 9px; margin: 6px 1px; border-radius: 6px; border: none; }
+#workspaces button.focused { color: #1c1f27; background: rgba(0, 0, 0, 0.08); }
+#workspaces button:hover { color: #1c1f27; background: rgba(0, 0, 0, 0.05); box-shadow: none; }
+#window { color: #6b7080; font-weight: 400; }
+#clock { color: #1c1f27; font-weight: 500; }
+#tray, #network, #wireplumber { padding: 0 9px; color: #4a4f5c; }
+#network, #wireplumber { font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 13px; }
+#network.disconnected { color: #8a90a0; }
+#wireplumber.muted { color: #8a90a0; }
+#custom-slate { color: #1c1f27; background: rgba(0, 0, 0, 0.06); border-radius: 8px; margin: 5px 10px 5px 4px; padding: 0 11px; }
+#custom-slate:hover { background: rgba(0, 0, 0, 0.10); }
+#custom-slate.working { color: #ffffff; background: rgba(59, 109, 232, 0.75); }
+@keyframes slate-blink { 0% { background: rgba(59, 109, 232, 0.9); } 50% { background: rgba(59, 109, 232, 0.3); } 100% { background: rgba(59, 109, 232, 0.9); } }
+#custom-slate.controlling { color: #ffffff; animation: slate-blink 1.1s ease-in-out infinite; }
+#custom-slate.off { color: #8a90a0; }
+tooltip { background: rgba(255, 255, 255, 0.97); border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px; }
+tooltip label { color: #1c1f27; }
