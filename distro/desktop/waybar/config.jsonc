@@ -19,7 +19,7 @@
         "format": "{icon}",
         "format-icons": { "0:AI": "◆ AI", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "default": "{name}" }
     },
-    "sway/window": { "max-length": 48, "tooltip": false },
+    "sway/window": { "max-length": 48, "tooltip": false, "rewrite": { "Wayland Output Mirror for .*": "Slate’s screen" } },
     "clock": { "format": "{:%a %d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
     "tray": { "spacing": 10 },
     "wireplumber": {
@@ -72,7 +72,7 @@
         "on-click": "activate",
         "on-click-middle": "close",
         "on-click-right": "minimize-raise",
-        "ignore-list": ["slate-shell", "wl-mirror"]
+        "ignore-list": ["slate-shell", "at.yrlf.wl_mirror"]
     }
 }
 ]

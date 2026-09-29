@@ -19,13 +19,15 @@ workspace agent output HEADLESS-1
 output HEADLESS-1 resolution 1920x1080 bg #0c0d12 solid_color
 # The "AI" workspace, left of 1 on the person's screen: a live, read-only view of the
 # agent's screen (wl-mirror), so you can watch it work without moving anything.
-for_window [app_id="at.yrlf.wl_mirror"] move container to workspace "0:AI", fullscreen enable
-bindsym $mod+grave workspace "0:AI"
-bindsym $mod+0 workspace "0:AI"
+# assign (not for_window move): the window lands there without taking the focus with it,
+# so logging in still leaves you on workspace 1.
+assign [app_id="at.yrlf.wl_mirror"] workspace "0:AI"
 
 # Conventional stacking desktop: every app window floats with a title bar.
 for_window [app_id=".*"] floating enable
 for_window [class=".*"] floating enable
+# The AI view is the one tiled window: it fills the workspace between the panel and the dock.
+for_window [app_id="at.yrlf.wl_mirror"] floating disable, border none
 for_window [app_id="foot"] resize set 1000 640
 for_window [app_id="firefox"] resize set 1180 740
 default_border normal 1
@@ -65,6 +67,10 @@ bindsym $mod+2 workspace number 2
 bindsym $mod+3 workspace number 3
 bindsym $mod+4 workspace number 4
 bindsym $mod+5 workspace number 5
+# After the numbered ones: sway names a new output's first workspace after the first
+# "workspace" binding in the config, and you should log in on 1, not on the AI view.
+bindsym $mod+grave workspace "0:AI"
+bindsym $mod+0 workspace "0:AI"
 bindsym $mod+Shift+1 move container to workspace number 1
 bindsym $mod+Shift+2 move container to workspace number 2
 bindsym $mod+Shift+3 move container to workspace number 3
