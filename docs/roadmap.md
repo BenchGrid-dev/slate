@@ -20,7 +20,7 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 - [x] Takeover indicator: panel blinks "controlling", sway `controlling` mode, Esc hands control back and blocks retries
 - [x] Focus-aware input: per-seat focus from the compositor, focus-then-verify before typing, post-action screenshots
 - [x] Demos: Claude Code and Codex drive a terminal and Firefox through the agent seat from slash
-- [ ] AT-SPI2 tree read and action
+- [x] AT-SPI2: elements, read, element actions and EditableText over the bus; GTK3, GTK4, Firefox verified
 - [ ] sway patch: security-context clients see only the agent seat (ADR 0007)
 - [ ] Ghost cursor rendering (sway patch)
 - [ ] Toolkit compatibility list: Qt, Chromium/Electron, Flatpak (GTK3 and foot verified; GTK4 needs the user seat)

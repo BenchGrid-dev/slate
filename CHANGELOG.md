@@ -2,6 +2,12 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
+## Unreleased
+
+- slate-desktop: the accessibility tree as the first way to see and drive applications. `desktop_elements` lists a window's interactive elements (role, name, value, states, window-relative extents, actions), `desktop_read` returns its text, `desktop_element_click` activates an element through its accessibility action and `desktop_element_set_text` edits text over the bus; both work without a pointer or keyboard and in toolkits that ignore extra seats (GTK4). Pointer and typing fallbacks otherwise. Verified on GTK3 (Thunar, pavucontrol), GTK4 (settings app) and Firefox.
+- Desktop profile: accessibility enabled for every toolkit (`services.gnome.at-spi2-core`, `toolkit-accessibility`, Qt/Firefox/Chromium switches); the daemon also turns the bus on at connect.
+- Skills: `desktop-windows` teaches elements first, pixels second.
+
 ## 0.0.11 — 2026-09-28
 
 - SlateOS system tools: `slateos-rebuild`, `slateos-option`, `slateos-install`, `slateos-generate-config`, `slateos-enter`, `slateos-version`, thin front ends for the `nixos-*` originals that use `/etc/slateos` (falling back to `/etc/nixos`). The system skill and slash's identity prompt use them. Licensing note in `distro/README.md` (nixpkgs is MIT; the NixOS name is used only descriptively).

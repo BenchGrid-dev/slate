@@ -33,7 +33,7 @@ The repository contains both the Slate runtime and the SlateOS desktop configura
 
 ### A shared desktop, independent input
 
-The agent gets its own pointer, keyboard, and focus through a dedicated Wayland seat. In compatible applications, it can work while you continue typing elsewhere. Per-window screenshots and focus-verified typing let it inspect the result of an action.
+The agent gets its own pointer, keyboard, and focus through a dedicated Wayland seat. In compatible applications, it can work while you continue typing elsewhere. It sees applications through the accessibility tree first (elements by role and name, text as text, actions without a pointer) and through per-window screenshots second; focus-verified typing lets it inspect the result of an action.
 
 For applications that require the user's seat, Slate provides an explicit fallback: the panel displays **controlling**, and **Esc** takes control back. Application support and backend approval differences are documented [below](#project-status).
 
@@ -191,7 +191,7 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 | Area | Available today | Next steps |
 | --- | --- | --- |
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
-| Desktop control | Dedicated agent seat, per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | AT-SPI2 accessibility, ghost cursor, compositor seat filtering, broader app coverage. |
+| Desktop control | Dedicated agent seat, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, and scoped undo. | Codex approval integration, agent identity isolation, consented system privilege elevation. |
 | Distribution | NixOS module, desktop profile, settings app, and SlateOS system command wrappers. | Installable image, installer, and first-run setup. |
 

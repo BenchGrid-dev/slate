@@ -84,8 +84,8 @@ This is the piece that does not exist anywhere else on Linux. It gives an agent 
 Mechanism, in order of preference for any given action:
 
 1. **Non-GUI path.** If an OS Skill says the task can be done via CLI, D-Bus, a config file or an app's own API, do that. Cheapest, most reliable, fully auditable. (Implemented: this is what the skills teach.)
-2. **Accessibility tree.** AT-SPI2 gives a structured tree for GTK, Qt and (when enabled) Chromium/Electron apps. Agents act on named controls, not pixels. Far fewer tokens than screenshots. (**Not started.**)
-3. **Pixels and virtual input.** Per-window capture plus synthesized pointer and keyboard events. (Implemented; this is what runs today.)
+2. **Accessibility tree.** AT-SPI2 gives a structured tree for GTK, Qt, Firefox, Chromium and LibreOffice. Agents list a window's elements by role and name, read its text, and activate elements or set their text through the bus, with no pointer or keyboard involved, which also sidesteps toolkits that ignore extra seats. (Implemented: `desktop_elements`, `desktop_read`, `desktop_element_click`, `desktop_element_set_text`; verified on GTK3, GTK4 and Firefox.)
+3. **Pixels and virtual input.** Per-window capture plus synthesized pointer and keyboard events, for elements without actions and windows without a tree (terminals, canvases). (Implemented.)
 
 Compositor-level primitives used:
 

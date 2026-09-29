@@ -148,7 +148,13 @@ def main():
 
     # 2. firefox: navigate to a local page and check the compositor-reported title.
     page = os.path.join(tempfile.gettempdir(), "slate-e2e-page.html")
-    open(page, "w").write("<html><head><title>SLATE-E2E-TITLE</title></head><body><h1>ok</h1></body></html>")
+    page2 = os.path.join(tempfile.gettempdir(), "slate-e2e-page2.html")
+    open(page2, "w").write("<html><head><title>SLATE-E2E-PAGE2</title></head><body><p>second</p></body></html>")
+    open(page, "w").write(
+        "<html><head><title>SLATE-E2E-TITLE</title></head><body><h1>SLATE-E2E-HEADING</h1>"
+        f"<p><a href=\"file://{page2}\">SLATE-E2E-LINK</a></p>"
+        "<p><label>Name <input id=\"name\" type=\"text\"></label></p></body></html>"
+    )
     before_ff = {w["id"] for w in m.windows()}
     # A private profile and --no-remote guarantee a fresh instance: plain `firefox` would
     # hand the request to an already running Firefox and exit.
@@ -173,9 +179,56 @@ def main():
         if images and w:
             pw, ph = png_size(images[0])
             check("firefox screenshot cropped to window geometry", (pw, ph) == (w["width"], w["height"]), f"{pw}x{ph} vs {w['width']}x{w['height']}")
+        # The accessibility tree: text without OCR, elements by name, actions without a pointer.
+        try:
+            body, _ = m.tool("desktop_read", window=ff["id"])
+            check("desktop_read returns the page heading from the accessibility tree", "SLATE-E2E-HEADING" in body, body[:80].replace("\n", " | "))
+            elems, _ = m.tool("desktop_elements", window=ff["id"], query="SLATE-E2E")
+            link = next((l for l in elems.splitlines() if "link" in l and "SLATE-E2E-LINK" in l), None)
+            check("desktop_elements lists the page link with window-relative extents", link is not None and "@" in (link or ""), (link or elems[:80]))
+            entries, _ = m.tool("desktop_elements", window=ff["id"], query="entry")
+            entry = next((l for l in entries.splitlines() if l.startswith("e") and "entry" in l), None)
+            if entry:
+                eid = entry.split()[0]
+                m.tool("desktop_element_set_text", id=eid, text="SLATE-E2E-VALUE", verify=False)
+                after, _ = m.tool("desktop_elements", window=ff["id"], query="entry")
+                check("desktop_element_set_text fills the input (value oracle)", "SLATE-E2E-VALUE" in after, after[:100].replace("\n", " | "))
+            else:
+                check("desktop_elements finds the text input", False, entries[:80])
+            if link:
+                m.tool("desktop_element_click", id=link.split()[0], verify=False)
+                navigated = wait_for(lambda: (lambda w: w and "SLATE-E2E-PAGE2" in w["title"])(find(m, "firefox", before_ff)), 15)
+                check("desktop_element_click follows the link through its accessibility action (title oracle)", bool(navigated))
+        except RuntimeError as e:
+            check("accessibility tree available for firefox", False, str(e)[:120])
         m.tool("desktop_close", window=ff["id"])
         gone = wait_for(lambda: find(m, "firefox", before_ff) is None, 15)
         check("desktop_close closes the firefox window", bool(gone))
+
+    # GTK3 through the tree: Thunar's location entry, set and activated over the bus.
+    before_th = {w["id"] for w in m.windows()}
+    m.tool("desktop_launch", command="thunar", args=["/tmp"])
+    th = wait_for(lambda: find(m, "thunar", before_th), 20)
+    check("launch thunar appears in windows", th is not None)
+    if th:
+        time.sleep(2)
+        try:
+            elems, _ = m.tool("desktop_elements", window=th["id"])
+            check("thunar exposes named buttons through the accessibility tree", '"Home"' in elems or '"Open Parent"' in elems, elems.splitlines()[0][:80])
+            loc = next((l for l in elems.splitlines() if l.startswith("e") and " text " in l and "editable" in l), None)
+            if loc:
+                eid = loc.split()[0]
+                m.tool("desktop_element_set_text", id=eid, text=tempfile.gettempdir(), verify=False)
+                m.tool("desktop_element_click", id=eid, action="Activate", verify=False)
+                base = os.path.basename(tempfile.gettempdir())
+                titled = wait_for(lambda: (lambda w: w and w["title"].startswith(base))(find(m, "thunar", before_th)), 10)
+                check("thunar navigates after set_text + Activate on the location entry (title oracle)", bool(titled))
+            else:
+                check("thunar location entry found in elements", False)
+        except RuntimeError as e:
+            check("accessibility tree available for thunar", False, str(e)[:120])
+        m.tool("desktop_close", window=th["id"])
+        wait_for(lambda: find(m, "thunar", before_th) is None, 10)
 
     m.close()
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall passed")
