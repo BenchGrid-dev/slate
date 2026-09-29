@@ -1,6 +1,7 @@
 //! MCP server (stdio, JSON-RPC 2.0) exposing the desktop to agent backends,
 //! plus the shared window/launch helpers the CLI uses.
 
+use crate::a11y::A11y;
 use crate::sway;
 use crate::wayland::{Desktop, Seat};
 use anyhow::{anyhow, Result};
@@ -22,6 +23,26 @@ pub static TAKEOVER: std::sync::Mutex<Takeover> = std::sync::Mutex::new(Takeover
     active_until: None,
     cancelled_until: None,
 });
+
+static A11Y: std::sync::Mutex<Option<A11y>> = std::sync::Mutex::new(None);
+
+/// Run `f` with the accessibility connection, connecting on first use.
+fn with_a11y<T>(f: impl FnOnce(&mut A11y) -> Result<T>) -> Result<T> {
+    let mut guard = A11Y.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        *guard = Some(A11y::connect()?);
+    }
+    let r = f(guard.as_mut().expect("connected"));
+    if r.is_err() {
+        // A dead bus connection would poison every later call: reconnect next time.
+        if let Err(e) = &r {
+            if e.to_string().contains("Connection") || e.to_string().contains("disconnected") {
+                *guard = None;
+            }
+        }
+    }
+    r
+}
 
 const TAKEOVER_LINGER: std::time::Duration = std::time::Duration::from_secs(6);
 const TAKEOVER_CANCEL_HOLD: std::time::Duration = std::time::Duration::from_secs(60);
@@ -74,6 +95,9 @@ pub fn takeover_active() -> bool {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Window {
     pub id: String,
+    /// Client pid (from the compositor), for the accessibility bus. Not shown to agents.
+    #[serde(skip)]
+    pub pid: Option<u32>,
     /// Compositor title bar (screen pixels), if any. Not shown to agents.
     #[serde(skip)]
     pub titlebar: Option<(i32, i32, i32, i32)>,
@@ -121,6 +145,7 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                     }
                 }),
                 con_id: g.map(|g| g.con_id),
+                pid: g.and_then(|g| g.pid),
                 deco: g
                     .map(|g| {
                         (
@@ -142,6 +167,17 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
             }
         })
         .collect())
+}
+
+/// The compositor window an element belongs to (by the pid the tree was read from).
+fn window_of_element(d: &mut Desktop, id: &str) -> Result<Window> {
+    let (pid, title) = with_a11y(|a| a.origin(id))?;
+    let wins = windows(d)?;
+    wins.iter()
+        .find(|w| w.pid == Some(pid) && w.title == title)
+        .or_else(|| wins.iter().find(|w| w.pid == Some(pid)))
+        .cloned()
+        .ok_or_else(|| anyhow!("the window of element {id} is gone"))
 }
 
 /// Resolve a window reference: identifier, app_id, or title substring.
@@ -283,8 +319,50 @@ fn tools() -> Value {
             "name": "desktop_launch",
             "description": "Start a program on the user's desktop (e.g. 'foot', 'firefox'). Returns the pid. Use desktop_windows afterwards to find its window.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}, "required": ["command"]}
-        }
+        },
+        {
+            "name": "desktop_elements",
+            "description": "The interactive elements of a window from its accessibility tree: id, role, name, value, states, window-relative extents (x,y,w,h in the same space as window screenshots and desktop_click), actions. Prefer this over screenshots: act on elements by id with desktop_element_click / desktop_element_set_text and read text with desktop_read. `query` filters by name or role; `all` includes non-interactive nodes.",
+            "inputSchema": {"type": "object", "properties": {
+                "window": {"type": "string", "description": "window id, app_id or title substring"},
+                "query": {"type": "string"},
+                "all": {"type": "boolean"}
+            }, "required": ["window"]}
+        },
+        {
+            "name": "desktop_read",
+            "description": "The readable text of a window from its accessibility tree (headings, paragraphs, labels, links, field contents), one line per node tagged with role and element id. Use instead of reading screenshots.",
+            "inputSchema": {"type": "object", "properties": {"window": {"type": "string"}}, "required": ["window"]}
+        },
+        {
+            "name": "desktop_element_click",
+            "description": "Activate an element from desktop_elements by id: through its accessibility action when it has one (no pointer needed; works in every toolkit including GTK4), otherwise a pointer click at its centre through the chosen seat. `action` selects a specific action name.",
+            "inputSchema": {"type": "object", "properties": {
+                "id": {"type": "string"},
+                "action": {"type": "string"},
+                "seat": {"type": "string", "enum": ["agent", "user"]},
+                "verify": {"type": "boolean"}
+            }, "required": ["id"]}
+        },
+        {
+            "name": "desktop_element_set_text",
+            "description": "Replace the text of an editable element (entry, text field, document) by id through the accessibility EditableText interface; falls back to focusing the element and typing through the chosen seat. Says which path was used.",
+            "inputSchema": {"type": "object", "properties": {
+                "id": {"type": "string"},
+                "text": {"type": "string"},
+                "seat": {"type": "string", "enum": ["agent", "user"]},
+                "verify": {"type": "boolean"}
+            }, "required": ["id", "text"]}
+        },
     ])
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n).collect::<String>())
+    }
 }
 
 fn text(s: impl Into<String>) -> Value {
@@ -705,6 +783,114 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     win.id,
                     win.title
                 ))
+            }
+            "desktop_elements" => {
+                let w = args.get("window").and_then(Value::as_str).unwrap_or("");
+                let win = resolve(d, w)?;
+                let pid = win
+                    .pid
+                    .ok_or_else(|| anyhow!("no pid for window {} on this compositor", win.id))?;
+                let query = args
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .filter(|q| !q.is_empty());
+                let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
+                let (elements, title) = (
+                    with_a11y(|a| a.elements(pid, &win.app_id, &win.title, query, all))?,
+                    win.title.clone(),
+                );
+                d.last_window = Some(win.id.clone());
+                let mut lines = vec![format!(
+                    "{} elements in {} ({}) — coordinates are window-relative",
+                    elements.len(),
+                    win.id,
+                    title
+                )];
+                for e in &elements {
+                    let mut l = format!("{}  {}", e.id, e.role);
+                    if !e.name.is_empty() {
+                        l.push_str(&format!("  {:?}", e.name));
+                    }
+                    if let Some(v) = &e.value {
+                        l.push_str(&format!("  = {:?}", truncate(v, 80)));
+                    }
+                    if !e.states.is_empty() {
+                        l.push_str(&format!("  [{}]", e.states.join(",")));
+                    }
+                    if let (Some(x), Some(y), Some(w2), Some(h)) = (e.x, e.y, e.w, e.h) {
+                        l.push_str(&format!("  @{x},{y} {w2}x{h}"));
+                    }
+                    if !e.actions.is_empty() {
+                        l.push_str(&format!("  actions: {}", e.actions.join("/")));
+                    }
+                    lines.push(l);
+                }
+                text(lines.join("\n"))
+            }
+            "desktop_read" => {
+                let w = args.get("window").and_then(Value::as_str).unwrap_or("");
+                let win = resolve(d, w)?;
+                let pid = win
+                    .pid
+                    .ok_or_else(|| anyhow!("no pid for window {} on this compositor", win.id))?;
+                let body = with_a11y(|a| a.read(pid, &win.app_id, &win.title))?;
+                d.last_window = Some(win.id.clone());
+                text(format!("{} ({}):\n{}", win.id, win.title, body))
+            }
+            "desktop_element_click" => {
+                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                let wanted = args.get("action").and_then(Value::as_str);
+                let what = with_a11y(|a| Ok(a.describe(id)))?;
+                let done = with_a11y(|a| a.do_action(id, wanted))?;
+                let r = match done {
+                    Some(action) => text(format!("{action} on {what} through the accessibility tree. Check the screenshot below.")),
+                    None => {
+                        // No action: a pointer click at the element's centre, in its window.
+                        let (ex, ey, ew, eh) = with_a11y(|a| a.element_extents(id))?;
+                        let win = window_of_element(d, id)?;
+                        if seat == Seat::User { takeover_begin()?; }
+                        let (x, y) = (win.x.unwrap_or(0) as f64 + ex as f64 + ew as f64 / 2.0, win.y.unwrap_or(0) as f64 + ey as f64 + eh as f64 / 2.0);
+                        d.click(seat, x, y, "left", 1)?;
+                        d.last_window = Some(win.id.clone());
+                        text(format!("{what} has no accessibility action; clicked its centre at {x:.0},{y:.0}{via}. Check the screenshot below."))
+                    }
+                };
+                let lw = d.last_window.clone();
+                with_verify(d, r, lw.as_deref(), args)
+            }
+            "desktop_element_set_text" => {
+                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                let t = args.get("text").and_then(Value::as_str).unwrap_or("");
+                let what = with_a11y(|a| Ok(a.describe(id)))?;
+                let r = if with_a11y(|a| a.set_text(id, t))? {
+                    text(format!(
+                        "set the text of {what} through the accessibility tree ({} characters).",
+                        t.chars().count()
+                    ))
+                } else {
+                    // Not editable over the bus: focus it and type.
+                    let win = window_of_element(d, id)?;
+                    ensure_focus(d, seat, &win)?;
+                    if !with_a11y(|a| a.grab_focus(id))? {
+                        let (ex, ey, ew, eh) = with_a11y(|a| a.element_extents(id))?;
+                        if seat == Seat::User {
+                            takeover_begin()?;
+                        }
+                        d.click(
+                            seat,
+                            win.x.unwrap_or(0) as f64 + ex as f64 + ew as f64 / 2.0,
+                            win.y.unwrap_or(0) as f64 + ey as f64 + eh as f64 / 2.0,
+                            "left",
+                            1,
+                        )?;
+                    }
+                    d.key(seat, "ctrl+a")?;
+                    d.type_text(seat, t)?;
+                    d.last_window = Some(win.id.clone());
+                    text(format!("{what} is not editable over the accessibility bus; focused it and typed {} characters{via}.", t.chars().count()))
+                };
+                let lw = d.last_window.clone();
+                with_verify(d, r, lw.as_deref(), args)
             }
             "desktop_launch" => {
                 let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");

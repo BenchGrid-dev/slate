@@ -17,6 +17,8 @@ pub struct Rect {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WindowGeometry {
+    /// The client's pid, when the compositor knows it.
+    pub pid: Option<u32>,
     pub identifier: String,
     pub con_id: i64,
     /// Container rectangle, absolute.
@@ -228,6 +230,7 @@ fn walk(
             height: r.height,
         });
         windows.push(WindowGeometry {
+            pid: node.get("pid").and_then(Value::as_u64).map(|p| p as u32),
             identifier: id.to_string(),
             con_id: node.get("id").and_then(Value::as_i64).unwrap_or(0),
             content: Rect {

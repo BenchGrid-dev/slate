@@ -4,6 +4,7 @@
 //! connection with the agent's own transient seat. The other subcommands are
 //! for testing the same operations from a shell.
 
+mod a11y;
 mod daemon;
 mod keymap;
 mod mcp;
@@ -38,6 +39,10 @@ usage:
   slate-desktop type TEXT
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
       input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
+  slate-desktop elements WINDOW [QUERY]   interactive elements from the accessibility tree
+  slate-desktop read WINDOW               readable text from the accessibility tree
+  slate-desktop element-click ID [ACTION] activate an element (action, or pointer fallback)
+  slate-desktop element-set-text ID TEXT  set an editable element's text
   slate-desktop launch CMD [ARGS...]      start a program on this display
   slate-desktop seats                     which window each seat has focused
   slate-desktop status                    is the agent controlling the user's seat right now
@@ -118,6 +123,43 @@ fn main() -> Result<()> {
             let r = mcp::cli_call(
                 "desktop_key",
                 json!({"combo": combo, "seat": seat_s, "verify": false}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "elements" => {
+            let window = args.get(1).cloned().unwrap_or_default();
+            let query = args.get(2).cloned();
+            let r = mcp::cli_call(
+                "desktop_elements",
+                json!({"window": window, "query": query}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "read" => {
+            let window = args.get(1).cloned().unwrap_or_default();
+            let r = mcp::cli_call("desktop_read", json!({"window": window}))?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "element-click" => {
+            let id = args.get(1).cloned().unwrap_or_default();
+            let seat_s = if seat == Seat::User { "user" } else { "agent" };
+            let r = mcp::cli_call(
+                "desktop_element_click",
+                json!({"id": id, "action": args.get(2).cloned(), "seat": seat_s, "verify": false}),
+            )?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        "element-set-text" => {
+            let id = args.get(1).cloned().unwrap_or_default();
+            let text = args.get(2).cloned().unwrap_or_default();
+            let seat_s = if seat == Seat::User { "user" } else { "agent" };
+            let r = mcp::cli_call(
+                "desktop_element_set_text",
+                json!({"id": id, "text": text, "seat": seat_s, "verify": false}),
             )?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())

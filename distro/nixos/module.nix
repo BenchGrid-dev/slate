@@ -189,6 +189,11 @@ in
         XCURSOR_THEME = "Adwaita";
         XCURSOR_SIZE = "24";
         QT_QPA_PLATFORMTHEME = "gtk3";
+        # Every toolkit publishes its widget tree on the accessibility bus, which is
+        # how agents see and drive applications natively (slate-desktop's a11y tools).
+        QT_LINUX_ACCESSIBILITY_ALWAYS_ON = "1";
+        GNOME_ACCESSIBILITY = "1";
+        ACCESSIBILITY_ENABLED = "1";
       })
     ];
 
@@ -210,10 +215,12 @@ in
       emoji = [ "Noto Color Emoji" ];
     };
     # Dark, one accent, everywhere: GTK3 reads these from dconf, GTK4/libadwaita through the portal.
+    services.gnome.at-spi2-core.enable = lib.mkIf cfg.desktop.enable true;
     programs.dconf = lib.mkIf cfg.desktop.enable {
       enable = true;
       profiles.user.databases = [{
         settings."org/gnome/desktop/interface" = {
+          toolkit-accessibility = true;
           color-scheme = "prefer-dark";
           gtk-theme = "Adwaita-dark";
           icon-theme = "Papirus-Dark";

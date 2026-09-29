@@ -19,3 +19,4 @@ wayland-protocols-misc = { version = "0.3", features = ["client"] }
 png = "0.17"
 base64 = "0.22"
 libc = "0.2"
+zbus = "5"
