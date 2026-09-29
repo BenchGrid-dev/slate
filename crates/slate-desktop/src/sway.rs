@@ -27,6 +27,12 @@ pub struct WindowGeometry {
     pub content: Rect,
     pub focused: bool,
     pub output: Option<String>,
+    /// The workspace the window is on.
+    pub workspace: Option<String>,
+    /// Stacking position among the windows of the tree walk: a later window is drawn
+    /// above an earlier one on the same workspace (sway lists floating windows bottom
+    /// to top, after the tiled ones).
+    pub z: usize,
     /// Title bar drawn by the compositor (relative to the workspace origin); zero height = none.
     pub deco: Rect,
 }
@@ -194,7 +200,14 @@ pub fn tree_full() -> Result<(
     let mut windows = vec![];
     let mut outputs = vec![];
     let mut workspaces = vec![];
-    walk(&root, None, &mut windows, &mut outputs, &mut workspaces);
+    walk(
+        &root,
+        None,
+        None,
+        &mut windows,
+        &mut outputs,
+        &mut workspaces,
+    );
     Ok((windows, outputs, workspaces))
 }
 
@@ -244,6 +257,7 @@ pub fn area_for_output(output: &str) -> Option<Rect> {
 fn walk(
     node: &Value,
     output: Option<&str>,
+    workspace: Option<&str>,
     windows: &mut Vec<WindowGeometry>,
     outputs: &mut Vec<OutputGeometry>,
     workspaces: &mut Vec<WorkspaceGeometry>,
@@ -251,8 +265,10 @@ fn walk(
     let ty = node.get("type").and_then(Value::as_str).unwrap_or("");
     let name = node.get("name").and_then(Value::as_str);
     let mut current_output = output;
+    let mut current_workspace = workspace;
     if ty == "workspace" {
         if let Some(n) = name {
+            current_workspace = Some(n);
             if !n.starts_with("__") {
                 workspaces.push(WorkspaceGeometry {
                     name: n.to_string(),
@@ -332,6 +348,8 @@ fn walk(
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             output: current_output.map(str::to_string),
+            workspace: current_workspace.map(str::to_string),
+            z: windows.len(),
             deco: node.get("deco_rect").map(rect).unwrap_or(Rect {
                 x: 0,
                 y: 0,
@@ -343,7 +361,14 @@ fn walk(
     for key in ["nodes", "floating_nodes"] {
         if let Some(children) = node.get(key).and_then(Value::as_array) {
             for c in children {
-                walk(c, current_output, windows, outputs, workspaces);
+                walk(
+                    c,
+                    current_output,
+                    current_workspace,
+                    windows,
+                    outputs,
+                    workspaces,
+                );
             }
         }
     }

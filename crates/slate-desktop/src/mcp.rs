@@ -539,6 +539,83 @@ fn focused_window(d: &mut Desktop, seat: Seat) -> Option<Window> {
     windows(d).ok()?.into_iter().find(|w| w.con_id == Some(con))
 }
 
+/// A point on `win` where a click reaches it: on its title bar (or the top strip of
+/// its content when the app draws its own), away from anything stacked above it.
+/// Background windows pile up in the middle of the agent's screen, so a covered
+/// window there is first brought to the top of the pile (its size and place kept).
+fn focus_point(win: &Window) -> Result<(f64, f64)> {
+    let bar: (f64, f64, f64, f64) = match win.titlebar {
+        Some((tx, ty, tw, th)) => (tx as f64, ty as f64, tw as f64, th as f64),
+        None => (
+            win.x.unwrap_or(0) as f64,
+            win.y.unwrap_or(0) as f64,
+            win.width.unwrap_or(200) as f64,
+            12.0,
+        ),
+    };
+    let centre = (bar.0 + bar.2 / 2.0, bar.1 + bar.3 / 2.0);
+    let Some(con) = win.con_id else {
+        return Ok(centre);
+    };
+    let Ok((geos, _)) = sway::tree() else {
+        return Ok(centre);
+    };
+    let Some(me) = geos.iter().find(|g| g.con_id == con) else {
+        return Ok(centre);
+    };
+    let above: Vec<&sway::WindowGeometry> = geos
+        .iter()
+        .filter(|g| g.z > me.z && g.workspace == me.workspace && g.con_id != con)
+        .collect();
+    let covered = |x: f64, y: f64| {
+        above.iter().any(|g| {
+            let r = &g.rect;
+            x >= r.x as f64
+                && x < (r.x + r.width) as f64
+                && y >= r.y as f64
+                && y < (r.y + r.height) as f64
+        })
+    };
+    let y = centre.1;
+    if !covered(centre.0, y) {
+        return Ok(centre);
+    }
+    let mut x = bar.0 + 16.0;
+    while x < bar.0 + bar.2 - 8.0 {
+        if !covered(x, y) {
+            return Ok((x, y));
+        }
+        x += 40.0;
+    }
+    if win.location != "background" {
+        anyhow::bail!(
+            "{} ({}) is covered by other windows; click inside it where it is visible, or move the windows above it",
+            win.id,
+            win.title
+        );
+    }
+    // Re-adding a floating container puts it on top of the pile; size and position
+    // are restored in the same command so nothing else changes.
+    let ws = sway::area_for_output(me.output.as_deref().unwrap_or("")).unwrap_or(sway::Rect {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    });
+    sway::command_for_con(
+        con,
+        &format!(
+            "floating disable, floating enable, resize set {} px {} px, move position {} px {} px",
+            me.content.width,
+            me.content.height,
+            me.rect.x - ws.x,
+            me.rect.y - ws.y
+        ),
+    )?;
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    Ok(centre)
+}
+
 /// Make sure `seat` will type into `win`: focus it, then verify. For the agent seat
 /// this is a click on the compositor's title bar (or the top edge of the content
 /// when the app draws its own), for the user's seat a compositor focus command.
@@ -551,15 +628,7 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
     }
     match seat {
         Seat::Agent => {
-            let (x, y) = match win.titlebar {
-                Some((tx, ty, tw, th)) => {
-                    (tx as f64 + tw as f64 / 2.0, ty as f64 + th as f64 / 2.0)
-                }
-                None => (
-                    win.x.unwrap_or(0) as f64 + win.width.unwrap_or(200) as f64 / 2.0,
-                    win.y.unwrap_or(0) as f64 + 6.0,
-                ),
-            };
+            let (x, y) = focus_point(win)?;
             d.click(seat, x, y, "left", 1)?;
         }
         Seat::User => {
