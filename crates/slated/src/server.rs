@@ -244,9 +244,23 @@ fn handle_conn(stream: UnixStream, state: Shared) -> Result<()> {
         write_line(&writer, &ReplyEnvelope { id: env.id, reply })?;
     }
     if let Some(task_id) = attached {
-        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(list) = st.uis.get_mut(&task_id) {
-            list.retain(|w| !Arc::ptr_eq(w, &writer));
+        let orphaned = {
+            let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(list) = st.uis.get_mut(&task_id) {
+                list.retain(|w| !Arc::ptr_eq(w, &writer));
+            }
+            let no_ui = st.uis.get(&task_id).map(|l| l.is_empty()).unwrap_or(true);
+            no_ui
+                && st
+                    .tasks
+                    .get(&task_id)
+                    .map(|t| t.ended.is_none())
+                    .unwrap_or(false)
+        };
+        // The shell that ran this task is gone mid-turn (window closed, Ctrl-C, crash):
+        // end the task, or the desktop would show "working" until it aged out.
+        if orphaned {
+            let _ = dispatch(Request::TaskEnd { task_id, ok: false }, state);
         }
     }
     Ok(())
