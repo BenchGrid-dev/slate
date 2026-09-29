@@ -8,7 +8,15 @@ ever sees whether the command ran. Cancel exits non-zero and sudo fails.
 
 Usage: slate-askpass [prompt]
 """
+import os
 import sys
+
+# sudo passes our stderr through to the command's caller (an agent's tool call):
+# keep GTK's driver chatter out of it.
+try:
+    os.dup2(os.open(os.devnull, os.O_WRONLY), 2)
+except OSError:
+    pass
 
 import gi
 

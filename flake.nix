@@ -35,10 +35,20 @@
           };
         };
         default = slate;
+        iso = self.nixosConfigurations."iso-${pkgs.stdenv.hostPlatform.system}".config.system.build.isoImage;
       });
 
       nixosModules.default = import ./distro/nixos/module.nix { inherit self; };
       nixosModules.slate = self.nixosModules.default;
+
+      # The live / installer image: `nix build .#iso` (for the host's architecture) or
+      # `nix build .#nixosConfigurations.iso-aarch64-linux.config.system.build.isoImage`.
+      nixosConfigurations = nixpkgs.lib.genAttrs (map (s: "iso-${s}") systems) (name:
+        let system = nixpkgs.lib.removePrefix "iso-" name; in
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [ (import ./distro/iso/live.nix { inherit self nixpkgs; }) ];
+        });
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
