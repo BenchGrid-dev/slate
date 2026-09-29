@@ -2,7 +2,7 @@
 
 Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
 
-## Unreleased
+## 0.0.15 — 2026-09-29
 
 - Appearance: `slate-theme dark | light | wallpaper PATH` switches the whole desktop live (GTK/libadwaita through the colour-scheme key, sway colours and background, waybar, foot, mako, fuzzel, the Slate prompt) and remembers the choice; Settings → Appearance exposes it with a file chooser; the `appearance` skill lets the agent do it.
 - Fix: the person's focus and cursor can no longer end up on the agent's background screen (the daemon pulls them back; a window mapped there at login is brought over).
