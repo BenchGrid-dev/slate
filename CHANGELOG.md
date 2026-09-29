@@ -4,9 +4,11 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+## 0.0.17 — 2026-09-29
+
 - Slate prompt: messages typed while Slate works are queued under the current exchange, each with edit, send-now (steer: the current turn is interrupted and the message follows) and remove; they go out one by one as turns end. `slash --serve` gains a `cancel` op that interrupts the running agent.
 - Slate prompt: after sending, clicking another window puts the prompt away (it follows the person's focus); the colours follow `slate-theme`'s choice directly.
-- Desktop: a dock at the bottom (pinned launcher, files, browser, terminal, settings, then the open windows; click to activate, middle-click to close) and an **AI** workspace left of 1 (Super+grave or Super+0): a live, read-only view of the agent's background screen.
+- Desktop: a dock at the bottom (pinned launcher, files, browser, terminal, settings, then the open windows; click to activate, middle-click to close) and an **AI** workspace left of 1 (Super+grave or Super+0): a live, read-only view of the agent's background screen. Logging in lands on workspace 1.
 
 ## 0.0.16 — 2026-09-29
 

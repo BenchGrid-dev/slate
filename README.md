@@ -33,7 +33,7 @@ The central idea is simple: **an agent should have its own place on your desktop
 
 The repository contains both the Slate runtime and the SlateOS desktop configuration. You can start with the conversational shell or deploy the integrated desktop.
 
-> **Project status:** Pre-alpha · current version **0.0.16**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; a live/installer image builds from the flake and is being tested. See [project status](#project-status) for current boundaries.
+> **Project status:** Pre-alpha · current version **0.0.17**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; a live/installer image builds from the flake and is being tested. See [project status](#project-status) for current boundaries.
 
 ## Why SlateOS
 
