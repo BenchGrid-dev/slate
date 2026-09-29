@@ -85,15 +85,15 @@ mode "controlling" {
 # /etc so the system profile stays pristine and a bad setting is one file.
 include ~/.config/slate/sway.d/*.conf
 
-bar {
-    swaybar_command waybar
-}
+# waybar draws the top panel and the bottom dock (two bars in one config). Started
+# directly: sway's swaybar_command would pass a bar id that hides both.
 
 # The agent seat must exist before any app starts (apps ignore seats added later):
 # hand the display to systemd and start the supervised daemon first.
 # The background screen must exist before the daemon binds its pointers (the headless
 # backend provides one; create it only if it did not).
 exec sh -c "swaymsg -t get_outputs | grep -q HEADLESS || swaymsg create_output; sleep 0.5; systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart slate-desktop.service"
+exec waybar
 exec mako
 exec sleep 3 && slate-shell --hidden
 exec sleep 3 && foot

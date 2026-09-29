@@ -1,5 +1,5 @@
 /* SlateOS panel: quiet, translucent, one accent. */
-* { font-family: "Inter", "Noto Sans", "Font Awesome 6 Free", sans-serif; font-size: 13px; font-weight: 500; min-height: 0; }
+* { font-family: "Inter", "Noto Sans", "Font Awesome 7 Free", sans-serif; font-size: 13px; font-weight: 500; min-height: 0; }
 window#waybar { background: rgba(14, 16, 22, 0.78); color: #d7dae2; }
 #custom-launcher { color: #8fa7f0; font-size: 15px; padding: 0 14px 0 16px; }
 #custom-launcher:hover { color: #ffffff; }
@@ -10,7 +10,7 @@ window#waybar { background: rgba(14, 16, 22, 0.78); color: #d7dae2; }
 #window { color: #9ba1b0; font-weight: 400; }
 #clock { color: #e8eaf0; font-weight: 500; }
 #tray, #network, #wireplumber { padding: 0 9px; color: #b3b8c6; }
-#network, #wireplumber { font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 13px; }
+#network, #wireplumber { font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 13px; }
 #network.disconnected { color: #6b7080; }
 #wireplumber.muted { color: #6b7080; }
 #custom-slate { color: #d7dae2; background: rgba(255, 255, 255, 0.07); border-radius: 8px; margin: 5px 10px 5px 4px; padding: 0 11px; }
@@ -26,7 +26,7 @@ tooltip label { color: #d7dae2; }
 window#waybar.dock { background: transparent; }
 window#waybar.dock > box { margin: 0 0 6px 0; }
 #custom-dock-launcher, #custom-dock-files, #custom-dock-browser, #custom-dock-terminal, #custom-dock-settings {
-    font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 17px; padding: 0 13px; border-radius: 10px; margin: 4px 1px; }
+    font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 17px; padding: 0 13px; border-radius: 10px; margin: 4px 1px; }
 #taskbar { margin-left: 6px; }
 #taskbar button { padding: 0 8px; margin: 4px 1px; border-radius: 10px; border: none; }
 window#waybar.dock > box { background: rgba(14, 16, 22, 0.80); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 14px; padding: 0 6px; }
