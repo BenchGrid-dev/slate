@@ -37,18 +37,35 @@ pub struct OutputGeometry {
     pub rect: Rect,
 }
 
+/// The live sway socket. `SWAYSOCK` first, but only if it answers: a daemon that
+/// outlived a session restart inherits the old value. Otherwise the newest socket in
+/// the runtime directory that answers.
 fn socket_path() -> Option<PathBuf> {
+    let alive = |p: &PathBuf| std::os::unix::net::UnixStream::connect(p).is_ok();
     if let Some(p) = std::env::var_os("SWAYSOCK") {
-        return Some(PathBuf::from(p));
+        let p = PathBuf::from(p);
+        if alive(&p) {
+            return Some(p);
+        }
     }
     let dir = std::env::var_os("XDG_RUNTIME_DIR")?;
     let rd = std::fs::read_dir(dir).ok()?;
-    rd.flatten().map(|e| e.path()).find(|p| {
-        p.file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.starts_with("sway-ipc."))
-            .unwrap_or(false)
-    })
+    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("sway-ipc."))
+                .unwrap_or(false)
+        })
+        .filter_map(|p| {
+            let t = std::fs::metadata(&p).and_then(|m| m.modified()).ok()?;
+            Some((t, p))
+        })
+        .collect();
+    candidates.sort_by_key(|(t, _)| std::cmp::Reverse(*t));
+    candidates.into_iter().map(|(_, p)| p).find(|p| alive(p))
 }
 
 fn ipc(msg_type: u32, payload: &str) -> Result<Value> {
