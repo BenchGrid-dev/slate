@@ -17,7 +17,8 @@ in
 
   # Identity of the image.
   isoImage.volumeID = "SLATEOS";
-  isoImage.isoBaseName = "slateos"; # the file is <base>-<label>-<arch>.iso
+  # The file name (nixpkgs names images through image.baseName; isoImage.isoName is gone).
+  image.baseName = lib.mkForce "slateos-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}";
   isoImage.makeEfiBootable = true;
   isoImage.makeUsbBootable = true;
   isoImage.splashImage = ../desktop/wallpaper.png;
