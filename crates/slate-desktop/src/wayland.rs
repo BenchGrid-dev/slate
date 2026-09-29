@@ -64,10 +64,10 @@ pub struct Toplevel {
     pub title: String,
 }
 
-#[derive(Debug, Clone)]
 /// (output name, logical extent, layout origin)
 type OutputHit = (String, (i32, i32), (f64, f64));
 
+#[derive(Debug, Clone)]
 pub struct Output {
     pub name: String,
     pub width: i32,

@@ -40,7 +40,11 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 - The Slate prompt (`slate-shell`, `Mod+s` or the panel button) and the settings app (`slate-settings`, `Mod+comma`).
 - greetd: autologin into sway for `desktop.autologinUser`, or tuigreet.
 
-Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
+Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+b` show the agent's background windows · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
+
+## The agent's background screen
+
+The session starts sway with the headless backend next to the real display (`slateos-session`) and creates a second output, `HEADLESS-1`, placed far outside the real layout so the cursor cannot reach it; workspace `agent` lives there. Windows the agent opens for a task go to that screen by default, so nothing appears over what you are doing; per-window capture, the accessibility tree and the agent's own pointer all work there. When the agent works on something you are using, it acts on your screen instead. `Mod+b` or the panel's middle click brings background windows over; the panel shows "N in background". If sway cannot start with the headless backend on some hardware, the session falls back to plain sway and the agent works on your screen.
 
 ## Root with consent
 

@@ -33,7 +33,7 @@ The repository contains both the Slate runtime and the SlateOS desktop configura
 
 ### A shared desktop, independent input
 
-The agent gets its own pointer, keyboard, and focus through a dedicated Wayland seat. In compatible applications, it can work while you continue typing elsewhere. It sees applications through the accessibility tree first (elements by role and name, text as text, actions without a pointer) and through per-window screenshots second; focus-verified typing lets it inspect the result of an action.
+The agent gets its own pointer, keyboard, and focus through a dedicated Wayland seat, and its own background screen: windows it opens for a task live on a second, unseen output until you ask to see them, while tasks about what you are doing happen on your screen. In compatible applications, it can work while you continue typing elsewhere. It sees applications through the accessibility tree first (elements by role and name, text as text, actions without a pointer) and through per-window screenshots second; focus-verified typing lets it inspect the result of an action.
 
 For applications that require the user's seat, Slate provides an explicit fallback: the panel displays **controlling**, and **Esc** takes control back. Application support and backend approval differences are documented [below](#project-status).
 
@@ -191,7 +191,7 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 | Area | Available today | Next steps |
 | --- | --- | --- |
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
-| Desktop control | Dedicated agent seat, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
+| Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo asks the person through a dialog). | Codex approval integration, agent identity isolation, a polkit agent for GUI privilege requests. |
 | Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with `slateos-install`. | Image testing on real hardware, graphical installer, first-run agent sign-in. |
 

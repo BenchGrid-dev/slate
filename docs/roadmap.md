@@ -19,6 +19,7 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 - [x] User-seat fallback for first-seat-only toolkits (GTK4), gated as Confirm
 - [x] Takeover indicator: panel blinks "controlling", sway `controlling` mode, Esc hands control back and blocks retries
 - [x] Focus-aware input: per-seat focus from the compositor, focus-then-verify before typing, post-action screenshots
+- [x] The agent's background screen: headless output, `desktop_launch where`, `desktop_show` / `desktop_hide`, per-output pointers
 - [x] Demos: Claude Code and Codex drive a terminal and Firefox through the agent seat from slash
 - [x] AT-SPI2: elements, read, element actions and EditableText over the bus; GTK3, GTK4, Firefox verified
 - [ ] sway patch: security-context clients see only the agent seat (ADR 0007)
@@ -73,6 +74,5 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 ## Later
 
 - Multi-agent, multi-seat
-- Headless output for fully hidden agent work
 - Skill sharing
 - Non-wlroots compositor support if the protocols land upstream

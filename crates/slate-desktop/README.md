@@ -21,6 +21,10 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 `seat: "user"` actions put sway into a `controlling` binding mode (the profile binds Esc there to `slate-desktop takeover-cancel`), the panel shows a blinking "controlling", and after Esc further user-seat input is refused for a minute so the agent has to ask again. `desktop_status` reports the state.
 
+## The background screen
+
+On the SlateOS desktop sway has a second, headless output (`HEADLESS-1`, workspace `agent`). `desktop_launch` opens windows there unless `where: "here"`; `desktop_show` and `desktop_hide` move windows between the screens; `desktop_windows` shows each window's `location`. The agent seat has one virtual pointer per output and routes clicks by layout coordinates, so windows on either screen can be driven the same way. Without a headless output (plain sway), everything opens on the user's screen.
+
 ## The accessibility tree
 
 `desktop_elements`, `desktop_read`, `desktop_element_click` and `desktop_element_set_text` work through AT-SPI2, the accessibility bus every Linux toolkit speaks. Elements come with a role, a name, a value, states, window-relative extents and their actions; text comes back as text. `desktop_element_click` runs the element's own action (`Action.DoAction`) and `desktop_element_set_text` uses `EditableText`, so neither needs a pointer or a keyboard and both work in toolkits that ignore extra seats (GTK4). Pointer and typing fallbacks kick in when an element has no action or is not editable over the bus.
@@ -31,7 +35,7 @@ Two switches must be on, and the SlateOS desktop profile sets both: the bus must
 
 ## MCP tools
 
-`desktop_windows`, `desktop_elements`, `desktop_read`, `desktop_element_click`, `desktop_element_set_text`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_close`, `desktop_focus`, `desktop_window_set`, `desktop_arrange`, `desktop_launch`, `desktop_seats`, `desktop_status`, `desktop_takeover_cancel`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. `desktop_type` and `desktop_key` take a `window`, focus it for the seat in use, verify the focus through the compositor and report which window received the input. Every action returns a screenshot of the result.
+`desktop_windows`, `desktop_elements`, `desktop_read`, `desktop_element_click`, `desktop_element_set_text`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_close`, `desktop_focus`, `desktop_window_set`, `desktop_arrange`, `desktop_launch` (with `where`), `desktop_show`, `desktop_hide`, `desktop_seats`, `desktop_status`, `desktop_takeover_cancel`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. `desktop_type` and `desktop_key` take a `window`, focus it for the seat in use, verify the focus through the compositor and report which window received the input. Every action returns a screenshot of the result.
 
 slash adds this server to the agent backend automatically when `WAYLAND_DISPLAY` is set and the binary sits next to `slash`.
 
@@ -74,6 +78,5 @@ Arbitrary Unicode is typed by generating an xkb keymap where every distinct char
 ## Not yet
 
 - A distinct "ghost" cursor for the agent seat (needs compositor support or a patch)
-- Headless output for agent windows the user does not see
 - Takeover beyond Esc (freeze the seat, hand a window back)
 - Multiple outputs

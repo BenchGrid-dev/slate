@@ -94,13 +94,14 @@ Compositor-level primitives used:
 - `ext-image-copy-capture-v1` with a foreign-toplevel source for per-window capture, including occluded windows.
 - `ext-foreign-toplevel-list-v1` / `zwlr-foreign-toplevel-management-v1` for window enumeration and control.
 - Sway IPC for window geometry, per-seat focus and window management (move, resize, arrange, focus, close).
-- Planned: a headless output where agent windows live until the user wants to look; a distinct "ghost" cursor for the agent seat (compositor patch).
+- A headless output (the agent's background screen, workspace `agent`) where windows the agent opens for a task live until the user wants to look; `desktop_show` / `desktop_hide` move them. The agent seat has one virtual pointer per output.
+- Planned: a distinct "ghost" cursor for the agent seat (compositor patch).
 
 What runs today: `slate-desktop daemon` owns one agent seat for the whole session (toolkits only accept input from seats that existed when they started, so the seat must predate every app; ADR 0007). Typing and key presses take a target window, focus it for the seat in use, verify the focus through the compositor, then type, and report which window received the input. Every action returns a screenshot so the agent checks its own work.
 
 Toolkits that only bind the first seat (GTK4 today) can be driven through the user's own seat instead. That is a Confirm-tier action: the panel blinks **controlling**, sway enters a `controlling` mode, and Esc hands control back and refuses further user-seat input for a minute so the agent has to ask again.
 
-Human takeover beyond Esc ("freeze the agent seat", "hand me this window", "show me the agent's windows") is planned with the ghost cursor and headless output.
+"Show me" exists (`desktop_show`, Super+b). Takeover beyond Esc ("freeze the agent seat", "hand me this window") is planned with the ghost cursor.
 
 API shape: slate-desktop is an MCP server exposing window-scoped operations (list windows, capture window, get a11y tree, click, type, key, scroll, drag, set clipboard) so that both Claude Code and Codex can use it without either vendor shipping Linux computer use. The API is modelled on the shape of existing background computer-use tools on macOS so prompts and skills transfer.
 
