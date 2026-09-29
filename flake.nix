@@ -14,7 +14,7 @@
       packages = forAll (pkgs: rec {
         slate = pkgs.rustPlatform.buildRustPackage {
           pname = "slate";
-          version = "0.0.15";
+          version = "0.0.16";
           src = pkgs.lib.cleanSourceWith {
             src = self;
             filter = path: type:
