@@ -1,0 +1,4 @@
+name = "text-mousepad"
+description = "Open, read and edit plain-text files in Mousepad, the desktop text editor."
+tiers = { default = "reversible" }
+requires = ["mousepad"]

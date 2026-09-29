@@ -1,0 +1,4 @@
+name = "media-mpv"
+description = "Play audio and video with mpv, control playback over its IPC socket, and inspect media files."
+tiers = { default = "observe" }
+requires = ["mpv"]

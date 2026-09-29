@@ -139,6 +139,18 @@ in
       '';
     };
 
+    desktop.apps = lib.mkOption {
+      type = lib.types.enum [ "full" "minimal" ];
+      default = "full";
+      description = ''
+        Which applications the desktop profile installs. "minimal" is the shell of a
+        desktop: terminal, browser, file manager, text editor, image viewer, volume
+        control. "full" adds the everyday suite chosen for agent-friendliness (an
+        accessibility tree and a command-line or D-Bus path for the common tasks):
+        LibreOffice, Thunderbird (mail, calendar, contacts), zathura (PDF), mpv.
+      '';
+    };
+
     desktop.autologinUser = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -173,8 +185,13 @@ in
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
-        firefox thunar gnome-text-editor loupe pavucontrol
+        # The minimal set: every app here exposes an accessibility tree and binds every
+        # seat (GTK3), so the agent can work in them without borrowing the user's input.
+        firefox thunar mousepad imv pavucontrol
         papirus-icon-theme adwaita-icon-theme gnome-themes-extra
+      ])
+      ++ lib.optionals (cfg.desktop.enable && cfg.desktop.apps == "full") (with pkgs; [
+        libreoffice thunderbird zathura mpv
       ]);
     # A stable path, not the store path: a logged-in session keeps $SHELL from login
     # time, and /run/current-system always resolves to the current build, so new

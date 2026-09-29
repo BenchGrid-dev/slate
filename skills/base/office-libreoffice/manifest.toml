@@ -1,0 +1,4 @@
+name = "office-libreoffice"
+description = "Create, open, edit, convert and export documents, spreadsheets and presentations with LibreOffice."
+tiers = { default = "reversible" }
+requires = ["soffice"]

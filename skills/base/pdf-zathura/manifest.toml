@@ -1,0 +1,4 @@
+name = "pdf-zathura"
+description = "Open and navigate PDF, EPUB and DjVu files with zathura; extract text and page counts from the command line."
+tiers = { default = "observe" }
+requires = ["zathura"]

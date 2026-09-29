@@ -28,6 +28,11 @@ skills/base/<name>/
 | `systemd-services` | systemctl for user and system units |
 | `slateos-system` | Install packages and change settings by editing the NixOS configuration; rebuild and roll back |
 | `undo` | When and how to offer `/undo` |
+| `office-libreoffice` | Headless conversions and in-window editing with LibreOffice |
+| `mail-thunderbird` | Compose with prefilled fields, read and search, calendar and contacts; sending is Confirm |
+| `pdf-zathura` | Text extraction first; zathura keys for showing a PDF |
+| `media-mpv` | Playback and control over mpv's IPC socket |
+| `text-mousepad` | Opening and editing text files in a window |
 
 ## Conventions
 

@@ -37,7 +37,7 @@ bindsym $mod+Return exec $term
 bindsym $mod+space exec $menu
 bindsym $mod+w exec $browser
 bindsym $mod+e exec $files
-bindsym $mod+t exec gnome-text-editor
+bindsym $mod+t exec mousepad
 bindsym $mod+comma exec slate-settings
 bindsym $mod+s exec slate-shell
 bindsym $mod+q kill

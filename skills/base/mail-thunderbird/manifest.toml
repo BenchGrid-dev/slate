@@ -1,0 +1,4 @@
+name = "mail-thunderbird"
+description = "Read, search, compose and send mail, manage calendar events and contacts with Thunderbird."
+tiers = { compose = "reversible", send = "confirm", default = "reversible" }
+requires = ["thunderbird"]
