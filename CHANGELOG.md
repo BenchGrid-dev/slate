@@ -4,6 +4,8 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Fix: undo restored nothing when the task had worked in a directory above the snapshot root (the prompt's tasks run in the home directory; on a machine whose snapshot root is a subvolume inside it, every scope was "outside the snapshot root"). A scope that contains the root now covers all of it, outermost scopes first so nothing is compared twice.
+- Fix: in the Slate prompt, `/undo` (and other commands answered with notes only) showed nothing: the notes went to the activity line, which the end of the command cleared. They are now the reply.
 - Fix: the agent's OS Skills were linked once, to the store path of whatever version ran `slate skills install`, and never followed upgrades: skills added later (appearance, display-brightness) never reached the agent, the ones it had were out of date, and a renamed skill stayed under its old name. The NixOS module now runs `slate skills install` as a user service at login and after every upgrade, and the command removes links to skills the installed version no longer ships.
 - Fix: opening a window on the user's screen carried the agent's cursor along (sway gives a new window the focus of every seat on its workspace and warped the agent seat's cursor to it), leaving a second cursor in the middle of the new window. The desktop now sets `mouse_warping none`.
 - Fix: after slated restarted (every upgrade restarts it), a running slash, including the one behind the Slate prompt, kept its dead connection and printed "slated: Broken pipe" on every task, which then ran without approvals, audit or undo. slash now reconnects and resends the request.

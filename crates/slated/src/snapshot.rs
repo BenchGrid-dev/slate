@@ -131,12 +131,23 @@ impl Snapshotter {
         let mut plan = UndoPlan::default();
         let mut budget = WALK_BUDGET;
         let mut seen_scopes: Vec<PathBuf> = vec![];
+        // Each scope relative to the root. A task that worked in a directory above the
+        // root (its cwd was the home directory, the root a subvolume inside it) may
+        // have changed anything under the root: compare all of it.
+        let mut rel_scopes: Vec<(PathBuf, &PathBuf)> = vec![];
         for dir in scope {
-            let Ok(rel_dir) = dir.strip_prefix(&self.root) else {
-                plan.notes
-                    .push(format!("{} is outside the snapshot root", dir.display()));
-                continue;
-            };
+            match dir.strip_prefix(&self.root) {
+                Ok(rel) => rel_scopes.push((rel.to_path_buf(), dir)),
+                Err(_) if self.root.starts_with(dir) => rel_scopes.push((PathBuf::new(), dir)),
+                Err(_) => plan
+                    .notes
+                    .push(format!("{} is outside the snapshot root", dir.display())),
+            }
+        }
+        // Outermost first, so the nested ones are skipped below.
+        rel_scopes.sort_by_key(|(rel, _)| rel.components().count());
+        for (rel_dir, dir) in &rel_scopes {
+            let rel_dir = rel_dir.as_path();
             if is_protected(rel_dir) {
                 continue;
             }
@@ -415,6 +426,47 @@ mod tests {
             fs::read_to_string(root.join("other/x.txt")).unwrap(),
             "also changed but out of scope"
         );
+    }
+
+    /// The task's directory contains the snapshot root (cwd = home, root = ~/work):
+    /// everything under the root is in scope, and a scope inside it is not diffed twice.
+    #[test]
+    fn plan_covers_the_root_when_the_task_worked_above_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let root = home.join("work");
+        let snap = tmp.path().join("snap");
+        touch(&root.join("inbox/a.pdf"), "a");
+        touch(&root.join("inbox/b.jpg"), "b");
+        let st = Command::new("cp")
+            .args(["-a"])
+            .arg(&root)
+            .arg(&snap)
+            .status()
+            .unwrap();
+        assert!(st.success());
+        // The files moved out of the root entirely (to ~/Documents).
+        fs::remove_file(root.join("inbox/a.pdf")).unwrap();
+        fs::remove_file(root.join("inbox/b.jpg")).unwrap();
+        let s = Snapshotter {
+            root: root.clone(),
+            dir: tmp.path().join("snaps"),
+        };
+        let plan = s
+            .plan(
+                &SnapshotInfo { path: snap.clone() },
+                &[root.join("inbox"), home.clone()],
+            )
+            .unwrap();
+        assert_eq!(
+            plan.recreate,
+            vec![PathBuf::from("inbox/a.pdf"), PathBuf::from("inbox/b.jpg")]
+        );
+        assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+        let elsewhere = tmp.path().join("elsewhere");
+        let plan = s.plan(&SnapshotInfo { path: snap }, &[elsewhere]).unwrap();
+        assert!(plan.recreate.is_empty());
+        assert_eq!(plan.notes.len(), 1);
     }
 
     #[test]
