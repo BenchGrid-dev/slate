@@ -251,6 +251,7 @@ class ShellWindow(Gtk.ApplicationWindow):
         self.busy = False
         self.steer_text = None
         self.reply_text = ""
+        self.notes = []
         self.thinking_text = ""
         self.activity_text = ""
         self.started = 0.0
@@ -357,6 +358,7 @@ class ShellWindow(Gtk.ApplicationWindow):
     # ---- the card
     def clear_card(self):
         self.reply_text = ""
+        self.notes = []
         self.thinking_text = ""
         self.activity_text = ""
         for w in (self.query, self.reply, self.activity, self.thought):
@@ -457,6 +459,7 @@ class ShellWindow(Gtk.ApplicationWindow):
             if text:
                 if "auto" in text.lower():
                     self.auto = "on" in text.lower() and "off" not in text.lower()
+                self.notes.append(text)
                 self.show_activity(text)
         elif kind == "error":
             self.show_reply(ev.get("text", ""), error=True)
@@ -466,6 +469,10 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.set_state("idle")
             if ev.get("summary") and ev.get("ok") is False and not self.reply_text:
                 self.show_reply(ev["summary"], error=True)
+            # A command (/undo, /auto, /tasks) answers with notes only: they are the
+            # reply, or the activity line below would clear them.
+            if not self.reply_text and self.notes:
+                self.show_reply("\n".join(self.notes))
             self.show_activity(ev.get("stats") or "")
             if not self.get_visible():
                 self.show_passive()
