@@ -40,6 +40,10 @@ pub fn run() -> Result<()> {
     desktop.settle()?;
     if sway::available() {
         mcp::park_agent_pointer(&mut desktop);
+        // Once more after the seat has settled: right after a restart the first
+        // motion can land before sway has placed the new seat's pointers.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        mcp::park_agent_pointer(&mut desktop);
     }
     let listener =
         UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
