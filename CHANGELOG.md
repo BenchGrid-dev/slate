@@ -4,6 +4,10 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Fix: a background `desktop_launch` of an application that was already running (Firefox, Mousepad, Thunar, LibreOffice open new windows from the running process) put the window, or for Firefox a new tab, on the user's screen. Firefox now gets `--new-window` and Mousepad `--opening-mode=window`, and while a background launch is pending the daemon moves that application's new window to the background as it appears and gives the user their focus back.
+- Fix: a window from a process the agent started long ago (a browser it opened from its shell an hour earlier) is the user's; only windows of processes the agent started in the last 20 seconds are moved to the background.
+- Tests: the serve and slash end-to-end suites use a private config directory, so a user's "bypass approvals by default" no longer fails the approval checks.
+
 ## 0.0.18 — 2026-09-29
 
 - Desktop: windows the agent opens in the background no longer flash on the user's screen first (they map straight onto the background screen). A program the agent's engine starts from the shell is moved to the background as it appears, unless `desktop_launch` asked for it on the user's screen. `desktop_focus` on a background window brings it to the user instead of pulling the user's focus onto the background screen, and the user's seat refuses to type there.

@@ -205,6 +205,101 @@ fn allowed_on_screen(pid: u32) -> bool {
         .any(|(p, t)| *p == pid && t.elapsed() < std::time::Duration::from_secs(120))
 }
 
+/// A background launch waiting for its window. Single-instance applications (Firefox,
+/// GTK applications, LibreOffice) open a new window from the process that is already
+/// running, so the pid rule `desktop_launch` sets cannot match it; the window watcher
+/// places windows of the launched application while the launch is pending instead.
+struct PendingLaunch {
+    command: String,
+    until: std::time::Instant,
+    /// The user's focus when the launch started, given back if the new window took it.
+    user_focus: Option<i64>,
+}
+
+static PENDING: std::sync::Mutex<Vec<PendingLaunch>> = std::sync::Mutex::new(Vec::new());
+
+/// Does a window's app_id belong to the program started as `command`?
+fn app_matches(command: &str, app_id: &str) -> bool {
+    let c = command
+        .rsplit('/')
+        .next()
+        .unwrap_or(command)
+        .to_ascii_lowercase();
+    let c = c.trim_end_matches("-bin");
+    let a = app_id.to_ascii_lowercase();
+    if c.is_empty() || a.is_empty() {
+        return false;
+    }
+    a == c
+        || a.ends_with(&format!(".{c}"))
+        || a.starts_with(&format!("{c}-"))
+        || c.starts_with(&format!("{a}-"))
+        || (matches!(c, "libreoffice" | "soffice")
+            && (a.starts_with("libreoffice") || a.starts_with("soffice")))
+}
+
+/// Arguments that make an application open a window of its own rather than a tab
+/// in a window the user already has open (Firefox and Mousepad hand a URL or file to
+/// the running instance, which adds a tab to the user's window).
+fn own_window_args(command: &str, args: &[String]) -> Vec<String> {
+    let base = command.rsplit('/').next().unwrap_or(command);
+    let has = |flags: &[&str]| {
+        args.iter().any(|a| {
+            flags
+                .iter()
+                .any(|f| a == f || a.starts_with(&format!("{f}=")))
+        })
+    };
+    let mut out = vec![];
+    match base {
+        "firefox" | "firefox-esr" | "librewolf"
+            if !has(&[
+                "--new-window",
+                "-new-window",
+                "--new-tab",
+                "-new-tab",
+                "--private-window",
+                "-private-window",
+                "--new-instance",
+                "--no-remote",
+                "-no-remote",
+                "--profile",
+                "-profile",
+                "-P",
+            ]) =>
+        {
+            out.push("--new-window".to_string())
+        }
+        "mousepad" if !has(&["--opening-mode", "-o"]) => {
+            out.push("--opening-mode=window".to_string())
+        }
+        _ => {}
+    }
+    out.extend(args.iter().cloned());
+    out
+}
+
+/// Seconds since `pid` started.
+fn process_age(pid: u32) -> Option<f64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name may contain spaces and parentheses: fields resume after the
+    // last ')', starting with field 3; the start time is field 22, in clock ticks.
+    let rest = stat.get(stat.rfind(')')? + 2..)?;
+    let start: f64 = rest.split_whitespace().nth(19)?.parse().ok()?;
+    let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+    let uptime: f64 = std::fs::read_to_string("/proc/uptime")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    (ticks > 0.0).then(|| uptime - start / ticks)
+}
+
+fn seat0_focus() -> Option<i64> {
+    sway::seat_focus().ok()?.get("seat0").copied()
+}
+
 /// Was this process started by the agent's engine (directly or through any number
 /// of shells)? slash marks the engine's environment, which everything it starts
 /// inherits; the process tree is the fallback.
@@ -244,33 +339,65 @@ pub fn spawned_by_agent(pid: u32) -> bool {
     false
 }
 
-/// A window just appeared (the daemon's window watcher). If the agent's engine
-/// started its process and nobody asked for it on the user's screen, it goes to the
-/// background screen: the agent works there unless the user wants to watch.
+/// A window just appeared (the daemon's window watcher). It goes to the background
+/// screen when a background `desktop_launch` of its application is pending, or when
+/// the agent's engine started its process moments ago (from its shell) and nobody
+/// asked for it on the user's screen.
 pub fn place_new_window(con_id: i64, pid: Option<u32>, app_id: &str) {
-    let Some(pid) = pid else { return };
-    if background_output().is_none() || allowed_on_screen(pid) || !spawned_by_agent(pid) {
+    if background_output().is_none() {
         return;
     }
-    if let Ok((wins, _)) = sway::tree() {
-        if let Some(w) = wins.iter().find(|w| w.con_id == con_id) {
-            if w.output
-                .as_deref()
-                .map(is_background_output)
-                .unwrap_or(false)
-            {
-                return;
-            }
+    let on_background = || {
+        sway::tree()
+            .ok()
+            .and_then(|(wins, _)| wins.into_iter().find(|w| w.con_id == con_id))
+            .and_then(|w| w.output)
+            .map(|o| is_background_output(&o))
+            .unwrap_or(false)
+    };
+    let pending = {
+        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        p.retain(|x| x.until > now);
+        // One window per launch: a second one is the user's.
+        p.iter()
+            .position(|x| app_matches(&x.command, app_id))
+            .map(|i| p.remove(i))
+    };
+    let why = if let Some(launch) = &pending {
+        if on_background() {
+            return; // the pid rule placed it
         }
-    }
+        format!(
+            "opened for the agent's background launch of {}",
+            launch.command
+        )
+    } else {
+        let Some(pid) = pid else { return };
+        if allowed_on_screen(pid) || !spawned_by_agent(pid) {
+            return;
+        }
+        // A window from an older process (a browser started a while ago) is the
+        // user's, even if the agent started that process.
+        if process_age(pid).map(|age| age > 20.0).unwrap_or(true) || on_background() {
+            return;
+        }
+        format!("its process (pid {pid}) was started by the agent")
+    };
     match sway::command_for_con(
         con_id,
         &format!("move container to workspace {BACKGROUND_WORKSPACE}"),
     ) {
-        Ok(()) => slate_proto::log!(
-            "slate-desktop: {app_id} (pid {pid}) was started by the agent: moved to the background screen"
-        ),
-        Err(e) => slate_proto::log!("slate-desktop: placing {app_id} (pid {pid}): {e:#}"),
+        Ok(()) => {
+            slate_proto::log!("slate-desktop: {app_id}: {why}; moved to the background screen");
+            // Mapping gave the window the user's focus; give it back.
+            if let Some(f) = pending.and_then(|p| p.user_focus) {
+                if seat0_focus() != Some(f) {
+                    let _ = sway::command_for_con(f, "focus");
+                }
+            }
+        }
+        Err(e) => slate_proto::log!("slate-desktop: placing {app_id}: {e:#}"),
     }
 }
 
@@ -1182,6 +1309,21 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 };
                 let before: std::collections::HashSet<String> =
                     windows(d)?.into_iter().map(|w| w.id).collect();
+                let a = own_window_args(cmd, &a);
+                let to_background = target
+                    .as_deref()
+                    .map(|t| t.starts_with("workspace"))
+                    .unwrap_or(false);
+                if to_background {
+                    PENDING
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(PendingLaunch {
+                            command: cmd.to_string(),
+                            until: std::time::Instant::now() + std::time::Duration::from_secs(10),
+                            user_focus: seat0_focus(),
+                        });
+                }
                 let pid = launch(cmd, &a)?;
                 if wanted == "here" {
                     allow_on_screen(pid);
@@ -1201,10 +1343,16 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         }
                     }
                 }
+                if to_background {
+                    // Done waiting: a later window of this application is the user's.
+                    PENDING
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .retain(|x| x.command != cmd);
+                }
                 match placed {
                     Some(mut w) => {
-                        let want_bg = target.as_deref().map(|t| t.starts_with("workspace")).unwrap_or(false);
-                        if want_bg && w.location != "background" {
+                        if to_background && w.location != "background" {
                             if let Some(con) = w.con_id {
                                 let _ = sway::command_for_con(con, &format!("move container to workspace {BACKGROUND_WORKSPACE}"));
                                 std::thread::sleep(std::time::Duration::from_millis(200));
@@ -1380,4 +1528,58 @@ pub fn cli_call(name: &str, args: Value) -> Result<Value> {
         anyhow::bail!("{msg}");
     }
     Ok(r)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launched_command_matches_its_windows() {
+        assert!(app_matches("firefox", "firefox"));
+        assert!(app_matches("/run/current-system/sw/bin/firefox", "firefox"));
+        assert!(app_matches("mousepad", "org.xfce.mousepad"));
+        assert!(app_matches("zathura", "org.pwmt.zathura"));
+        assert!(app_matches("libreoffice", "libreoffice-writer"));
+        assert!(app_matches("soffice", "libreoffice-calc"));
+        assert!(app_matches("firefox-esr", "firefox"));
+        assert!(!app_matches("foot", "firefox"));
+        assert!(!app_matches("thunar", "org.xfce.mousepad"));
+        assert!(!app_matches("", "firefox"));
+    }
+
+    #[test]
+    fn single_instance_apps_get_their_own_window() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            own_window_args("firefox", &s(&["https://example.org"])),
+            s(&["--new-window", "https://example.org"])
+        );
+        assert_eq!(own_window_args("firefox", &[]), s(&["--new-window"]));
+        // The agent's own choice wins.
+        assert_eq!(
+            own_window_args("firefox", &s(&["--private-window", "x"])),
+            s(&["--private-window", "x"])
+        );
+        assert_eq!(
+            own_window_args("firefox", &s(&["--profile", "/tmp/p"])),
+            s(&["--profile", "/tmp/p"])
+        );
+        assert_eq!(
+            own_window_args("mousepad", &s(&["notes.txt"])),
+            s(&["--opening-mode=window", "notes.txt"])
+        );
+        assert_eq!(
+            own_window_args("mousepad", &s(&["--opening-mode=tab", "a"])),
+            s(&["--opening-mode=tab", "a"])
+        );
+        assert_eq!(own_window_args("thunar", &s(&["/tmp"])), s(&["/tmp"]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn this_process_is_young() {
+        let age = process_age(std::process::id()).expect("age from /proc");
+        assert!((0.0..600.0).contains(&age), "{age}");
+    }
 }
