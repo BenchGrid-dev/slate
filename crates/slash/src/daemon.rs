@@ -69,6 +69,30 @@ impl Daemon {
     }
 
     pub fn call(&mut self, request: Request) -> Result<Reply> {
+        match self.call_once(request.clone()) {
+            Err(e) if is_disconnect(&e) => {
+                // slated restarted (an upgrade restarts it): this connection is dead
+                // and the new daemon never saw the request. Reconnect and send it again.
+                *self = Self::reopen().context("reconnecting to slated")?;
+                self.call_once(request)
+            }
+            r => r,
+        }
+    }
+
+    /// Connect again, giving a restarting slated a few seconds to come back.
+    fn reopen() -> Result<Self> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match Self::open() {
+                Ok(d) => return Ok(d),
+                Err(e) if Instant::now() >= deadline => return Err(e),
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
+    }
+
+    fn call_once(&mut self, request: Request) -> Result<Reply> {
         let id = self.next_id.to_string();
         self.next_id += 1;
         let env = Envelope {
@@ -81,7 +105,11 @@ impl Daemon {
         loop {
             let mut line = String::new();
             if self.reader.read_line(&mut line)? == 0 {
-                bail!("slated closed the connection");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "slated closed the connection",
+                )
+                .into());
             }
             if let Ok(r) = serde_json::from_str::<ReplyEnvelope>(&line) {
                 if r.id == id || r.id == "?" {
@@ -253,6 +281,24 @@ fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, 
     }
 }
 
+/// The connection to slated is gone (as opposed to slated answering with an error).
+fn is_disconnect(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .map(|io| {
+                matches!(
+                    io.kind(),
+                    std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::NotConnected
+                        | std::io::ErrorKind::UnexpectedEof
+                )
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Path of a companion binary. Development builds (under a `target/` directory) use
 /// the sibling next to this executable. Installed builds prefer the one on PATH: on
 /// NixOS the store path this slash was started from keeps existing after an update,
@@ -295,4 +341,22 @@ pub fn binary_version(bin: &Path) -> Option<String> {
         .ok()?;
     let s = String::from_utf8_lossy(&out.stdout);
     s.split_whitespace().nth(1).map(str::to_string)
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::is_disconnect;
+
+    #[test]
+    fn a_dead_connection_is_told_apart_from_an_answer() {
+        let pipe: anyhow::Error = std::io::Error::from(std::io::ErrorKind::BrokenPipe).into();
+        assert!(is_disconnect(&pipe));
+        assert!(is_disconnect(&pipe.context("writing to slated")));
+        let eof: anyhow::Error =
+            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "closed").into();
+        assert!(is_disconnect(&eof));
+        assert!(!is_disconnect(&anyhow::anyhow!("unexpected reply")));
+        let timeout: anyhow::Error = std::io::Error::from(std::io::ErrorKind::TimedOut).into();
+        assert!(!is_disconnect(&timeout));
+    }
 }

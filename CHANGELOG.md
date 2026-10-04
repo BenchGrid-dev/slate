@@ -4,6 +4,7 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Fix: after slated restarted (every upgrade restarts it), a running slash, including the one behind the Slate prompt, kept its dead connection and printed "slated: Broken pipe" on every task, which then ran without approvals, audit or undo. slash now reconnects and resends the request.
 - Fix: a terminal task ended twice, so the desktop showed "Slate finished" and "Slate stopped with an error" for the same answer: slash detached from slated before reporting the end, and slated took the detach for a shell that died mid-turn. slash now reports the end first, and slated ignores a second end. The notification offers undo only when the task took a snapshot.
 - slash: answers in the terminal are styled instead of showing Markdown markers (`**bold**`, `` `code` ``, headings, fenced blocks), also when a marker arrives split across two streamed pieces.
 - Fix: the agent's idle pointer sat in the middle of the user's screen as a second cursor; the desktop daemon parks it on the agent's own screen when it starts.
