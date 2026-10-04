@@ -333,6 +333,16 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
         }
         Request::TaskEnd { task_id, ok } => {
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+            // A task ends once: a second end (the shell detaching after reporting the
+            // end, an orphan check racing the real end) would notify again.
+            if st
+                .tasks
+                .get(&task_id)
+                .map(|t| t.ended.is_some())
+                .unwrap_or(false)
+            {
+                return Reply::Ok;
+            }
             let _ = st.tasks.update(&task_id, |t| t.ended = Some(now_millis()));
             // Resolve any approvals still pending for this task.
             let ids: Vec<String> = st
@@ -347,19 +357,26 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
                 }
             }
             st.uis.remove(&task_id);
-            let (calls, quiet) = st
+            let (calls, quiet, snapshot) = st
                 .tasks
                 .get(&task_id)
-                .map(|t| (t.tool_calls, t.quiet))
-                .unwrap_or((0, false));
+                .map(|t| (t.tool_calls, t.quiet, t.snapshot.is_some()))
+                .unwrap_or((0, false, false));
             if calls > 0 && !quiet {
+                // Offer undo only when there is a snapshot to go back to (read-only
+                // tasks take none, nor does a machine without a snapshot root).
+                let body = if snapshot {
+                    format!("{calls} action(s); say \"undo\" in slash to roll back file changes")
+                } else {
+                    format!("{calls} action(s)")
+                };
                 notify(
                     if ok {
                         "Slate finished"
                     } else {
                         "Slate stopped with an error"
                     },
-                    &format!("{calls} action(s); say \"undo\" in slash to roll back file changes"),
+                    &body,
                     "low",
                 );
             }

@@ -782,6 +782,8 @@ impl App {
         // sent after run_turn returns.
         let last_done: std::cell::RefCell<Option<serde_json::Value>> =
             std::cell::RefCell::new(None);
+        // Answers are Markdown; the terminal shows them styled, without the markers.
+        let mut md = render::Markdown::new();
         let mut on_event = |ev: Event| {
             if json {
                 if let Event::Done { ok, summary, stats } = &ev {
@@ -811,7 +813,7 @@ impl App {
             }
             match ev {
                 Event::TextDelta(t) => {
-                    print!("{t}");
+                    print!("{}", md.push(&t));
                     streamed += t.len();
                 }
                 Event::SessionStarted(id) => {
@@ -822,14 +824,16 @@ impl App {
                 Event::Text(t) => {
                     if streamed > 0 {
                         // Already printed incrementally; just end the line.
-                        println!();
+                        println!("{}", md.finish());
                         streamed = 0;
                     } else {
-                        println!("{t}");
+                        let mut m = render::Markdown::new();
+                        println!("{}{}", m.push(&t), m.finish());
                     }
                     last_text = Some(t);
                 }
                 Event::ToolStart { name, detail } => {
+                    print!("{}", md.finish());
                     println!("{}", render::tool_line(&name, &detail));
                 }
                 Event::ToolEnd { name, ok, detail } => {
@@ -850,7 +854,8 @@ impl App {
                     if let Some(s) = summary {
                         let already_shown = ok && last_text.as_deref() == Some(s.as_str());
                         if !already_shown && !s.trim().is_empty() {
-                            println!("{s}");
+                            let mut m = render::Markdown::new();
+                            println!("{}{}", m.push(&s), m.finish());
                         }
                     }
                     let mark = if ok { green("✓") } else { red("✗") };
@@ -901,15 +906,18 @@ impl App {
                 );
             }
         }
-        if let Some(a) = attachment {
-            a.stop();
-        }
-        self.set_title("· ready");
+        // End the task before detaching: slated treats a task whose last UI goes away
+        // while it is still open as a shell that died mid-turn, and would end it
+        // as failed first.
         if let Some(id) = task_id {
             if let Some(d) = self.daemon() {
                 d.task_end(&id, ok);
             }
         }
+        if let Some(a) = attachment {
+            a.stop();
+        }
+        self.set_title("· ready");
     }
 }
 
