@@ -219,6 +219,18 @@ def main():
         r, _ = m.tool("desktop_launch", command="foot", args=["-e", "sh", "-c", "sleep 60"], where="background")
         bgw = wait_for(lambda: find(m, "foot", before_bg), 15)
         check("desktop_launch (background) opens the window on the agent's screen", bgw is not None and bgw["location"] == "background", (bgw or {}).get("location", r[:60]))
+        # The launched program must live in a scope of its own: in the daemon's cgroup,
+        # restarting slate-desktop.service (every upgrade does) would kill it.
+        cg = ""
+        for d in os.listdir("/proc"):
+            try:
+                argv = open(f"/proc/{d}/cmdline", "rb").read().split(b"\0")
+            except OSError:
+                continue
+            if argv[0].endswith((b"foot", b"foot-wrapped")) and b"sleep 60" in argv:
+                cg = open(f"/proc/{d}/cgroup").read().strip()
+                break
+        check("launched programs run in their own scope, outside the daemon's cgroup", "app-slate-" in cg and "slate-desktop.service" not in cg, cg[-90:])
         if bgw:
             m.tool("desktop_show", window=bgw["id"])
             shown = wait_for(lambda: (lambda w: w and w["location"] == "screen")(find(m, "foot", before_bg)), 10)

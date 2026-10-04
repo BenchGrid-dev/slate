@@ -455,14 +455,67 @@ fn resolve(d: &mut Desktop, reference: &str) -> Result<Window> {
         })
 }
 
+/// Start an application for the agent. Each one runs in a systemd scope of its own
+/// (`app-slate-<name>-<n>.scope` in `app.slice`), the way a desktop session starts
+/// applications: left in the daemon's cgroup, every window the agent ever opened,
+/// including the ones it handed to the user, would be killed whenever
+/// slate-desktop.service stops or restarts (an upgrade restarts it). Without a
+/// user systemd, the program is started directly.
 pub fn launch(cmd: &str, args: &[String]) -> Result<u32> {
-    let child = std::process::Command::new(cmd)
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let scoped = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(|d| std::path::Path::new(&d).join("systemd").exists())
+        .unwrap_or(false)
+        && which("systemd-run");
+    let mut c = if scoped {
+        let name: String = cmd
+            .rsplit('/')
+            .next()
+            .unwrap_or(cmd)
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect();
+        let unit = format!(
+            "app-slate-{name}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        );
+        // `--scope` registers systemd-run itself in the scope and then execs the
+        // program, so the pid below is the program's.
+        let mut c = std::process::Command::new("systemd-run");
+        c.args([
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--slice=app.slice",
+        ])
+        .arg(format!("--unit={unit}"))
+        .arg("--")
+        .arg(cmd);
+        c
+    } else {
+        std::process::Command::new(cmd)
+    };
+    let mut child = c
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()?;
-    Ok(child.id())
+    let pid = child.id();
+    // Reap it when it exits, or every closed application stays a zombie.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(pid)
+}
+
+fn which(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join(program).is_file()))
+        .unwrap_or(false)
 }
 
 pub fn probe() -> Result<()> {
