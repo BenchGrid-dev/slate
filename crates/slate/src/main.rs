@@ -366,6 +366,7 @@ fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {
     let dst_root = claude_skills_dir().ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
     std::fs::create_dir_all(&dst_root)?;
     let mut n = 0;
+    let mut shipped = std::collections::HashSet::new();
     for entry in std::fs::read_dir(&src)? {
         let entry = entry?;
         let p = entry.path();
@@ -374,6 +375,7 @@ fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {
         }
         let name = entry.file_name().to_string_lossy().to_string();
         let dst = dst_root.join(format!("slate-{name}"));
+        shipped.insert(format!("slate-{name}"));
         if dst.exists() && !dst.is_symlink() {
             println!("skip {} (exists and is not a symlink)", dst.display());
             continue;
@@ -388,6 +390,24 @@ fn skills_install(dir: Option<std::path::PathBuf>) -> Result<()> {
         std::os::unix::fs::symlink(&p, &dst)?;
         println!("linked {name}");
         n += 1;
+    }
+    // Links an earlier version made to a skill this one no longer ships (renamed or
+    // removed), or that point nowhere since the old version was collected. Only
+    // links into a Slate skills directory are touched; the user's own skills stay.
+    for entry in std::fs::read_dir(&dst_root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        if !name.starts_with("slate-") || shipped.contains(&name) || !path.is_symlink() {
+            continue;
+        }
+        let target = std::fs::read_link(&path).unwrap_or_default();
+        let ours =
+            target.to_string_lossy().contains("/share/slate/skills/") || target.starts_with(&src);
+        if ours || !path.exists() {
+            std::fs::remove_file(&path)?;
+            println!("removed {name} (no longer shipped)");
+        }
     }
     println!(
         "{n} skills installed for this machine from {}",

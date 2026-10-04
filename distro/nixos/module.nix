@@ -343,6 +343,21 @@ in
       };
     };
 
+    # The OS Skills the agent reads (~/.claude/skills/slate-*), linked to this version's
+    # copy at every login. The command's store path changes with each version, so an
+    # upgrade restarts the unit and the links follow; skills that a version no longer
+    # ships are removed.
+    systemd.user.services.slate-skills = {
+      description = "Link the SlateOS skills of this version for the agent";
+      wantedBy = [ "default.target" ];
+      path = [ pkg "/run/current-system/sw" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkg}/bin/slate skills install";
+      };
+    };
+
     # The agent seat owner. Started by the compositor (it needs WAYLAND_DISPLAY),
     # supervised by systemd so a crash never leaves the session without a seat.
     systemd.user.services.slate-desktop = lib.mkIf cfg.desktop.enable {

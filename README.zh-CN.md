@@ -125,13 +125,13 @@ slate.nixosModules.default
 
 按原有 NixOS 流程重新构建系统，然后登录 sway 会话。这会启用 SlateOS 桌面配置，安装运行时与默认的 Claude Code 后端，启动用户服务，并将指定用户的登录 shell 设为 `slash`。在「设置 → AI」中登录后端，即可按 **Super+s** 开始使用。
 
-使用 Claude Code 时，可在 `slash` 中安装随附的 OS Skills：
+该模块会在每次登录和每次升级后，为 Claude Code 链接随附的 OS Skills（`slate-skills` 用户服务），并根据当前机器的工具和发行版选择适用的 Skills。不使用该模块时，可在 `slash` 中手动安装：
 
 ```text
 !slate skills install
 ```
 
-安装程序根据当前机器的工具和发行版选择适用的 Skills。面向 Codex 的自动 Skill 安装尚未实现。
+面向 Codex 的自动 Skill 安装尚未实现。
 
 完整模块选项、Agent 安装、快照根目录和系统配置路径见 [NixOS 部署指南](distro/README.md)。
 

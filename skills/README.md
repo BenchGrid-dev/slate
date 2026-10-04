@@ -14,7 +14,7 @@ skills/base/<name>/
 
 ## Installing them for the agent
 
-`slate skills install` links every skill under `skills/base` (or a directory you pass) into `~/.claude/skills/slate-<name>`, where Claude Code picks them up as user skills. Skills whose `requires` tools are missing, or whose `applies_to.distro` does not match `/etc/os-release` (`ID` or `ID_LIKE`; SlateOS reports `slateos` and `nixos`), are skipped and listed. Codex reads instructions from `AGENTS.md`; a generated section for it is planned.
+`slate skills install` links every skill under `skills/base` (or a directory you pass) into `~/.claude/skills/slate-<name>`, where Claude Code picks them up as user skills. Skills whose `requires` tools are missing, or whose `applies_to.distro` does not match `/etc/os-release` (`ID` or `ID_LIKE`; SlateOS reports `slateos` and `nixos`), are skipped and listed. Links that point to a skill the installed version no longer ships are removed. On SlateOS the `slate-skills` user service runs the command at every login and after each upgrade, so the agent always reads the skills of the version that is installed. Codex reads instructions from `AGENTS.md`; a generated section for it is planned.
 
 ## The base set
 

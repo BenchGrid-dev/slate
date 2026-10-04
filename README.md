@@ -125,13 +125,13 @@ slate.nixosModules.default
 
 Rebuild using your usual NixOS workflow and log in to the sway session. This enables the SlateOS desktop profile, installs the runtime and default Claude Code backend, starts the user services, and sets `slash` as the selected user's login shell. Sign in to the backend from **Settings → AI**, then press **Super+s**.
 
-For Claude Code, install the bundled OS Skills from within `slash`:
+The module links the bundled OS Skills for Claude Code at every login and again after each upgrade (the `slate-skills` user service), selected according to the tools and distribution available on the machine. Outside the module, link them from within `slash`:
 
 ```text
 !slate skills install
 ```
 
-Skills are selected according to the tools and distribution available on the machine. Automatic skill installation for Codex is not yet implemented.
+Automatic skill installation for Codex is not yet implemented.
 
 See the [NixOS setup guide](distro/README.md) for all module options, agent installation, snapshot roots, and system configuration paths.
 
