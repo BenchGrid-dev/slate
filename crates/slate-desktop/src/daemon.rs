@@ -38,6 +38,9 @@ pub fn run() -> Result<()> {
     }
     let mut desktop = Desktop::connect()?;
     desktop.settle()?;
+    if sway::available() {
+        mcp::park_agent_pointer(&mut desktop);
+    }
     let listener =
         UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
     slate_proto::log!(

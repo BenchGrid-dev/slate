@@ -4,6 +4,9 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Fix: a terminal task ended twice, so the desktop showed "Slate finished" and "Slate stopped with an error" for the same answer: slash detached from slated before reporting the end, and slated took the detach for a shell that died mid-turn. slash now reports the end first, and slated ignores a second end. The notification offers undo only when the task took a snapshot.
+- slash: answers in the terminal are styled instead of showing Markdown markers (`**bold**`, `` `code` ``, headings, fenced blocks), also when a marker arrives split across two streamed pieces.
+- Fix: the agent's idle pointer sat in the middle of the user's screen as a second cursor; the desktop daemon parks it on the agent's own screen when it starts.
 - Fix: every program the agent opened with `desktop_launch` ran inside slate-desktop.service's cgroup, so stopping or restarting the desktop daemon (an upgrade restarts it) killed all of them, including windows already handed to the user, with whatever was unsaved. Each program now runs in a systemd scope of its own (`app-slate-*.scope` in `app.slice`), and the daemon reaps programs that exit instead of leaving zombies.
 - Fix: a background `desktop_launch` of an application that was already running (Firefox, Mousepad, Thunar, LibreOffice open new windows from the running process) put the window, or for Firefox a new tab, on the user's screen. Firefox now gets `--new-window` and Mousepad `--opening-mode=window`, and while a background launch is pending the daemon moves that application's new window to the background as it appears and gives the user their focus back.
 - Fix: a window from a process the agent started long ago (a browser it opened from its shell an hour earlier) is the user's; only windows of processes the agent started in the last 20 seconds are moved to the background.

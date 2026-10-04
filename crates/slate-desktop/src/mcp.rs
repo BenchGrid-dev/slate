@@ -413,6 +413,22 @@ fn background_output() -> Option<String> {
         .find(|n| is_background_output(n))
 }
 
+/// Rest the agent's pointer in the middle of its own screen. sway draws every seat's
+/// cursor, and a new seat's starts in the middle of the layout's first output: a
+/// second, idle cursor on the user's screen.
+pub fn park_agent_pointer(d: &mut Desktop) {
+    let Ok((_, outs)) = sway::tree() else { return };
+    if let Some(o) = outs.into_iter().find(|o| is_background_output(&o.name)) {
+        let (x, y) = (
+            o.rect.x as f64 + o.rect.width as f64 / 2.0,
+            o.rect.y as f64 + o.rect.height as f64 / 2.0,
+        );
+        if let Err(e) = d.pointer_move(Seat::Agent, x, y) {
+            slate_proto::log!("slate-desktop daemon: parking the agent pointer: {e:#}");
+        }
+    }
+}
+
 /// The user's output: the first one that is not the background.
 fn screen_output() -> Option<String> {
     let (_, outs) = sway::tree().ok()?;
