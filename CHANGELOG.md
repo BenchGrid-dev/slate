@@ -4,6 +4,7 @@ Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a 
 
 ## Unreleased
 
+- Fix: opening a window on the user's screen carried the agent's cursor along (sway gives a new window the focus of every seat on its workspace and warped the agent seat's cursor to it), leaving a second cursor in the middle of the new window. The desktop now sets `mouse_warping none`.
 - Fix: after slated restarted (every upgrade restarts it), a running slash, including the one behind the Slate prompt, kept its dead connection and printed "slated: Broken pipe" on every task, which then ran without approvals, audit or undo. slash now reconnects and resends the request.
 - Fix: a terminal task ended twice, so the desktop showed "Slate finished" and "Slate stopped with an error" for the same answer: slash detached from slated before reporting the end, and slated took the detach for a shell that died mid-turn. slash now reports the end first, and slated ignores a second end. The notification offers undo only when the task took a snapshot.
 - slash: answers in the terminal are styled instead of showing Markdown markers (`**bold**`, `` `code` ``, headings, fenced blocks), also when a marker arrives split across two streamed pieces.

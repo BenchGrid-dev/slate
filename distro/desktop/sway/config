@@ -41,6 +41,10 @@ client.unfocused        #1c1f27 #1c1f27 #6b7080 #1c1f27 #262a36
 client.urgent           #e5a35a #e5a35a #13151b #e5a35a #e5a35a
 seat * xcursor_theme Adwaita 24
 focus_follows_mouse no
+# No cursor warping on focus changes. A new window takes the focus of every seat on
+# its workspace, the agent's seat included, and warping would carry the agent's idle
+# cursor from its own screen to the middle of that window on the user's screen.
+mouse_warping none
 floating_modifier $mod normal
 
 bindsym $mod+Return exec $term
