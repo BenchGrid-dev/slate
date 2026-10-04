@@ -70,7 +70,11 @@ class Slash:
 def main():
     work = tempfile.mkdtemp(prefix="slate-e2e-")
     state = tempfile.mkdtemp(prefix="slate-e2e-state-")
-    env = {"NO_COLOR": "1", "TERM": "dumb", "SLATE_SOCK": os.path.join(state, "slated.sock"), "XDG_STATE_HOME": state}
+    # A private config directory: the user's slash.toml and policy.toml must not change
+    # what the suite observes (approvals, backend, model).
+    config = tempfile.mkdtemp(prefix="slate-e2e-config-")
+    env = {"NO_COLOR": "1", "TERM": "dumb", "SLATE_SOCK": os.path.join(state, "slated.sock"), "XDG_STATE_HOME": state,
+           "XDG_CONFIG_HOME": config}
     s = Slash(work, env)
     check("banner shows slated connected", "slated:" in s.out.decode(errors="replace") and "slated: off" not in s.out.decode(errors="replace"))
 

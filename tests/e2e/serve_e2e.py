@@ -17,7 +17,11 @@ def check(name, cond, detail=""):
 
 def main():
     state = tempfile.mkdtemp(prefix="slate-serve-")
-    env = dict(os.environ, SLATE_SOCK=os.path.join(state, "slated.sock"), XDG_STATE_HOME=state, NO_COLOR="1")
+    # A private config directory: the user's slash.toml (for example "bypass approvals
+    # by default") and policy.toml must not change what the suite observes.
+    config = tempfile.mkdtemp(prefix="slate-serve-config-")
+    env = dict(os.environ, SLATE_SOCK=os.path.join(state, "slated.sock"), XDG_STATE_HOME=state,
+               XDG_CONFIG_HOME=config, NO_COLOR="1")
     p = subprocess.Popen([BIN, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env, cwd=tempfile.mkdtemp(prefix="slate-serve-cwd-"))
     q = queue.Queue()
 
