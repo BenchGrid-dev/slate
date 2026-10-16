@@ -10,7 +10,8 @@
     slate-theme apply               re-apply the saved choices (used at login)
 
 What a theme touches: GTK and libadwaita apps (the color-scheme and gtk-theme keys the
-settings portal serves), sway's window colours and background, waybar's style, foot's
+settings portal serves, and gtk-application-prefer-dark-theme in GTK4's settings.ini for
+GTK4 apps without libadwaita), sway's window colours and background, waybar's style, foot's
 colours (foot follows the portal on its own), mako and fuzzel. Everything is written to
 the user's own config so it survives logins and never touches /etc.
 """
@@ -26,6 +27,7 @@ WAYBAR_USER = os.path.join(HOME, ".config/waybar")
 MAKO_USER = os.path.join(HOME, ".config/mako/config")
 FUZZEL_USER = os.path.join(HOME, ".config/fuzzel/fuzzel.ini")
 FOOT_USER = os.path.join(HOME, ".config/foot/foot.ini")
+GTK4_USER = os.path.join(HOME, ".config/gtk-4.0/settings.ini")
 SYSTEM_WAYBAR = "/etc/xdg/waybar"
 # "default" follows the theme; the old single wallpaper path means the same.
 DEFAULT_WALLPAPER = "default"
@@ -147,6 +149,36 @@ def signal_processes(names, sig):
                 pass
 
 
+def write_ini_key(path, section, key, value):
+    """Set one key of an ini file, leaving every other line as it was."""
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        lines = []
+    out, current, done, header = [], None, False, f"[{section}]"
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if current == header and not done:
+                out.append(f"{key}={value}")
+                done = True
+            current = stripped
+        elif current == header and stripped.split("=", 1)[0].strip() == key:
+            if not done:
+                out.append(f"{key}={value}")
+                done = True
+            continue
+        out.append(line)
+    if not done:
+        if current != header:
+            out.append(header)
+        out.append(f"{key}={value}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+    os.replace(path + ".tmp", path)
+
+
 def apply(state):
     t = THEMES[state["theme"]]
     wallpaper = wallpaper_for(state)
@@ -155,6 +187,13 @@ def apply(state):
     # GTK3 reads gsettings; GTK4/libadwaita, foot and others read the portal, which reads the same keys.
     for key, val in (("color-scheme", t["color_scheme"]), ("gtk-theme", t["gtk"]), ("icon-theme", t["icons"])):
         run(["dconf", "write", f"/org/gnome/desktop/interface/{key}", f"'{val}'"])
+
+    # GTK4 apps without libadwaita (Volume Control) take adw-gtk3's dark style only when
+    # they are asked for a dark theme; GTK 4.22 does not infer that from the portal's
+    # colour scheme. One key in the person's settings.ini, the rest of it kept. Apps that
+    # are already open follow at their next start.
+    write_ini_key(GTK4_USER, "Settings", "gtk-application-prefer-dark-theme",
+                  "1" if state["theme"] == "dark" else "0")
 
     # sway: window colours and background, live now and in the user's config for next time.
     os.makedirs(os.path.dirname(SWAY_D), exist_ok=True)

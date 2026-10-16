@@ -54,6 +54,7 @@ CSS_DARK = """
 .pill { background: rgba(32, 32, 38, 0.42); border: 1px solid rgba(255, 255, 255, 0.13);
         box-shadow: inset 0 1px rgba(255, 255, 255, 0.07); }
 .item:hover { background: rgba(255, 255, 255, 0.08); }
+.item image { -gtk-icon-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
 .dot { background: rgba(255, 255, 255, 0.78); }
 .badge { color: #8fa7f0; }
 .sep { background: rgba(255, 255, 255, 0.16); }
@@ -62,6 +63,9 @@ CSS_LIGHT = """
 .pill { background: rgba(255, 255, 255, 0.46); border: 1px solid rgba(0, 0, 0, 0.08);
         box-shadow: inset 0 1px rgba(255, 255, 255, 0.6); }
 .item:hover { background: rgba(0, 0, 0, 0.06); }
+/* a soft shadow gives white icons an edge on the pale pill; the trash is white glass */
+.item image { -gtk-icon-shadow: 0 1px 3px rgba(0, 0, 0, 0.28); }
+.item.trash image { -gtk-icon-filter: brightness(0.78) contrast(1.2); }
 .dot { background: rgba(0, 0, 0, 0.62); }
 .badge { color: #3b6de8; }
 .sep { background: rgba(0, 0, 0, 0.14); }
@@ -462,6 +466,7 @@ class Dock(Gtk.Application):
                     dock.pill.append(item.widget)
             dock.pill.append(Gtk.Box(css_classes=["sep"]))
             trash = self.make_item("slate:trash", False)
+            trash.widget.add_css_class("trash")
             dock.pill.append(trash.widget)
         return False
 
