@@ -7,3 +7,5 @@ Cargo.lock.bak
 .direnv/
 .envrc
 *.log
+__pycache__/
+*.pyc
