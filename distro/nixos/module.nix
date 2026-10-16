@@ -247,6 +247,8 @@ let
       cp $src $out/bin/slate-shell
       chmod +x $out/bin/slate-shell
       cp ${../desktop/icons/slate.svg} $out/share/icons/hicolor/scalable/apps/slate.svg
+      # os-release's LOGO (shown by "About" screens and system info tools).
+      cp ${../desktop/icons/slate.svg} $out/share/icons/hicolor/scalable/apps/slateos.svg
       cat > $out/share/applications/slate-shell.desktop <<EOF
       [Desktop Entry]
       Type=Application
@@ -380,6 +382,18 @@ in
     # ID_LIKE=nixos, and nixos-rebuild and friends are unchanged.
     system.nixos.distroName = "SlateOS";
     system.nixos.distroId = "slateos";
+    system.nixos.vendorName = "BenchGrid";
+    system.nixos.vendorId = "benchgrid";
+    # The base release stays in VERSION and VERSION_ID (NixOS tools read them); what a
+    # person sees names SlateOS and its own version, with SlateOS's logo and links.
+    system.nixos.extraOSReleaseArgs = {
+      PRETTY_NAME = "SlateOS ${pkg.version} (${config.system.nixos.release})";
+      LOGO = "slateos";
+      HOME_URL = "https://slate.benchgrid.dev";
+      DOCUMENTATION_URL = "https://github.com/BenchGrid-dev/slate#readme";
+      SUPPORT_URL = "https://github.com/BenchGrid-dev/slate/issues";
+      BUG_REPORT_URL = "https://github.com/BenchGrid-dev/slate/issues";
+    };
     networking.hostName = lib.mkDefault "slateos";
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
