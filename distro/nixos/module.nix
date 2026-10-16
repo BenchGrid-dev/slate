@@ -26,6 +26,7 @@ let
       Comment=Slate desktop settings
       Exec=slate-settings
       Icon=preferences-system
+      StartupWMClass=dev.benchgrid.slate.Settings
       Categories=Settings;System;
       EOF
     '';
@@ -101,6 +102,21 @@ let
     unset WLR_BACKENDS
     exec ${pkgs.sway}/bin/sway "$@"
   '';
+  # The first thing the session runs: the background screen if the backend gave none,
+  # the person's focus on a real screen (sway focuses the first output, which can be the
+  # headless one, and the first windows would open there), then the display handed to
+  # systemd and the supervised desktop services started.
+  slateosSessionStart = pkgs.writeShellScriptBin "slateos-session-start" ''
+    outputs() { swaymsg -t get_outputs | grep -o '"name": "[^"]*"' | cut -d'"' -f4; }
+    outputs | grep -q '^HEADLESS-' || swaymsg create_output
+    sleep 0.5
+    for o in $(outputs); do
+      case "$o" in HEADLESS-*) ;; *) swaymsg focus output "$o"; break ;; esac
+    done
+    swaymsg workspace number 1
+    systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
+    systemctl --user restart slate-desktop.service slate-panel.service slate-dock.service slate-apps.service
+  '';
   # The appearance switch (dark / light / wallpaper); plain Python, no toolkit.
   slateTheme = pkgs.stdenv.mkDerivation {
     pname = "slate-theme";
@@ -116,6 +132,22 @@ let
     '';
     meta.mainProgram = "slate-theme";
   };
+  # The application list, tidied: developer tools and terminal programs hidden, a few
+  # plain names; per user, under ~/.local/share/applications (see the script).
+  slateApps = pkgs.stdenv.mkDerivation {
+    pname = "slate-apps";
+    version = pkg.version;
+    src = ../desktop/slate-apps.py;
+    dontUnpack = true;
+    buildInputs = [ pkgs.python3 ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slate-apps
+      chmod +x $out/bin/slate-apps
+      patchShebangs $out/bin/slate-apps
+    '';
+    meta.mainProgram = "slate-apps";
+  };
   # The floating Slate panel: layer-shell window driving `slash --serve`.
   slateShell = pkgs.stdenv.mkDerivation {
     pname = "slate-shell";
@@ -129,21 +161,49 @@ let
       gappsWrapperArgs+=(--set LD_PRELOAD "${pkgs.gtk4-layer-shell}/lib/libgtk4-layer-shell.so")
     '';
     installPhase = ''
-      mkdir -p $out/bin $out/share/applications
+      mkdir -p $out/bin $out/share/applications $out/share/icons/hicolor/scalable/apps
       cp $src $out/bin/slate-shell
       chmod +x $out/bin/slate-shell
+      cp ${../desktop/icons/slate.svg} $out/share/icons/hicolor/scalable/apps/slate.svg
       cat > $out/share/applications/slate-shell.desktop <<EOF
       [Desktop Entry]
       Type=Application
       Name=Slate
       Comment=Talk to your computer
       Exec=slate-shell
-      Icon=starred
+      Icon=slate
+      StartupWMClass=dev.benchgrid.slate.Shell
       Categories=Utility;
       EOF
     '';
     meta.mainProgram = "slate-shell";
   };
+  # The dock: pinned and open applications, Slate's windows marked; GTK4 + layer-shell.
+  slateDock = pkgs.stdenv.mkDerivation {
+    pname = "slate-dock";
+    version = pkg.version;
+    src = ../desktop/slate-dock.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.gtk4 pkgs.gtk4-layer-shell (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    preFixup = ''
+      gappsWrapperArgs+=(--set LD_PRELOAD "${pkgs.gtk4-layer-shell}/lib/libgtk4-layer-shell.so")
+      gappsWrapperArgs+=(--set SLATE_DOCK_ICONS "$out/share/slate-dock")
+    '';
+    installPhase = ''
+      mkdir -p $out/bin $out/share/slate-dock
+      cp $src $out/bin/slate-dock
+      chmod +x $out/bin/slate-dock
+      cp ${../desktop/icons/slate-launcher.svg} $out/share/slate-dock/slate-launcher.svg
+      cp ${../desktop/icons/slate.svg} $out/share/slate-dock/slate.svg
+    '';
+    meta.mainProgram = "slate-dock";
+  };
+  dockDefaults = pkgs.writeText "dock.json" (builtins.toJSON {
+    pinned = [ "slate:launcher" "thunar.desktop" "firefox.desktop" "foot.desktop" ]
+      ++ lib.optionals (cfg.desktop.apps == "full") [ "thunderbird.desktop" "writer.desktop" ]
+      ++ [ "org.xfce.mousepad.desktop" "slate-settings.desktop" "slate:slate" ];
+  });
 in
 {
   options.services.slate = {
@@ -242,7 +302,7 @@ in
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings slateShell slateAskpass slateosSession slateTheme dconf
+        slateSettings slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -344,6 +404,7 @@ in
       "slate/wallpaper-dark.jpg".source = ../desktop/wallpaper-dark.jpg;
       "slate/wallpaper-light.jpg".source = ../desktop/wallpaper-light.jpg;
       "slate/sway.d/effects.conf" = lib.mkIf cfg.desktop.effects { source = ../desktop/sway/effects.conf; };
+      "slate/dock.json".source = dockDefaults;
     };
     services.greetd = lib.mkIf cfg.desktop.enable {
       enable = true;
@@ -400,6 +461,33 @@ in
         RestartSec = 1;
         # Its clicks start applications through sway (swaymsg exec), outside this
         # unit; should one ever run as a child, a restart must not take it along.
+        KillMode = "process";
+      };
+    };
+
+    # The tidied application list, at login and after every upgrade (the store path in
+    # ExecStart changes with each version, so an upgrade re-runs it).
+    systemd.user.services.slate-apps = lib.mkIf cfg.desktop.enable {
+      description = "Tidy the application list for the launcher and the dock";
+      wantedBy = [ "default.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${slateApps}/bin/slate-apps";
+      };
+    };
+
+    # The dock: same arrangement as the panel (restarted if it crashes; what it starts
+    # goes through sway, so a restart never takes an application along).
+    systemd.user.services.slate-dock = lib.mkIf cfg.desktop.enable {
+      description = "SlateOS dock";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ pkg "/run/wrappers" "/etc/profiles/per-user/%u" "/run/current-system/sw" ];
+      serviceConfig = {
+        ExecStart = "${slateDock}/bin/slate-dock";
+        Restart = "always";
+        RestartSec = 1;
         KillMode = "process";
       };
     };

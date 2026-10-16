@@ -1,4 +1,3 @@
-[
 {
     "layer": "top",
     "position": "top",
@@ -7,8 +6,8 @@
     "name": "panel",
     "output": ["!HEADLESS-1", "!HEADLESS-2", "*"],
     "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
-    "modules-center": ["clock"],
-    "modules-right": ["tray", "network", "wireplumber", "custom/slate"],
+    "modules-center": [],
+    "modules-right": ["tray", "network", "wireplumber", "custom/slate", "clock"],
     "custom/launcher": {
         "format": "◆",
         "tooltip-format": "Applications (Super+Space)",
@@ -21,7 +20,7 @@
         "format-icons": { "0:AI": "◆ AI", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "default": "{name}" }
     },
     "sway/window": { "max-length": 48, "tooltip": false, "rewrite": { "Wayland Output Mirror for .*": "Slate’s screen" } },
-    "clock": { "format": "{:%a %d %b   %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
+    "clock": { "format": "{:%a %d %b  %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
     "tray": { "spacing": 10 },
     "wireplumber": {
         "format": "{icon}",
@@ -50,30 +49,4 @@
         "on-click-middle": "swaymsg exec slate-desktop show",
         "on-click-right": "swaymsg exec slate-settings"
     }
-},
-{
-    "name": "dock",
-    "output": ["!HEADLESS-1", "!HEADLESS-2", "*"],
-    "layer": "top",
-    "position": "bottom",
-    "height": 46,
-    "spacing": 4,
-    "modules-left": [],
-    "modules-center": ["custom/dock-launcher", "custom/dock-files", "custom/dock-browser", "custom/dock-terminal", "custom/dock-settings", "wlr/taskbar"],
-    "modules-right": [],
-    "custom/dock-launcher": { "format": "", "tooltip-format": "Applications", "on-click": "swaymsg exec fuzzel" },
-    "custom/dock-files": { "format": "", "tooltip-format": "Files", "on-click": "swaymsg exec thunar" },
-    "custom/dock-browser": { "format": "", "tooltip-format": "Firefox", "on-click": "swaymsg exec firefox" },
-    "custom/dock-terminal": { "format": "", "tooltip-format": "Terminal", "on-click": "swaymsg exec foot" },
-    "custom/dock-settings": { "format": "", "tooltip-format": "Settings", "on-click": "swaymsg exec slate-settings" },
-    "wlr/taskbar": {
-        "format": "{icon}",
-        "icon-size": 24,
-        "tooltip-format": "{title}",
-        "on-click": "activate",
-        "on-click-middle": "close",
-        "on-click-right": "minimize-raise",
-        "ignore-list": ["slate-shell", "at.yrlf.wl_mirror"]
-    }
 }
-]

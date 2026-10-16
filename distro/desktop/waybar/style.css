@@ -1,37 +1,23 @@
-/* SlateOS panel: quiet, translucent, one accent. */
-* { font-family: "Inter", "Noto Sans", "Font Awesome 7 Free", sans-serif; font-size: 13px; font-weight: 500; min-height: 0; }
-window#waybar { background: rgba(14, 16, 22, 0.78); color: #d7dae2; }
-#custom-launcher { color: #8fa7f0; font-size: 15px; padding: 0 14px 0 16px; }
+/* SlateOS panel, dark: a translucent menu bar (SwayFX frosts what is behind it). */
+* { font-family: "Inter", "Noto Sans", "Font Awesome 7 Free", sans-serif; font-size: 13px; font-weight: 500;
+    min-height: 0; border: none; border-radius: 0; box-shadow: none; text-shadow: none; }
+window#waybar { background: rgba(26, 26, 30, 0.48); color: #f5f5f7; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+#custom-launcher { color: #aec2ff; font-size: 15px; padding: 0 12px 0 16px; }
 #custom-launcher:hover { color: #ffffff; }
-#workspaces { margin-right: 6px; }
-#workspaces button { color: #6b7080; padding: 0 9px; margin: 6px 1px; border-radius: 6px; border: none; }
-#workspaces button.focused { color: #ffffff; background: rgba(255, 255, 255, 0.10); }
-#workspaces button:hover { color: #ffffff; background: rgba(255, 255, 255, 0.06); box-shadow: none; }
-#window { color: #9ba1b0; font-weight: 400; }
-#clock { color: #e8eaf0; font-weight: 500; }
-#tray, #network, #wireplumber { padding: 0 9px; color: #b3b8c6; }
-#network, #wireplumber { font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 13px; }
-#network.disconnected { color: #6b7080; }
-#wireplumber.muted { color: #6b7080; }
-#custom-slate { color: #d7dae2; background: rgba(255, 255, 255, 0.07); border-radius: 8px; margin: 5px 10px 5px 4px; padding: 0 11px; }
-#custom-slate:hover { background: rgba(255, 255, 255, 0.12); }
+#workspaces { margin-right: 4px; }
+#workspaces button { color: rgba(245, 245, 247, 0.55); padding: 0 8px; margin: 5px 1px; border-radius: 7px; background: transparent; }
+#workspaces button.focused { color: #ffffff; background: rgba(255, 255, 255, 0.14); }
+#workspaces button:hover { color: #ffffff; background: rgba(255, 255, 255, 0.08); }
+#window { color: #f5f5f7; font-weight: 600; padding-left: 6px; }
+#tray, #network, #wireplumber { padding: 0 9px; color: rgba(245, 245, 247, 0.86); }
+#network, #wireplumber { font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 12.5px; }
+#network.disconnected, #wireplumber.muted { color: rgba(245, 245, 247, 0.4); }
+#clock { color: #f5f5f7; padding: 0 16px 0 8px; }
+#custom-slate { color: #f5f5f7; background: rgba(255, 255, 255, 0.10); border-radius: 8px; margin: 5px 4px; padding: 0 10px; }
+#custom-slate:hover { background: rgba(255, 255, 255, 0.16); }
 #custom-slate.working { color: #ffffff; background: rgba(124, 156, 245, 0.55); }
 @keyframes slate-blink { 0% { background: rgba(124, 156, 245, 0.85); } 50% { background: rgba(124, 156, 245, 0.25); } 100% { background: rgba(124, 156, 245, 0.85); } }
 #custom-slate.controlling { color: #ffffff; animation: slate-blink 1.1s ease-in-out infinite; }
-#custom-slate.off { color: #6b7080; }
-tooltip { background: rgba(22, 24, 32, 0.96); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 8px; }
-tooltip label { color: #d7dae2; }
-
-/* The dock at the bottom: pinned apps, then open windows. */
-window#waybar.dock { background: transparent; }
-window#waybar.dock > box { margin: 0 0 6px 0; }
-#custom-dock-launcher, #custom-dock-files, #custom-dock-browser, #custom-dock-terminal, #custom-dock-settings {
-    font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 17px; padding: 0 13px; border-radius: 10px; margin: 4px 1px; }
-#taskbar { margin-left: 6px; }
-#taskbar button { padding: 0 8px; margin: 4px 1px; border-radius: 10px; border: none; }
-window#waybar.dock > box { background: rgba(14, 16, 22, 0.80); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 14px; padding: 0 6px; }
-#custom-dock-launcher, #custom-dock-files, #custom-dock-browser, #custom-dock-terminal, #custom-dock-settings { color: #d7dae2; }
-#custom-dock-launcher:hover, #custom-dock-files:hover, #custom-dock-browser:hover, #custom-dock-terminal:hover, #custom-dock-settings:hover { background: rgba(255, 255, 255, 0.10); }
-#taskbar button:hover { background: rgba(255, 255, 255, 0.10); box-shadow: none; }
-#taskbar button.active { background: rgba(124, 156, 245, 0.35); }
-#taskbar button.minimized { opacity: 0.5; }
+#custom-slate.off { color: rgba(245, 245, 247, 0.45); }
+tooltip { background: rgba(32, 32, 36, 0.97); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 10px; }
+tooltip label { color: #f5f5f7; padding: 2px 4px; }

@@ -1,15 +1,20 @@
+# SlateOS notifications: top right, rounded, frosted by SwayFX; slate-theme sets the colours.
 font=Inter 11
-background-color=#161820f5
-text-color=#d7dae2
-border-color=#ffffff1a
-border-radius=12
+format=<b>%s</b>\n%b
+background-color=#1f1f23d9
+text-color=#f2f2f7
+border-color=#ffffff1f
+border-radius=14
 border-size=1
+padding=14,16
+margin=12
+outer-margin=4,4,0,0
+width=380
+max-icon-size=40
+icon-location=left
 default-timeout=6000
 anchor=top-right
-margin=10
-padding=12,14
-width=360
-max-icon-size=32
+layer=overlay
 progress-color=over #7c9cf5
 
 [urgency=critical]
