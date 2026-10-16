@@ -114,6 +114,9 @@ let
       case "$o" in HEADLESS-*) ;; *) swaymsg focus output "$o"; break ;; esac
     done
     swaymsg workspace number 1
+    # The person's theme, rebuilt from this version's system files (mako, fuzzel, waybar
+    # and foot read per-user copies that slate-theme writes).
+    ${slateTheme}/bin/slate-theme apply >/dev/null
     systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
     systemctl --user restart slate-desktop.service slate-panel.service slate-dock.service slate-apps.service
   '';
