@@ -87,6 +87,41 @@ let
   };
   # The session: sway with the headless backend next to DRM, so it can create the agent's
   # background screen. If that combination fails to start on some hardware, plain sway.
+  # SwayFX 0.6, based on sway 1.12: 0.5.x (nixpkgs) is based on 1.11, which lacks
+  # ext-foreign-toplevel-image-capture-source, and slate-desktop captures single windows
+  # through it. 0.6 needs scenefx 0.5 and wlroots 0.20. Sway 1.12's NixOS patches apply.
+  scenefx05 = (pkgs.scenefx.override { wlroots_0_19 = pkgs.wlroots_0_20; }).overrideAttrs (old: {
+    version = "0.5";
+    buildInputs = old.buildInputs ++ [ pkgs.lcms2 ];  # 0.5 colour-manages its renderer
+    src = pkgs.fetchFromGitHub {
+      owner = "wlrfx";
+      repo = "scenefx";
+      tag = "0.5";
+      hash = "sha256-vUjLG6eubEhJJVa9LPygIcVmNoHwYbSUTJcWEcbxnU4=";
+    };
+  });
+  swayfx06-unwrapped = (pkgs.swayfx-unwrapped.override {
+    wlroots_0_19 = pkgs.wlroots_0_20;
+    scenefx = scenefx05;
+  }).overrideAttrs (finalAttrs: _: {
+    version = "0.6";
+    src = pkgs.fetchFromGitHub {
+      owner = "WillPower3309";
+      repo = "swayfx";
+      tag = "0.6";
+      hash = "sha256-yvVqwgKEZt/JbT4cxyRA95oK1t/KcZ2AvI5/o7gYa0M=";
+    };
+    patches =
+      let sway112 = "${pkgs.path}/pkgs/by-name/sw/sway-unwrapped";
+      in [
+        "${sway112}/load-configuration-from-etc.patch"
+        (pkgs.replaceVars "${sway112}/fix-paths.patch" { inherit (pkgs) swaybg; })
+      ]
+      ++ lib.optionals (!finalAttrs.isNixOS) [ "${sway112}/sway-config-no-nix-store-references.patch" ]
+      ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ];
+  });
+  swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
+
   # With effects, SwayFX first; should it not start on this machine (it needs GLES2),
   # plain sway with the same configuration. A start that fails within 20 s counts.
   slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
@@ -359,7 +394,7 @@ in
 
     programs.sway = lib.mkIf cfg.sway.enable {
       enable = true;
-      package = if cfg.desktop.enable && cfg.desktop.effects then pkgs.swayfx else pkgs.sway;
+      package = if cfg.desktop.enable && cfg.desktop.effects then swayfx06 else pkgs.sway;
       wrapperFeatures.gtk = true;
       extraPackages = with pkgs; [ foot grim slurp wl-clipboard wlr-randr swaybg ];
     };
