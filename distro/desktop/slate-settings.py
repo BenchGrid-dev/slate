@@ -462,10 +462,17 @@ class AppearancePage(Gtk.Box):
         self.theme_row.set_selected(1 if self.state.get("theme") == "light" else 0)
         self.theme_row.connect("notify::selected", self.on_theme)
         theme.add(self.theme_row)
+        self.clear_row = Adw.SwitchRow(
+            title="Reduce transparency",
+            subtitle="Solid panels, dock and menus instead of frosted glass. Easier to read, and lighter on machines without a graphics card.",
+        )
+        self.clear_row.set_active(self.state.get("transparency", "on") == "reduced")
+        self.clear_row.connect("notify::active", self.on_transparency)
+        theme.add(self.clear_row)
 
         wall = Adw.PreferencesGroup(title="Desktop background")
         page.add(wall)
-        self.wall_row = Adw.ActionRow(title="Image", subtitle=self.state.get("wallpaper", "default"))
+        self.wall_row = Adw.ActionRow(title="Image", subtitle=self.wallpaper_label())
         choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
         choose.connect("clicked", self.on_choose)
         reset = Gtk.Button(label="Default", valign=Gtk.Align.CENTER, css_classes=["flat"])
@@ -474,9 +481,18 @@ class AppearancePage(Gtk.Box):
         self.wall_row.add_suffix(reset)
         wall.add(self.wall_row)
 
+    def wallpaper_label(self):
+        w = self.state.get("wallpaper", "default")
+        if w in ("default", "/etc/slate/wallpaper.png"):
+            return "SlateOS (follows the appearance)"
+        return w
+
     def on_theme(self, *_):
         name = "light" if self.theme_row.get_selected() == 1 else "dark"
         run(["slate-theme", name], timeout=20)
+
+    def on_transparency(self, *_):
+        run(["slate-theme", "transparency", "reduced" if self.clear_row.get_active() else "on"], timeout=20)
 
     def on_choose(self, *_):
         dialog = Gtk.FileDialog(title="Choose a background image")
@@ -507,7 +523,7 @@ class AppearancePage(Gtk.Box):
             self.state = json.loads(out or "{}")
         except Exception:  # noqa: BLE001
             pass
-        self.wall_row.set_subtitle(self.state.get("wallpaper", path))
+        self.wall_row.set_subtitle(self.wallpaper_label())
 
 
 class Window(Adw.ApplicationWindow):

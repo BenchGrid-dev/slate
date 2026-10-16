@@ -1,6 +1,6 @@
 ---
 name: slate-appearance
-description: Dark mode, light mode and the desktop background (wallpaper) on SlateOS. Use for any request like "dark mode", "light theme", "change the wallpaper", "use this picture as my background". SlateOS only.
+description: Dark mode, light mode, translucency and the desktop background (wallpaper) on SlateOS. Use for any request like "dark mode", "light theme", "less transparent", "reduce transparency", "change the wallpaper", "use this picture as my background". SlateOS only.
 ---
 
 # Appearance on SlateOS
@@ -12,7 +12,9 @@ slate-theme dark
 slate-theme light
 slate-theme wallpaper /home/me/Pictures/sea.jpg     # PNG, JPEG or WebP; absolute path
 slate-theme wallpaper default
-slate-theme status                                 # {"theme": "...", "wallpaper": "..."}
+slate-theme transparency reduced                   # solid panels, dock and menus ("reduce transparency")
+slate-theme transparency on                        # frosted translucency (the default)
+slate-theme status                                 # {"theme": "...", "wallpaper": "...", "transparency": "..."}
 ```
 
 Tier: reversible (the previous choice is one command away; say what it was).

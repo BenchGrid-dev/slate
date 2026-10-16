@@ -3,6 +3,9 @@
 
     slate-theme dark | light        switch the whole desktop
     slate-theme wallpaper PATH      set the desktop background (any image; "default" resets)
+    slate-theme transparency on|reduced
+                                    frosted translucency, or nearly opaque surfaces
+                                    (for machines without a GPU, or for legibility)
     slate-theme status              what is set
     slate-theme apply               re-apply the saved choices (used at login)
 
@@ -60,6 +63,38 @@ THEMES = {
 }
 
 
+EFFECTS_USER = os.path.join(HOME, ".config/slate/sway.d/effects.fx")
+LAYERS = ("waybar", "slate-dock", "launcher", "notifications", "slate-shell")
+
+
+def reduced(state):
+    return state.get("transparency", "on") == "reduced"
+
+
+def opaque(rgba_hex):
+    """'1f1f23e0' -> '1f1f23f5': the same colour, nearly opaque (keeps a leading '#')."""
+    lead = "#" if rgba_hex.startswith("#") else ""
+    h = rgba_hex.lstrip("#")
+    return lead + (h[:6] + "f5" if len(h) == 8 else h)
+
+
+def apply_transparency(state):
+    """SwayFX's blur, off or on, for windows and the desktop's own surfaces, now and at
+    the next login (effects.fx is read last by /etc/slate/sway.d/effects.conf)."""
+    off = reduced(state)
+    os.makedirs(os.path.dirname(EFFECTS_USER), exist_ok=True)
+    with open(EFFECTS_USER + ".tmp", "w") as f:
+        f.write("# written by slate-theme (transparency); do not edit, use `slate-theme transparency`\n")
+        if off:
+            f.write("blur disable\n")
+            for ns in LAYERS:
+                f.write(f'layer_effects "{ns}" blur disable\n')
+    os.replace(EFFECTS_USER + ".tmp", EFFECTS_USER)
+    swaymsg("blur disable" if off else "blur enable")
+    for ns in LAYERS:
+        swaymsg(f'layer_effects "{ns}" "blur {"disable" if off else "enable"}"')
+
+
 def wallpaper_for(state):
     """The image to show: the person's, or the theme's own when they chose the default."""
     w = state.get("wallpaper") or DEFAULT_WALLPAPER
@@ -115,6 +150,7 @@ def signal_processes(names, sig):
 def apply(state):
     t = THEMES[state["theme"]]
     wallpaper = wallpaper_for(state)
+    apply_transparency(state)
 
     # GTK3 reads gsettings; GTK4/libadwaita, foot and others read the portal, which reads the same keys.
     for key, val in (("color-scheme", t["color_scheme"]), ("gtk-theme", t["gtk"]), ("icon-theme", t["icons"])):
@@ -135,6 +171,9 @@ def apply(state):
     if os.path.exists(src):
         with open(os.path.join(WAYBAR_USER, "style.css"), "w") as f:
             f.write(f'/* written by slate-theme */\n@import url("file://{src}");\n')
+            if reduced(state):
+                bg = "rgba(26, 26, 30, 0.97)" if state["theme"] == "dark" else "rgba(250, 250, 252, 0.98)"
+                f.write(f"window#waybar {{ background: {bg}; }}\n")
         import signal
         signal_processes(("waybar", ".waybar-wrapped"), signal.SIGUSR2)
 
@@ -145,6 +184,8 @@ def apply(state):
         f.write("# written by slate-theme; the system defaults live in /etc/xdg/foot/foot.ini\n")
         f.write("include=/etc/xdg/foot/foot.ini\n\n[main]\n")
         f.write(f"initial-color-theme={state['theme']}\n")
+        if reduced(state):
+            f.write("\n[colors-dark]\nalpha=1.0\n\n[colors-light]\nalpha=1.0\n")
     import signal as _sig
     signal_processes(("foot", ".foot-wrapped", "footclient"), _sig.SIGUSR1 if state["theme"] == "dark" else _sig.SIGUSR2)
 
@@ -156,7 +197,10 @@ def apply(state):
         for line in open(base):
             key = line.split("=", 1)[0].strip()
             if key in t["mako"] and not line.startswith("["):
-                out.append(f"{key}={t['mako'][key]}\n")
+                val = t["mako"][key]
+                if key == "background-color" and reduced(state):
+                    val = opaque(val)
+                out.append(f"{key}={val}\n")
             else:
                 out.append(line)
         with open(MAKO_USER, "w") as f:
@@ -173,7 +217,10 @@ def apply(state):
                 section = line.strip()
             key = line.split("=", 1)[0].strip()
             if section == "[colors]" and key in t["fuzzel"]:
-                out.append(f"{key}={t['fuzzel'][key]}\n")
+                val = t["fuzzel"][key]
+                if key == "background" and reduced(state):
+                    val = opaque(val)
+                out.append(f"{key}={val}\n")
             elif section == "[main]" and key == "icon-theme":
                 out.append(f"icon-theme={t['icons']}\n")
             else:
@@ -200,6 +247,11 @@ def main():
             print(f"no such image: {path}", file=sys.stderr)
             sys.exit(1)
         state["wallpaper"] = path
+    elif cmd == "transparency":
+        if len(args) < 2 or args[1] not in ("on", "reduced"):
+            print("usage: slate-theme transparency on|reduced", file=sys.stderr)
+            sys.exit(2)
+        state["transparency"] = args[1]
     elif cmd == "apply":
         pass
     else:

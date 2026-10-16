@@ -105,6 +105,19 @@ def theme_is_dark(style=None):
         return style.get_dark() if style is not None else True
 
 
+# "Reduce transparency" (slate-theme transparency reduced): nearly opaque surfaces.
+OPAQUE_DARK = b""".pill, .card, .queue { background: rgba(30, 30, 34, 0.97); }"""
+OPAQUE_LIGHT = b""".pill, .card, .queue { background: rgba(250, 250, 252, 0.98); }"""
+
+
+def transparency_reduced():
+    try:
+        with open(os.path.expanduser("~/.config/slate/theme.json")) as f:
+            return json.load(f).get("transparency", "on") == "reduced"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def markup(text):
     """Pango markup for the little markdown agents produce: `code`, **bold**, headings."""
     out = []
@@ -655,7 +668,11 @@ class App(Adw.Application):
         style.connect("notify::dark", lambda s, _p: self.apply_css(s))
 
     def apply_css(self, style):
-        self.provider.load_from_data(CSS if theme_is_dark(style) else CSS_LIGHT)
+        dark = theme_is_dark(style)
+        css = CSS if dark else CSS_LIGHT
+        if transparency_reduced():
+            css += OPAQUE_DARK if dark else OPAQUE_LIGHT
+        self.provider.load_from_data(css)
 
     def do_activate(self):
         # First launch shows the prompt (or starts hidden with --hidden, as the

@@ -68,6 +68,17 @@ CSS_LIGHT = """
 """
 
 
+CSS_OPAQUE_DARK = ".pill { background: rgba(36, 36, 42, 0.95); }"
+CSS_OPAQUE_LIGHT = ".pill { background: rgba(250, 250, 252, 0.96); }"
+
+
+def theme_state():
+    try:
+        return json.load(open(THEME))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def theme_is_dark():
     try:
         return json.load(open(THEME)).get("theme", "dark") != "light"
@@ -334,7 +345,11 @@ class Dock(Gtk.Application):
         GLib.timeout_add_seconds(10, lambda: (self.refresh(), True)[1])  # trash fill state
 
     def apply_theme(self):
-        self.theme_css.load_from_string(CSS_DARK if theme_is_dark() else CSS_LIGHT)
+        dark = theme_is_dark()
+        css = CSS_DARK if dark else CSS_LIGHT
+        if theme_state().get("transparency", "on") == "reduced":
+            css += CSS_OPAQUE_DARK if dark else CSS_OPAQUE_LIGHT
+        self.theme_css.load_from_string(css)
         Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", theme_is_dark())
 
     def reload_pins(self):
