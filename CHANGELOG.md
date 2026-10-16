@@ -4,6 +4,17 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+- **A new look.** Windows have rounded corners and soft shadows, translucent surfaces are frosted, and windows fade in and out: the session runs SwayFX 0.6 (sway 1.12 with effects; the module builds it, nixpkgs has 0.5.3, which cannot capture single windows) when `services.slate.desktop.effects` is on, the default, and falls back to plain sway if it does not start. Title bars are centred, in the apps' own header colours; GTK3 apps use adw-gtk3, icons are Colloid and the cursor Bibata Modern Classic. New wallpapers, one per appearance, follow it unless you pick your own.
+- **A dock** of its own (`slate-dock`): pinned and open apps in one row, a dot under the ones with a window on your screen, a ◆ on the ones Slate has a window of on its background screen (a click brings the window over), right-click menus and the trash. The panel is now a translucent menu bar, the launcher (Super+Space) opens like Spotlight, and notifications are frosted.
+- **Lock screen and session menu.** Super+L locks the screen: the desktop blurred, a clock, a ring that answers your typing. Super+Escape, or a right click on the menu bar's ◆, offers lock, log out, restart and shut down; before the last three it asks every window to close, so apps save their state and ask about unsaved work instead of finding at the next start that they crashed.
+- **Volume and brightness pop-up** (swayosd) for the media keys, above the dock; the brightness keys work for the desktop user.
+- **Reduce transparency** in Settings, Appearance (`slate-theme transparency reduced`): nearly opaque surfaces, for legibility and for machines without a GPU.
+- The application list is tidier (`slate-apps`, at login and after upgrades): developer tools, terminal programs and the NixOS manual are hidden, and a few apps have plain names (Files, Terminal, Document Viewer, Videos, Text Editor). Only files it wrote are touched.
+- os-release names SlateOS and its version (`SlateOS 0.1.0 (26.05)`), BenchGrid as the vendor, SlateOS's logo and links; the NixOS release stays in `VERSION_ID`, and `ID_LIKE=nixos`.
+- Fix: GTK4 applications without libadwaita (Volume Control) stayed light in the dark appearance: GTK 4.22 does not infer the dark style from the portal's colour scheme. slate-theme now sets `gtk-application-prefer-dark-theme` in GTK4's `settings.ini`, keeping the rest of the file.
+- Fix: per-user copies of the desktop's files (mako, fuzzel, waybar, foot) were written once and did not follow system updates; the theme is re-applied at login.
+- Fix: the first terminal of a session opened on Slate's background screen (sway opens a window on the workspace focused when its command runs); it now opens after workspace 1 has the focus.
+
 ## 0.1.0 — 2026-10-15
 
 The first milestone. SlateOS runs as a daily desktop on the development machine: you and an AI agent share the computer, the agent works through a seat and a screen of its own, and its work is approved, audited and undoable. This release marks what the 0.0.x snapshots built; the only change since 0.0.19 is a fix: the panel and the dock run as the supervised `slate-panel` user service, so a waybar crash (it can crash while reloading its style on a theme switch) no longer leaves the session without them until the next login.
