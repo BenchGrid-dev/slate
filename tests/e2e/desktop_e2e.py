@@ -71,6 +71,33 @@ def settled(m, app_id, exclude=(), timeout=8):
         time.sleep(0.4)
     return last
 
+def sway_node(ident):
+    """The sway container of a window (by its foreign-toplevel identifier), or None."""
+    tree = json.loads(subprocess.run(["swaymsg", "-t", "get_tree"], capture_output=True, text=True).stdout)
+    def walk(n):
+        if n.get("foreign_toplevel_identifier") == ident:
+            return n
+        for c in n.get("nodes", []) + n.get("floating_nodes", []):
+            r = walk(c)
+            if r:
+                return r
+    return walk(tree)
+
+def titlebar_button(n, which):
+    """Centre of a title bar button of SlateOS's SwayFX (0 minimize, 1 maximize, 2 close)."""
+    r, h = n["rect"], n["deco_rect"]["height"]
+    diameter = max(12, min(24, h - 12))
+    spacing = max(6, diameter * 2 // 5)
+    right = max(6, (h - diameter) // 2 + 2)
+    x0 = r["x"] + r["width"] - right - (3 * diameter + 2 * spacing)
+    return int(x0 + diameter / 2 + which * (diameter + spacing)), int(r["y"] - h / 2)
+
+def user_click(x, y):
+    """A click with the person's own pointer (seat0), through the compositor."""
+    for cmd in (f"seat seat0 cursor set {x} {y}", "seat seat0 cursor press button1", "seat seat0 cursor release button1"):
+        subprocess.run(["swaymsg", cmd], capture_output=True)
+        time.sleep(0.08)
+
 def png_size(b64):
     raw = base64.b64decode(b64)
     return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
@@ -142,6 +169,31 @@ def main():
         time.sleep(0.5)
         wa = {w["id"]: w for w in m.windows()}[a]
         check("desktop_window_set moves and resizes", abs(wa["x"] - 100) < 6 and abs(wa["y"] - 100) < 6 and abs(wa["width"] - 500) < 6, f"{wa['x']},{wa['y']} {wa['width']}x{wa['height']}")
+        # Minimized windows wait in sway's scratchpad; desktop_focus brings them back.
+        node = sway_node(a)
+        if node:
+            subprocess.run(["swaymsg", f"[con_id={node['id']}] move scratchpad"], capture_output=True)
+            time.sleep(0.5)
+            loc = {w["id"]: w for w in m.windows()}[a]["location"]
+            check("a minimized window is reported as minimized", loc == "minimized", loc)
+            m.tool("desktop_focus", window=a)
+            time.sleep(0.5)
+            wa = {w["id"]: w for w in m.windows()}[a]
+            check("desktop_focus brings a minimized window back on the user's screen", wa["location"] == "screen" and wa["focused"], f"{wa['location']} focused={wa['focused']}")
+        # The title bar's maximize button (SlateOS's SwayFX; sway has no such button).
+        node = sway_node(a)
+        if node and "maximized" in node and node["deco_rect"]["height"] > 0:
+            before_rect = node["rect"]
+            user_click(*titlebar_button(node, 1))
+            time.sleep(0.6)
+            n2 = sway_node(a)
+            check("the title bar's maximize button fills the free area", n2["maximized"] and n2["rect"]["width"] > before_rect["width"] and n2["rect"]["y"] < before_rect["y"], f"{n2['rect']}")
+            user_click(*titlebar_button(n2, 1))
+            time.sleep(0.6)
+            n3 = sway_node(a)
+            check("pressed again, it gives the window its size back", not n3["maximized"] and n3["rect"] == before_rect, f"{n3['rect']} vs {before_rect}")
+        else:
+            print("SKIP title bar buttons (not SlateOS's SwayFX)")
         m.tool("desktop_close", window=a)
         m.tool("desktop_close", window=b)
         wait_for(lambda: not [w for w in m.windows() if w["id"] in (a, b)], 10)

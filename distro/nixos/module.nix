@@ -90,6 +90,8 @@ let
   # SwayFX 0.6, based on sway 1.12: 0.5.x (nixpkgs) is based on 1.11, which lacks
   # ext-foreign-toplevel-image-capture-source, and slate-desktop captures single windows
   # through it. 0.6 needs scenefx 0.5 and wlroots 0.20. Sway 1.12's NixOS patches apply.
+  # Ours adds minimize, maximize and close buttons to the title bars of floating windows
+  # and lets windows be maximized (sway ignores maximize requests).
   scenefx05 = (pkgs.scenefx.override { wlroots_0_19 = pkgs.wlroots_0_20; }).overrideAttrs (old: {
     version = "0.5";
     buildInputs = old.buildInputs ++ [ pkgs.lcms2 ];  # 0.5 colour-manages its renderer
@@ -118,7 +120,8 @@ let
         (pkgs.replaceVars "${sway112}/fix-paths.patch" { inherit (pkgs) swaybg; })
       ]
       ++ lib.optionals (!finalAttrs.isNixOS) [ "${sway112}/sway-config-no-nix-store-references.patch" ]
-      ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ];
+      ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ]
+      ++ [ ./patches/swayfx-titlebar-buttons.patch ];
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
 
@@ -488,6 +491,9 @@ in
           document-font-name = "Inter 11";
           monospace-font-name = "JetBrains Mono 10";
         };
+        # Windows that draw their own title bar (GTK4, libadwaita) show the same three
+        # buttons as the compositor's, at the right.
+        settings."org/gnome/desktop/wm/preferences".button-layout = ":minimize,maximize,close";
       }];
     };
     services.gvfs.enable = lib.mkIf cfg.desktop.enable true;

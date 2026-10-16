@@ -110,7 +110,8 @@ pub struct Window {
     pub app_id: String,
     pub title: String,
     pub focused: bool,
-    /// "screen" (on the user's display) or "background" (on the agent's own, unseen output).
+    /// "screen" (on the user's display), "background" (on the agent's own, unseen
+    /// output) or "minimized" (in sway's scratchpad, until the dock or a focus brings it back).
     pub location: String,
     /// Absolute content rectangle, when the compositor tells us.
     pub x: Option<i32>,
@@ -166,14 +167,10 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 app_id: t.app_id,
                 title: t.title,
                 focused: g.map(|g| g.focused).unwrap_or(false),
-                location: if g
-                    .and_then(|g| g.output.as_deref())
-                    .map(is_background_output)
-                    .unwrap_or(false)
-                {
-                    "background".into()
-                } else {
-                    "screen".into()
+                location: match g.and_then(|g| g.output.as_deref()) {
+                    Some(o) if is_background_output(o) => "background".into(),
+                    Some(SCRATCHPAD_OUTPUT) => "minimized".into(),
+                    _ => "screen".into(),
                 },
                 x: g.map(|g| g.content.x),
                 y: g.map(|g| g.content.y),
@@ -183,6 +180,13 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
         })
         .collect())
 }
+
+/// The pseudo output sway keeps its scratchpad on: minimized windows wait there.
+const SCRATCHPAD_OUTPUT: &str = "__i3";
+
+/// The right end of a compositor title bar holds the minimize, maximize and close
+/// buttons (the SwayFX that SlateOS builds); a click meant to focus keeps clear of it.
+const TITLEBAR_BUTTONS: f64 = 96.0;
 
 /// The agent's own screen: a headless output the person never sees. Windows there are
 /// "in the background"; `workspace agent` is assigned to it by the SlateOS sway profile.
@@ -564,7 +568,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "desktop_windows",
-            "description": "List open windows: id, app_id, title, focus, location (\"screen\" = visible to the user, \"background\" = on the agent's own unseen screen), and content position/size in layout pixels.",
+            "description": "List open windows: id, app_id, title, focus, location (\"screen\" = visible to the user, \"background\" = on the agent's own unseen screen, \"minimized\" = put away by the user; desktop_focus or desktop_show brings it back), and content position/size in layout pixels.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
@@ -796,7 +800,7 @@ fn focus_point(win: &Window) -> Result<FocusPlan> {
         return Ok((centre, None));
     }
     let mut x = bar.0 + 16.0;
-    while x < bar.0 + bar.2 - 8.0 {
+    while x < bar.0 + bar.2 - TITLEBAR_BUTTONS {
         if !covered(x, y) {
             return Ok(((x, y), None));
         }
@@ -1240,6 +1244,19 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         win.id, win.title
                     )));
                 }
+                // Focusing a minimized window brings it back; onto the user's screen,
+                // not whichever screen the agent's seat last used.
+                if win.location == "minimized" {
+                    let screen = screen_output().ok_or_else(|| anyhow!("no output"))?;
+                    sway::command_for_con(
+                        con,
+                        &format!("focus, move container to output {screen}, focus"),
+                    )?;
+                    return Ok(text(format!(
+                        "{} ({}) was minimized: brought back on the user's screen and focused",
+                        win.id, win.title
+                    )));
+                }
                 sway::command_for_con(con, "focus")?;
                 text(format!("focused {} ({})", win.id, win.title))
             }
@@ -1465,10 +1482,16 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 let mut moved = vec![];
                 for w in &wins {
                     let Some(con) = w.con_id else { continue };
-                    let cmd = if to_bg {
-                        format!("move container to workspace {BACKGROUND_WORKSPACE}")
+                    // A minimized window cannot be moved until a focus brings it back.
+                    let restore = if w.location == "minimized" {
+                        "focus, "
                     } else {
-                        format!("move container to output {screen}, focus")
+                        ""
+                    };
+                    let cmd = if to_bg {
+                        format!("{restore}move container to workspace {BACKGROUND_WORKSPACE}")
+                    } else {
+                        format!("{restore}move container to output {screen}, focus")
                     };
                     if sway::command_for_con(con, &cmd).is_ok() {
                         moved.push(format!("{} ({})", w.id, w.title));

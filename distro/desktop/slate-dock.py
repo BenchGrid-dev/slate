@@ -2,11 +2,12 @@
 """slate-dock: the SlateOS dock.
 
 Pinned applications and the open ones in one row. A dot under an application means it
-has a window on your screen; a small diamond means Slate has one of its windows on its
-own (background) screen, and clicking the icon brings that window over instead of
-sending your focus to a screen you cannot see.
+has a window on your screen (minimized ones count); a small diamond means Slate has one
+of its windows on its own (background) screen, and clicking the icon brings that window
+over instead of sending your focus to a screen you cannot see.
 
-Left click starts or switches to an application, middle click opens a new window,
+Left click starts or switches to an application (or brings back its minimized window
+when it has no other), middle click opens a new window,
 right click offers keep in / remove from the dock, a new window, and close. Pins
 live in ~/.config/slate/dock.json (defaults: /etc/slate/dock.json); the look follows
 slate-theme (~/.config/slate/theme.json) live.
@@ -130,6 +131,8 @@ class Window:
         self.ident = node.get("foreign_toplevel_identifier") or ""
         self.focused = bool(node.get("focused"))
         self.background = output.startswith("HEADLESS-")
+        # Minimized windows wait in sway's scratchpad, on its pseudo output.
+        self.minimized = output == "__i3"
 
 
 def windows():
@@ -246,12 +249,16 @@ class Item:
                 run_in_session(command_line(info))
 
     def activate(self):
-        here = [w for w in self.windows if not w.background]
+        here = [w for w in self.windows if not w.background and not w.minimized]
+        minimized = [w for w in self.windows if w.minimized]
         away = [w for w in self.windows if w.background]
         if here:
             focused = [i for i, w in enumerate(here) if w.focused]
             target = here[(focused[0] + 1) % len(here)] if focused else here[0]
             swaymsg(f"[con_id={target.con}] focus")
+        elif minimized:
+            # Focusing a minimized window brings it back, the last minimized first.
+            swaymsg(f"[con_id={minimized[-1].con}] focus")
         elif away:
             subprocess.Popen(["slate-desktop", "show", away[0].ident or away[0].app_id],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

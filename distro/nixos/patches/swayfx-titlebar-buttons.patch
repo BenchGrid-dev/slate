@@ -1,0 +1,923 @@
+diff --git a/include/sway/titlebar_buttons.h b/include/sway/titlebar_buttons.h
+new file mode 100644
+index 0000000..112839f
+--- /dev/null
++++ b/include/sway/titlebar_buttons.h
+@@ -0,0 +1,48 @@
++#ifndef _SWAY_TITLEBAR_BUTTONS_H
++#define _SWAY_TITLEBAR_BUTTONS_H
++#include <scenefx/types/wlr_scene.h>
++
++/**
++ * Minimize, maximize and close buttons at the right of a title bar: round,
++ * monochrome buttons drawn in the title's colour, like libadwaita's.
++ */
++enum sway_titlebar_button {
++	TITLEBAR_BUTTON_NONE = -1,
++	TITLEBAR_BUTTON_MINIMIZE = 0,
++	TITLEBAR_BUTTON_MAXIMIZE = 1,
++	TITLEBAR_BUTTON_CLOSE = 2,
++};
++
++#define TITLEBAR_BUTTON_COUNT 3
++
++struct sway_titlebar_buttons {
++	struct wlr_scene_node *node;
++	int diameter;
++	int spacing;
++	// TITLEBAR_BUTTON_* or TITLEBAR_BUTTON_NONE
++	int hovered;
++	int pressed;
++	bool maximized;
++	float color[4];
++};
++
++struct sway_titlebar_buttons *titlebar_buttons_create(struct wlr_scene_tree *parent);
++
++/** The width of the three buttons and the gaps between them. */
++int titlebar_buttons_width(struct sway_titlebar_buttons *buttons);
++
++void titlebar_buttons_set_size(struct sway_titlebar_buttons *buttons,
++		int diameter, int spacing);
++
++void titlebar_buttons_set_color(struct sway_titlebar_buttons *buttons, float color[4]);
++
++void titlebar_buttons_set_state(struct sway_titlebar_buttons *buttons,
++		int hovered, int pressed);
++
++void titlebar_buttons_set_maximized(struct sway_titlebar_buttons *buttons, bool maximized);
++
++/** The button under layout point (lx, ly), or TITLEBAR_BUTTON_NONE. */
++enum sway_titlebar_button titlebar_buttons_at(struct sway_titlebar_buttons *buttons,
++		double lx, double ly);
++
++#endif
+diff --git a/include/sway/tree/container.h b/include/sway/tree/container.h
+index 5a36df8..4b9446a 100644
+--- a/include/sway/tree/container.h
++++ b/include/sway/tree/container.h
+@@ -11,6 +11,7 @@
+ 
+ struct sway_view;
+ struct sway_seat;
++struct sway_titlebar_buttons;
+ 
+ enum sway_container_layout {
+ 	L_NONE,
+@@ -82,6 +83,8 @@ struct sway_container {
+ 
+ 		struct sway_text_node *title_text;
+ 		struct sway_text_node *marks_text;
++		// Minimize, maximize and close (floating views only)
++		struct sway_titlebar_buttons *buttons;
+ 	} title_bar;
+ 
+ 	struct {
+@@ -122,6 +125,11 @@ struct sway_container {
+ 	double saved_x, saved_y;
+ 	double saved_width, saved_height;
+ 
++	// A floating view filling its workspace's usable area, and the geometry
++	// it had before (in layout coordinates, including borders).
++	bool maximized;
++	struct wlr_box maximize_saved;
++
+ 	// Used when the view changes to CSD unexpectedly. This will be a non-B_CSD
+ 	// border which we use to restore when the view returns to SSD.
+ 	enum sway_container_border saved_border;
+@@ -229,6 +237,29 @@ void container_update_representation(struct sway_container *container);
+  */
+ size_t container_titlebar_height(void);
+ 
++/**
++ * Whether the container's title bar shows the minimize, maximize and close
++ * buttons: floating views with a normal border.
++ */
++bool container_has_titlebar_buttons(struct sway_container *con);
++
++/**
++ * Fill the workspace's usable area with a floating view, or give it back the
++ * geometry it had. Tells the client and foreign toplevel clients.
++ */
++void container_set_maximized(struct sway_container *con, bool enable);
++
++/**
++ * Forget the maximized state, keeping the current geometry (the window was
++ * moved or resized by hand).
++ */
++void container_clear_maximized(struct sway_container *con);
++
++/**
++ * Minimize to the scratchpad, as a client's own minimize request does.
++ */
++void container_minimize(struct sway_container *con);
++
+ void floating_calculate_constraints(int *min_width, int *max_width,
+ 		int *min_height, int *max_height);
+ 
+diff --git a/sway/desktop/xdg_shell.c b/sway/desktop/xdg_shell.c
+index c3b4e4f..7a2f225 100644
+--- a/sway/desktop/xdg_shell.c
++++ b/sway/desktop/xdg_shell.c
+@@ -300,8 +300,14 @@ static void handle_commit(struct wl_listener *listener, void *data) {
+ 		}
+ 		// XXX: https://github.com/swaywm/sway/issues/2176
+ 		wlr_xdg_surface_schedule_configure(xdg_surface);
+-		wlr_xdg_toplevel_set_wm_capabilities(view->wlr_xdg_toplevel,
+-			WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN);
++		// Maximize (floating windows) and minimize (to the scratchpad) work too;
++		// clients that draw their own title bar enable those buttons by this.
++		uint32_t caps = WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN |
++			WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE;
++		if (config->scratchpad_minimize) {
++			caps |= WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE;
++		}
++		wlr_xdg_toplevel_set_wm_capabilities(view->wlr_xdg_toplevel, caps);
+ 		// TODO: wlr_xdg_toplevel_set_bounds()
+ 		return;
+ 	}
+@@ -389,6 +395,14 @@ static void handle_request_maximize(struct wl_listener *listener, void *data) {
+ 	if (!toplevel->base->surface->mapped) {
+ 		return;
+ 	}
++	// A floating window may fill its workspace (a client's own maximize button);
++	// a tiled one already has its place.
++	struct sway_container *con = xdg_shell_view->view.container;
++	if (con && container_is_floating(con)) {
++		container_set_maximized(con, toplevel->requested.maximized);
++		transaction_commit_dirty();
++		return;
++	}
+ 	wlr_xdg_surface_schedule_configure(toplevel->base);
+ }
+ 
+diff --git a/sway/input/seatop_default.c b/sway/input/seatop_default.c
+index df8232a..32d101b 100644
+--- a/sway/input/seatop_default.c
++++ b/sway/input/seatop_default.c
+@@ -13,6 +13,8 @@
+ #include "sway/output.h"
+ #include "sway/server.h"
+ #include "sway/scene_descriptor.h"
++#include "sway/titlebar_buttons.h"
++#include "sway/tree/root.h"
+ #include "sway/tree/view.h"
+ #include "sway/tree/workspace.h"
+ #include "log.h"
+@@ -26,8 +28,124 @@ struct seatop_default_event {
+ 	uint32_t pressed_buttons[SWAY_CURSOR_PRESSED_BUTTONS_CAP];
+ 	size_t pressed_button_count;
+ 	struct gesture_tracker gestures;
++	// The title bar button under the cursor and the one held down, by container
++	// id (the container may go away meanwhile).
++	size_t button_hover_con;
++	int button_hover;
++	size_t button_press_con;
++	int button_press;
+ };
+ 
++// The last press on a floating view's title bar, for double clicks. It outlives
++// the seatop: the press itself starts a move.
++static struct {
++	struct sway_seat *seat;
++	size_t con;
++	uint32_t msec;
++} titlebar_click;
++
++#define TITLEBAR_DOUBLE_CLICK_MSEC 400
++
++/*-----------------------------------------\
++ * Title bar buttons                       /
++ *---------------------------------------*/
++
++static bool container_has_id(struct sway_container *con, void *data) {
++	return con->node.id == *(size_t *)data;
++}
++
++static struct sway_container *container_by_id(size_t id) {
++	return id ? root_find_container(container_has_id, &id) : NULL;
++}
++
++static int titlebar_button_at(struct sway_container *cont,
++		struct wlr_surface *surface, struct sway_cursor *cursor) {
++	if (!cont || surface || !container_has_titlebar_buttons(cont)) {
++		return TITLEBAR_BUTTON_NONE;
++	}
++	return titlebar_buttons_at(cont->title_bar.buttons,
++		cursor->cursor->x, cursor->cursor->y);
++}
++
++static void titlebar_buttons_show(struct seatop_default_event *e,
++		size_t con_id, int hover) {
++	size_t old = e->button_hover_con;
++	e->button_hover_con = hover == TITLEBAR_BUTTON_NONE ? 0 : con_id;
++	e->button_hover = hover;
++	struct sway_container *con;
++	if (old && old != e->button_hover_con && (con = container_by_id(old)) &&
++			con->title_bar.buttons) {
++		titlebar_buttons_set_state(con->title_bar.buttons,
++			TITLEBAR_BUTTON_NONE, TITLEBAR_BUTTON_NONE);
++	}
++	if (e->button_hover_con && (con = container_by_id(e->button_hover_con)) &&
++			con->title_bar.buttons) {
++		// Pressed only while the cursor is still on the button it went down on.
++		bool held = e->button_press_con == e->button_hover_con &&
++			e->button_press == hover;
++		titlebar_buttons_set_state(con->title_bar.buttons, hover,
++			held ? hover : TITLEBAR_BUTTON_NONE);
++	}
++}
++
++static void titlebar_button_activate(struct sway_seat *seat,
++		struct sway_container *con, int button) {
++	switch (button) {
++	case TITLEBAR_BUTTON_CLOSE:
++		view_close(con->view);
++		break;
++	case TITLEBAR_BUTTON_MINIMIZE:
++		container_minimize(con);
++		break;
++	case TITLEBAR_BUTTON_MAXIMIZE:
++		container_set_maximized(con, !con->maximized);
++		seat_set_focus_container(seat, con);
++		break;
++	}
++	transaction_commit_dirty();
++}
++
++/**
++ * Press and release of the left button on a title bar button. Returns whether
++ * the event was the buttons'.
++ */
++static bool handle_titlebar_button(struct sway_seat *seat,
++		struct seatop_default_event *e, struct sway_container *cont,
++		struct wlr_surface *surface, enum wl_pointer_button_state state) {
++	int hit = titlebar_button_at(cont, surface, seat->cursor);
++	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
++		if (hit == TITLEBAR_BUTTON_NONE) {
++			return false;
++		}
++		e->button_press_con = cont->node.id;
++		e->button_press = hit;
++		titlebar_buttons_show(e, cont->node.id, hit);
++		return true;
++	}
++	if (e->button_press == TITLEBAR_BUTTON_NONE) {
++		return false;
++	}
++	size_t pressed_con = e->button_press_con;
++	int pressed = e->button_press;
++	e->button_press_con = 0;
++	e->button_press = TITLEBAR_BUTTON_NONE;
++	titlebar_buttons_show(e, cont ? cont->node.id : 0, hit);
++	if (cont && cont->node.id == pressed_con && hit == pressed) {
++		titlebar_button_activate(seat, cont, pressed);
++		seatop_rebase(seat, get_current_time_in_msec());
++	}
++	return true;
++}
++
++static void update_titlebar_hover(struct sway_seat *seat,
++		struct seatop_default_event *e, struct sway_node *node,
++		struct wlr_surface *surface) {
++	struct sway_container *cont = node && node->type == N_CONTAINER ?
++		node->sway_container : NULL;
++	int hit = titlebar_button_at(cont, surface, seat->cursor);
++	titlebar_buttons_show(e, cont ? cont->node.id : 0, hit);
++}
++
+ /*-----------------------------------------\
+  * Functions shared by multiple callbacks  /
+  *---------------------------------------*/
+@@ -393,6 +511,12 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
+ 		return;
+ 	}
+ 
++	// Handle the title bar buttons
++	if (button == BTN_LEFT && handle_titlebar_button(seat, seat->seatop_data,
++			on_titlebar ? cont : NULL, surface, state)) {
++		return;
++	}
++
+ 	// Handle tiling resize via border
+ 	if (cont && resize_edge && button == BTN_LEFT &&
+ 			state == WL_POINTER_BUTTON_STATE_PRESSED && !is_floating) {
+@@ -455,11 +579,25 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
+ 		transaction_commit_dirty();
+ 	}
+ 
+-	// Handle beginning floating move
++	// Handle beginning floating move; a double click on the title bar maximizes
++	// or restores
+ 	if (cont && is_floating_or_child && !is_fullscreen_or_child &&
+ 			state == WL_POINTER_BUTTON_STATE_PRESSED &&
+ 			(mod_move_btn_pressed || titlebar_left_btn_pressed)) {
+-		seatop_begin_move_floating(seat, container_toplevel_ancestor(cont));
++		struct sway_container *floater = container_toplevel_ancestor(cont);
++		if (titlebar_left_btn_pressed && container_has_titlebar_buttons(floater)) {
++			if (titlebar_click.seat == seat && titlebar_click.con == floater->node.id &&
++					time_msec - titlebar_click.msec < TITLEBAR_DOUBLE_CLICK_MSEC) {
++				titlebar_click.con = 0;
++				container_set_maximized(floater, !floater->maximized);
++				transaction_commit_dirty();
++				return;
++			}
++			titlebar_click.seat = seat;
++			titlebar_click.con = floater->node.id;
++			titlebar_click.msec = time_msec;
++		}
++		seatop_begin_move_floating(seat, floater);
+ 		return;
+ 	}
+ 
+@@ -621,6 +759,7 @@ static void handle_pointer_motion(struct sway_seat *seat, uint32_t time_msec) {
+ 		cursor_update_image(cursor, node);
+ 		wlr_seat_pointer_notify_clear_focus(seat->wlr_seat);
+ 	}
++	update_titlebar_hover(seat, e, node, surface);
+ 
+ 	drag_icons_update_position(seat);
+ 
+@@ -1119,6 +1258,15 @@ static void handle_rebase(struct sway_seat *seat, uint32_t time_msec) {
+ 		cursor_update_image(cursor, e->previous_node);
+ 		wlr_seat_pointer_notify_clear_focus(seat->wlr_seat);
+ 	}
++	update_titlebar_hover(seat, e, e->previous_node, surface);
++}
++
++static void handle_end(struct sway_seat *seat) {
++	// No highlighted button left behind when a move or a resize takes over
++	struct seatop_default_event *e = seat->seatop_data;
++	e->button_press_con = 0;
++	e->button_press = TITLEBAR_BUTTON_NONE;
++	titlebar_buttons_show(e, 0, TITLEBAR_BUTTON_NONE);
+ }
+ 
+ static const struct sway_seatop_impl seatop_impl = {
+@@ -1137,6 +1285,7 @@ static const struct sway_seatop_impl seatop_impl = {
+ 	.swipe_end = handle_swipe_end,
+ 	.touch_down = handle_touch_down,
+ 	.rebase = handle_rebase,
++	.end = handle_end,
+ 	.allow_set_cursor = true,
+ };
+ 
+@@ -1146,6 +1295,8 @@ void seatop_begin_default(struct sway_seat *seat) {
+ 	struct seatop_default_event *e =
+ 		calloc(1, sizeof(struct seatop_default_event));
+ 	sway_assert(e, "Unable to allocate seatop_default_event");
++	e->button_hover = TITLEBAR_BUTTON_NONE;
++	e->button_press = TITLEBAR_BUTTON_NONE;
+ 
+ 	seat->seatop_impl = &seatop_impl;
+ 	seat->seatop_data = e;
+diff --git a/sway/input/seatop_move_floating.c b/sway/input/seatop_move_floating.c
+index 37b7aad..c90af26 100644
+--- a/sway/input/seatop_move_floating.c
++++ b/sway/input/seatop_move_floating.c
+@@ -42,6 +42,8 @@ static void handle_pointer_motion(struct sway_seat *seat, uint32_t time_msec) {
+ 
+ 	e->con->animation_state.seat_is_moving_float = true;
+ 
++	// Dragged away, a maximized window is an ordinary one again
++	container_clear_maximized(e->con);
+ 	container_floating_move_to(e->con, cursor->x - e->dx, cursor->y - e->dy);
+ 	transaction_commit_dirty();
+ }
+diff --git a/sway/input/seatop_resize_floating.c b/sway/input/seatop_resize_floating.c
+index bec86e3..7727d2a 100644
+--- a/sway/input/seatop_resize_floating.c
++++ b/sway/input/seatop_resize_floating.c
+@@ -184,6 +184,7 @@ void seatop_begin_resize_floating(struct sway_seat *seat,
+ 	seat->seatop_impl = &seatop_impl;
+ 	seat->seatop_data = e;
+ 
++	container_clear_maximized(con);
+ 	container_set_resizing(con, true);
+ 	container_raise_floating(con);
+ 	transaction_commit_dirty();
+diff --git a/sway/ipc-json.c b/sway/ipc-json.c
+index bb0566a..60d0fb5 100644
+--- a/sway/ipc-json.c
++++ b/sway/ipc-json.c
+@@ -819,6 +819,8 @@ static void ipc_json_describe_container(struct sway_container *c, json_object *o
+ 	json_object_object_add(object, "fullscreen_mode",
+ 			json_object_new_int(c->pending.fullscreen_mode));
+ 
++	json_object_object_add(object, "maximized", json_object_new_boolean(c->maximized));
++
+ 	// sway doesn't track if window was resized in scratchpad, so we can't use "changed"
+ 	json_object_object_add(object, "scratchpad_state",
+ 			json_object_new_string(!c->scratchpad ? "none" : "fresh"));
+diff --git a/sway/meson.build b/sway/meson.build
+index ecd2865..b8444ea 100644
+--- a/sway/meson.build
++++ b/sway/meson.build
+@@ -13,6 +13,7 @@ sway_sources = files(
+ 	'scene_descriptor.c',
+ 	'server.c',
+ 	'sway_text_node.c',
++	'titlebar_buttons.c',
+ 	'swaynag.c',
+ 	'xdg_activation_v1.c',
+ 	'xdg_decoration.c',
+diff --git a/sway/titlebar_buttons.c b/sway/titlebar_buttons.c
+new file mode 100644
+index 0000000..f9df57a
+--- /dev/null
++++ b/sway/titlebar_buttons.c
+@@ -0,0 +1,274 @@
++#include <cairo.h>
++#include <drm_fourcc.h>
++#include <math.h>
++#include <stdlib.h>
++#include <string.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/types/wlr_buffer.h>
++#include <wlr/types/wlr_output.h>
++#include "log.h"
++#include "sway/titlebar_buttons.h"
++
++// M_PI is not in strict C11
++#define TWO_PI 6.28318530717958647692
++
++struct button_cairo_buffer {
++	struct wlr_buffer base;
++	cairo_surface_t *surface;
++	cairo_t *cairo;
++};
++
++static void button_cairo_buffer_destroy(struct wlr_buffer *wlr_buffer) {
++	struct button_cairo_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
++	cairo_surface_destroy(buffer->surface);
++	cairo_destroy(buffer->cairo);
++	free(buffer);
++}
++
++static bool button_cairo_buffer_begin_data_ptr_access(struct wlr_buffer *wlr_buffer,
++		uint32_t flags, void **data, uint32_t *format, size_t *stride) {
++	struct button_cairo_buffer *buffer = wl_container_of(wlr_buffer, buffer, base);
++	*data = cairo_image_surface_get_data(buffer->surface);
++	*stride = cairo_image_surface_get_stride(buffer->surface);
++	*format = DRM_FORMAT_ARGB8888;
++	return true;
++}
++
++static void button_cairo_buffer_end_data_ptr_access(struct wlr_buffer *wlr_buffer) {
++	// This space is intentionally left blank
++}
++
++static const struct wlr_buffer_impl button_cairo_buffer_impl = {
++	.destroy = button_cairo_buffer_destroy,
++	.begin_data_ptr_access = button_cairo_buffer_begin_data_ptr_access,
++	.end_data_ptr_access = button_cairo_buffer_end_data_ptr_access,
++};
++
++struct buttons_buffer {
++	struct wlr_scene_buffer *buffer_node;
++	struct sway_titlebar_buttons props;
++
++	bool visible;
++	float scale;
++
++	struct wl_listener outputs_update;
++	struct wl_listener destroy;
++};
++
++int titlebar_buttons_width(struct sway_titlebar_buttons *buttons) {
++	return TITLEBAR_BUTTON_COUNT * buttons->diameter
++		+ (TITLEBAR_BUTTON_COUNT - 1) * buttons->spacing;
++}
++
++static void draw_glyph(cairo_t *cairo, int button, bool maximized,
++		double cx, double cy, double h) {
++	switch (button) {
++	case TITLEBAR_BUTTON_MINIMIZE:
++		cairo_move_to(cairo, cx - h, cy + h * 0.5);
++		cairo_line_to(cairo, cx + h, cy + h * 0.5);
++		break;
++	case TITLEBAR_BUTTON_MAXIMIZE:
++		if (maximized) {
++			// Restore: a square in front of another.
++			double off = h * 0.55;
++			cairo_move_to(cairo, cx - h + off, cy - h + off);
++			cairo_line_to(cairo, cx - h + off, cy - h);
++			cairo_line_to(cairo, cx + h, cy - h);
++			cairo_line_to(cairo, cx + h, cy + h - off);
++			cairo_line_to(cairo, cx + h - off, cy + h - off);
++			cairo_rectangle(cairo, cx - h, cy - h + off, 2 * h - off, 2 * h - off);
++		} else {
++			cairo_rectangle(cairo, cx - h, cy - h, 2 * h, 2 * h);
++		}
++		break;
++	case TITLEBAR_BUTTON_CLOSE:
++		h *= 0.92;
++		cairo_move_to(cairo, cx - h, cy - h);
++		cairo_line_to(cairo, cx + h, cy + h);
++		cairo_move_to(cairo, cx + h, cy - h);
++		cairo_line_to(cairo, cx - h, cy + h);
++		break;
++	}
++	cairo_stroke(cairo);
++}
++
++static void render_backing_buffer(struct buttons_buffer *buffer) {
++	if (!buffer->visible) {
++		return;
++	}
++
++	struct sway_titlebar_buttons *props = &buffer->props;
++	int logical_width = titlebar_buttons_width(props);
++	int logical_height = props->diameter;
++	if (logical_width <= 0 || logical_height <= 0) {
++		wlr_scene_buffer_set_buffer(buffer->buffer_node, NULL);
++		return;
++	}
++
++	float scale = buffer->scale > 0 ? buffer->scale : 1;
++	int width = ceil(logical_width * scale);
++	int height = ceil(logical_height * scale);
++
++	cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
++	if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
++		sway_log(SWAY_ERROR, "cairo_image_surface_create failed");
++		cairo_surface_destroy(surface);
++		return;
++	}
++	struct button_cairo_buffer *cairo_buffer = calloc(1, sizeof(*cairo_buffer));
++	if (!cairo_buffer) {
++		cairo_surface_destroy(surface);
++		return;
++	}
++	cairo_t *cairo = cairo_create(surface);
++
++	cairo_set_antialias(cairo, CAIRO_ANTIALIAS_BEST);
++	cairo_scale(cairo, scale, scale);
++
++	float *c = props->color;
++	double r = props->diameter / 2.0;
++	// Glyphs about a third of the button, strokes of one and a half points (one
++	// point on a low-density screen, where a half point only blurs).
++	double h = fmax(3.0, round(props->diameter * 0.38) / 2.0);
++	cairo_set_line_width(cairo, scale >= 2 ? 1.5 : 1.0);
++	cairo_set_line_cap(cairo, CAIRO_LINE_CAP_ROUND);
++	cairo_set_line_join(cairo, CAIRO_LINE_JOIN_ROUND);
++
++	for (int i = 0; i < TITLEBAR_BUTTON_COUNT; i++) {
++		double cx = r + i * (props->diameter + props->spacing);
++		double cy = r;
++		double alpha = i == props->pressed ? 0.28 : i == props->hovered ? 0.18 : 0.10;
++		cairo_set_source_rgba(cairo, c[0], c[1], c[2], c[3] * alpha);
++		cairo_arc(cairo, cx, cy, r, 0, TWO_PI);
++		cairo_fill(cairo);
++
++		cairo_set_source_rgba(cairo, c[0], c[1], c[2], c[3]);
++		draw_glyph(cairo, i, props->maximized, cx, cy, h);
++	}
++	cairo_surface_flush(surface);
++
++	wlr_buffer_init(&cairo_buffer->base, &button_cairo_buffer_impl, width, height);
++	cairo_buffer->surface = surface;
++	cairo_buffer->cairo = cairo;
++
++	wlr_scene_buffer_set_buffer(buffer->buffer_node, &cairo_buffer->base);
++	wlr_buffer_drop(&cairo_buffer->base);
++	wlr_scene_buffer_set_dest_size(buffer->buffer_node, logical_width, logical_height);
++}
++
++static void handle_outputs_update(struct wl_listener *listener, void *data) {
++	struct buttons_buffer *buffer = wl_container_of(listener, buffer, outputs_update);
++	struct wlr_scene_outputs_update_event *event = data;
++
++	float scale = 0;
++	for (size_t i = 0; i < event->size; i++) {
++		struct wlr_scene_output *output = event->active[i];
++		if (scale < output->output->scale) {
++			scale = output->output->scale;
++		}
++	}
++
++	bool was_visible = buffer->visible;
++	buffer->visible = event->size > 0;
++	if (scale != buffer->scale || (buffer->visible && !was_visible)) {
++		buffer->scale = scale;
++		render_backing_buffer(buffer);
++	}
++}
++
++static void handle_destroy(struct wl_listener *listener, void *data) {
++	struct buttons_buffer *buffer = wl_container_of(listener, buffer, destroy);
++	wl_list_remove(&buffer->outputs_update.link);
++	wl_list_remove(&buffer->destroy.link);
++	free(buffer);
++}
++
++struct sway_titlebar_buttons *titlebar_buttons_create(struct wlr_scene_tree *parent) {
++	struct buttons_buffer *buffer = calloc(1, sizeof(*buffer));
++	if (!buffer) {
++		return NULL;
++	}
++	struct wlr_scene_buffer *node = wlr_scene_buffer_create(parent, NULL);
++	if (!node) {
++		free(buffer);
++		return NULL;
++	}
++	buffer->buffer_node = node;
++	buffer->props.node = &node->node;
++	buffer->props.diameter = 0;
++	buffer->props.spacing = 0;
++	buffer->props.hovered = TITLEBAR_BUTTON_NONE;
++	buffer->props.pressed = TITLEBAR_BUTTON_NONE;
++
++	buffer->destroy.notify = handle_destroy;
++	wl_signal_add(&node->node.events.destroy, &buffer->destroy);
++	buffer->outputs_update.notify = handle_outputs_update;
++	wl_signal_add(&node->events.outputs_update, &buffer->outputs_update);
++
++	return &buffer->props;
++}
++
++void titlebar_buttons_set_size(struct sway_titlebar_buttons *buttons,
++		int diameter, int spacing) {
++	if (buttons->diameter == diameter && buttons->spacing == spacing) {
++		return;
++	}
++	buttons->diameter = diameter;
++	buttons->spacing = spacing;
++	struct buttons_buffer *buffer = wl_container_of(buttons, buffer, props);
++	// The size first: the scene tells a node which outputs it is on (and so that it
++	// is visible, and at what scale to draw) only once it has one.
++	wlr_scene_buffer_set_dest_size(buffer->buffer_node,
++		titlebar_buttons_width(buttons), diameter);
++	render_backing_buffer(buffer);
++}
++
++void titlebar_buttons_set_color(struct sway_titlebar_buttons *buttons, float color[4]) {
++	if (memcmp(buttons->color, color, sizeof(buttons->color)) == 0) {
++		return;
++	}
++	memcpy(buttons->color, color, sizeof(buttons->color));
++	struct buttons_buffer *buffer = wl_container_of(buttons, buffer, props);
++	render_backing_buffer(buffer);
++}
++
++void titlebar_buttons_set_state(struct sway_titlebar_buttons *buttons,
++		int hovered, int pressed) {
++	if (buttons->hovered == hovered && buttons->pressed == pressed) {
++		return;
++	}
++	buttons->hovered = hovered;
++	buttons->pressed = pressed;
++	struct buttons_buffer *buffer = wl_container_of(buttons, buffer, props);
++	render_backing_buffer(buffer);
++}
++
++void titlebar_buttons_set_maximized(struct sway_titlebar_buttons *buttons, bool maximized) {
++	if (buttons->maximized == maximized) {
++		return;
++	}
++	buttons->maximized = maximized;
++	struct buttons_buffer *buffer = wl_container_of(buttons, buffer, props);
++	render_backing_buffer(buffer);
++}
++
++enum sway_titlebar_button titlebar_buttons_at(struct sway_titlebar_buttons *buttons,
++		double lx, double ly) {
++	int x, y;
++	if (!wlr_scene_node_coords(buttons->node, &x, &y) || buttons->diameter <= 0) {
++		return TITLEBAR_BUTTON_NONE;
++	}
++	// Each button answers in its own cell: its circle and half the gaps around it,
++	// a little taller than the circle, so a click need not be exact.
++	double rx = lx - x, ry = ly - y;
++	double pad = buttons->spacing / 2.0;
++	if (ry < -pad || ry > buttons->diameter + pad) {
++		return TITLEBAR_BUTTON_NONE;
++	}
++	double cell = buttons->diameter + buttons->spacing;
++	int i = floor((rx + pad) / cell);
++	if (rx < -pad || i < 0 || i >= TITLEBAR_BUTTON_COUNT) {
++		return TITLEBAR_BUTTON_NONE;
++	}
++	return i;
++}
+diff --git a/sway/tree/container.c b/sway/tree/container.c
+index 6fe1206..3163f10 100644
+--- a/sway/tree/container.c
++++ b/sway/tree/container.c
+@@ -7,6 +7,11 @@
+ #include <wlr/types/wlr_linux_dmabuf_v1.h>
+ #include <wlr/types/wlr_output_layout.h>
+ #include <wlr/types/wlr_subcompositor.h>
++#include <wlr/types/wlr_xdg_shell.h>
++#include <wlr/config.h>
++#if WLR_HAS_XWAYLAND
++#include <wlr/xwayland.h>
++#endif
+ #include "sway/config.h"
+ #include "sway/desktop/transaction.h"
+ #include "sway/input/input-manager.h"
+@@ -14,6 +19,7 @@
+ #include "sway/ipc-server.h"
+ #include "sway/scene_descriptor.h"
+ #include "sway/sway_text_node.h"
++#include "sway/titlebar_buttons.h"
+ #include "sway/output.h"
+ #include "sway/server.h"
+ #include "sway/tree/arrange.h"
+@@ -82,6 +88,10 @@ struct sway_container *container_create(struct sway_view *view) {
+ 	c->title_bar.border = alloc_rect_node(c->title_bar.tree, &failed);
+ 	c->title_bar.background_left = alloc_rect_node(c->title_bar.tree, &failed);
+ 	c->title_bar.background_right = alloc_rect_node(c->title_bar.tree, &failed);
++	if (view && !failed) {
++		// Above the backgrounds. Without it the title bar just has no buttons.
++		c->title_bar.buttons = titlebar_buttons_create(c->title_bar.tree);
++	}
+ 
+ 	if (view) {
+ 		// only containers with views can have borders
+@@ -297,6 +307,10 @@ void container_update(struct sway_container *con) {
+ 		sway_text_node_set_background(con->title_bar.marks_text, colors->background);
+ 	}
+ 
++	if (con->title_bar.buttons) {
++		titlebar_buttons_set_color(con->title_bar.buttons, colors->text);
++	}
++
+ 	if (con->dim_rect) {
+ 		float *color = config->dim_inactive_colors.unfocused;
+ 
+@@ -383,6 +397,33 @@ void container_arrange_title_bar(struct sway_container *con) {
+ 	struct wlr_box left_cut = {0};
+ 	struct wlr_box right_cut = {0};
+ 
++	// The buttons sit at the right; the text keeps out of their way. A centred
++	// title stays centred on the whole bar, so it keeps out of as much on the left.
++	int text_x = 0;
++	int text_width = width;
++	if (con->title_bar.buttons) {
++		struct sway_titlebar_buttons *buttons = con->title_bar.buttons;
++		int diameter = MAX(12, MIN(24, height - 12));
++		int spacing = MAX(6, diameter * 2 / 5);
++		int right = MAX(6, (height - diameter) / 2 + 2);
++		titlebar_buttons_set_size(buttons, diameter, spacing);
++		int buttons_width = titlebar_buttons_width(buttons);
++		bool show = container_has_titlebar_buttons(con) &&
++			width >= 2 * (buttons_width + right) + 4 * config->titlebar_h_padding;
++		wlr_scene_node_set_enabled(buttons->node, show);
++		if (show) {
++			wlr_scene_node_set_position(buttons->node,
++				width - right - buttons_width, (height - diameter) / 2);
++			titlebar_buttons_set_maximized(buttons, con->maximized);
++			int reserve = buttons_width + right;
++			text_width = width - reserve;
++			if (title_align == ALIGN_CENTER) {
++				text_x = reserve;
++				text_width = width - 2 * reserve;
++			}
++		}
++	}
++
+ 	if (con->title_bar.marks_text) {
+ 		struct sway_text_node *node = con->title_bar.marks_text;
+ 		marks_buffer_width = node->width;
+@@ -391,18 +432,18 @@ void container_arrange_title_bar(struct sway_container *con) {
+ 		if (title_align == ALIGN_RIGHT) {
+ 			h_padding = config->titlebar_h_padding;
+ 		} else {
+-			h_padding = width - config->titlebar_h_padding - marks_buffer_width;
++			h_padding = text_width - config->titlebar_h_padding - marks_buffer_width;
+ 		}
+ 
+ 		h_padding = MAX(h_padding, config->titlebar_h_padding);
+ 
+ 		int alloc_width = MIN((int)node->width,
+-			width - h_padding - config->titlebar_h_padding);
++			text_width - h_padding - config->titlebar_h_padding);
+ 		alloc_width = MAX(alloc_width, 0);
+ 
+ 		sway_text_node_set_max_width(node, alloc_width);
+ 		wlr_scene_node_set_position(node->node,
+-			h_padding, (height - node->height) >> 1);
++			text_x + h_padding, (height - node->height) >> 1);
+ 
+ 		struct wlr_box *slot = title_align == ALIGN_RIGHT ? &left_cut : &right_cut;
+ 		*slot = (struct wlr_box) {
+@@ -418,9 +459,9 @@ void container_arrange_title_bar(struct sway_container *con) {
+ 
+ 		int h_padding;
+ 		if (title_align == ALIGN_RIGHT) {
+-			h_padding = width - config->titlebar_h_padding - node->width;
++			h_padding = text_width - config->titlebar_h_padding - node->width;
+ 		} else if (title_align == ALIGN_CENTER) {
+-			h_padding = ((int)width - marks_buffer_width - node->width) >> 1;
++			h_padding = ((int)text_width - marks_buffer_width - node->width) >> 1;
+ 		} else {
+ 			h_padding = config->titlebar_h_padding;
+ 		}
+@@ -428,12 +469,12 @@ void container_arrange_title_bar(struct sway_container *con) {
+ 		h_padding = MAX(h_padding, config->titlebar_h_padding);
+ 
+ 		int alloc_width = MIN((int) node->width,
+-			width - h_padding - config->titlebar_h_padding);
++			text_width - h_padding - config->titlebar_h_padding);
+ 		alloc_width = MAX(alloc_width, 0);
+ 
+ 		sway_text_node_set_max_width(node, alloc_width);
+ 		wlr_scene_node_set_position(node->node,
+-			h_padding, (height - node->height) >> 1);
++			text_x + h_padding, (height - node->height) >> 1);
+ 
+ 		struct wlr_box *slot = title_align == ALIGN_RIGHT ? &right_cut : &left_cut;
+ 		*slot = (struct wlr_box) {
+@@ -896,6 +937,90 @@ size_t container_titlebar_height(void) {
+ 	return config->font_height + config->titlebar_v_padding * 2;
+ }
+ 
++bool container_has_titlebar_buttons(struct sway_container *con) {
++	return con->view && con->title_bar.buttons &&
++		con->current.border == B_NORMAL &&
++		con->current.fullscreen_mode == FULLSCREEN_NONE &&
++		container_is_current_floating(con);
++}
++
++static void view_send_maximized(struct sway_view *view, bool maximized) {
++	if (view->type == SWAY_VIEW_XDG_SHELL && view->wlr_xdg_toplevel &&
++			view->wlr_xdg_toplevel->base->initialized) {
++		wlr_xdg_toplevel_set_maximized(view->wlr_xdg_toplevel, maximized);
++	}
++#if WLR_HAS_XWAYLAND
++	if (view->type == SWAY_VIEW_XWAYLAND && view->wlr_xwayland_surface) {
++		wlr_xwayland_surface_set_maximized(view->wlr_xwayland_surface,
++			maximized, maximized);
++	}
++#endif
++	if (view->foreign_toplevel) {
++		wlr_foreign_toplevel_handle_v1_set_maximized(view->foreign_toplevel, maximized);
++	}
++}
++
++static void container_floating_set_box(struct sway_container *con,
++		const struct wlr_box *box) {
++	con->pending.x = box->x;
++	con->pending.y = box->y;
++	con->pending.width = box->width;
++	con->pending.height = box->height;
++	// view_autoconfigure derives the content geometry from the container's
++	arrange_container(con);
++}
++
++void container_set_maximized(struct sway_container *con, bool enable) {
++	if (!con->view || !container_is_floating(con) || !con->pending.workspace ||
++			con->pending.fullscreen_mode != FULLSCREEN_NONE) {
++		return;
++	}
++	if (enable != con->maximized) {
++		struct sway_workspace *ws = con->pending.workspace;
++		if (enable) {
++			con->maximize_saved = (struct wlr_box){
++				.x = con->pending.x,
++				.y = con->pending.y,
++				.width = con->pending.width,
++				.height = con->pending.height,
++			};
++			struct wlr_box box = { .x = ws->x, .y = ws->y,
++				.width = ws->width, .height = ws->height };
++			container_floating_set_box(con, &box);
++		} else if (!wlr_box_empty(&con->maximize_saved)) {
++			container_floating_set_box(con, &con->maximize_saved);
++		}
++		con->maximized = enable;
++		container_raise_floating(con);
++	}
++	view_send_maximized(con->view, con->maximized);
++	node_set_dirty(&con->node);
++}
++
++void container_clear_maximized(struct sway_container *con) {
++	if (!con->maximized) {
++		return;
++	}
++	con->maximized = false;
++	if (con->view) {
++		view_send_maximized(con->view, false);
++	}
++	node_set_dirty(&con->node);
++}
++
++void container_minimize(struct sway_container *con) {
++	if (!con->pending.workspace) {
++		while (con->pending.parent) {
++			con = con->pending.parent;
++		}
++	}
++	if (!con->scratchpad) {
++		root_scratchpad_add_container(con, NULL);
++	} else if (con->pending.workspace) {
++		root_scratchpad_hide(con);
++	}
++}
++
+ void floating_calculate_constraints(int *min_width, int *max_width,
+ 		int *min_height, int *max_height) {
+ 	if (config->floating_minimum_width == -1) { // no minimum

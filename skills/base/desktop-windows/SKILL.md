@@ -26,7 +26,7 @@ When unsure, use the background: a task done there and shown at the end costs th
 
 | Want | Use |
 |---|---|
-| see what is open | `desktop_windows` (ids, app_id, title, position, size) |
+| see what is open | `desktop_windows` (ids, app_id, title, location, position, size) |
 | open an app | `desktop_launch` (`firefox`, `foot`, `thunar`, `libreoffice`, `thunderbird`, `mousepad`, `zathura`, `imv`, `mpv`); `where` picks background (default) or here |
 | show / hide background windows | `desktop_show` / `desktop_hide` |
 | two or more windows side by side / stacked / grid | `desktop_arrange` with `layout` and an ordered `windows` list |
@@ -34,6 +34,9 @@ When unsure, use the background: a task done there and shown at the end costs th
 | move or resize | `desktop_window_set` with x, y, width, height |
 | bring to front on the user's screen | `desktop_focus` (takes their keyboard focus: only when they asked) |
 | close | `desktop_close` (never guess a shortcut) |
+| bring back a minimized window | `desktop_focus` (it returns on the user's screen) |
+
+A window with location `minimized` is one the user put away with its title bar's minimize button; it waits in the dock. Leave it there unless the user asks for it.
 
 ## Inside an application: elements first, pixels second
 
@@ -48,4 +51,4 @@ Menus, dialogs and new windows appear as new elements: call `desktop_elements` a
 
 Tier: reversible. Closing a window may lose unsaved work: say so before closing an editor or browser with unsaved changes.
 
-The SlateOS desktop's own shortcuts, for when the user asks: Super+Return terminal, Super+Space launcher, Super+s Slate prompt, Super+w browser, Super+e files, Super+t editor, Super+comma settings, Super+q close, Super+1..5 workspaces, Super+f fullscreen, Super+l lock the screen, Super+Escape the lock / log out / restart / shut down menu.
+Every title bar has minimize, maximize and close buttons at the right; a double click on a title bar maximizes the window or gives it its size back, and its dock icon brings a minimized window back. The SlateOS desktop's own shortcuts, for when the user asks: Super+Return terminal, Super+Space launcher, Super+s Slate prompt, Super+w browser, Super+e files, Super+t editor, Super+comma settings, Super+q close, Super+1..5 workspaces, Super+f fullscreen, Super+l lock the screen, Super+Escape the lock / log out / restart / shut down menu.

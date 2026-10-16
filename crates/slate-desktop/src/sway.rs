@@ -312,8 +312,9 @@ fn walk(
                         height: 0,
                     }),
                 });
-                current_output = name;
             }
+            // The scratchpad's pseudo output ("__i3") too: its windows are minimized.
+            current_output = name;
         }
     }
     if let Some(id) = node
