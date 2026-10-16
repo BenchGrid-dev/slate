@@ -66,7 +66,7 @@ THEMES = {
 
 
 EFFECTS_USER = os.path.join(HOME, ".config/slate/sway.d/effects.fx")
-LAYERS = ("waybar", "slate-dock", "launcher", "notifications", "slate-shell")
+LAYERS = ("waybar", "slate-dock", "launcher", "notifications", "slate-shell", "swayosd")
 
 
 def reduced(state):

@@ -10,8 +10,9 @@
     "modules-right": ["tray", "network", "wireplumber", "custom/slate", "clock"],
     "custom/launcher": {
         "format": "◆",
-        "tooltip-format": "Applications (Super+Space)",
-        "on-click": "swaymsg exec fuzzel"
+        "tooltip-format": "Applications (Super+Space) · right click: lock, log out, restart, shut down",
+        "on-click": "swaymsg exec fuzzel",
+        "on-click-right": "swaymsg exec slate-session-menu"
     },
     "sway/workspaces": {
         "disable-scroll": true,

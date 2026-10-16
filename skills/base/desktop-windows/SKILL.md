@@ -48,4 +48,4 @@ Menus, dialogs and new windows appear as new elements: call `desktop_elements` a
 
 Tier: reversible. Closing a window may lose unsaved work: say so before closing an editor or browser with unsaved changes.
 
-The SlateOS desktop's own shortcuts, for when the user asks: Super+Return terminal, Super+Space launcher, Super+s Slate prompt, Super+w browser, Super+e files, Super+t editor, Super+comma settings, Super+q close, Super+1..5 workspaces, Super+f fullscreen.
+The SlateOS desktop's own shortcuts, for when the user asks: Super+Return terminal, Super+Space launcher, Super+s Slate prompt, Super+w browser, Super+e files, Super+t editor, Super+comma settings, Super+q close, Super+1..5 workspaces, Super+f fullscreen, Super+l lock the screen, Super+Escape the lock / log out / restart / shut down menu.

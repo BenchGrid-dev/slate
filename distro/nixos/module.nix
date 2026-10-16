@@ -159,6 +159,46 @@ let
     sleep 2
     swaymsg exec foot
   '';
+  # The lock screen: the desktop, blurred and darkened, a large clock; Super+L. No font
+  # size: swaylock-effects then sizes the time and the date from the ring, at any scale.
+  slateLock = pkgs.writeShellScriptBin "slate-lock" ''
+    exec ${pkgs.swaylock-effects}/bin/swaylock --daemonize \
+      --screenshots --effect-blur 14x4 --effect-vignette 0.35:0.65 --fade-in 0.25 \
+      --clock --timestr "%H:%M" --datestr "%A, %-d %B" --font "Inter Display" \
+      --indicator --indicator-idle-visible --indicator-radius 120 --indicator-thickness 4 \
+      --inside-color 00000040 --inside-clear-color 00000040 --inside-ver-color 00000040 --inside-wrong-color 00000040 \
+      --ring-color ffffff33 --ring-clear-color ffffff55 --ring-ver-color 7c9cf5ff --ring-wrong-color e5735aff \
+      --key-hl-color 7c9cf5ff --bs-hl-color e5a35aff --line-color 00000000 --line-clear-color 00000000 \
+      --line-ver-color 00000000 --line-wrong-color 00000000 --separator-color 00000000 \
+      --text-color ffffffee --text-clear-color ffffffee --text-ver-color ffffffee --text-wrong-color ffffffee \
+      --text-caps-lock-color ffffffee --show-failed-attempts --ignore-empty-password
+  '';
+  # The session menu: right click on the panel's diamond, or Super+Escape.
+  # Before logging out, restarting or shutting down it asks every window to close, as a
+  # person closing them would: apps save their state and ask about unsaved work, and none
+  # thinks it crashed. Should a window stay open (it is asking), nothing else happens.
+  slateSessionMenu = pkgs.writeShellScriptBin "slate-session-menu" ''
+    windows() {
+      swaymsg -t get_tree | ${pkgs.jq}/bin/jq '[recurse(.nodes[]?, .floating_nodes[]?) | select(.pid?)] | length'
+    }
+    close_all() {
+      swaymsg -q '[all] kill'
+      for _ in $(seq 1 40); do
+        [ "$(windows)" = 0 ] && return 0
+        sleep 0.25
+      done
+      ${pkgs.libnotify}/bin/notify-send -a SlateOS "$1 canceled" "A window is still open. Close it, then try again."
+      return 1
+    }
+    choice=$(printf '%s\n' "Lock Screen" "Log Out" "Restart" "Shut Down" \
+      | ${pkgs.fuzzel}/bin/fuzzel --dmenu --prompt "" --placeholder "SlateOS" --lines 4 --width 22 --no-icons)
+    case "$choice" in
+      "Lock Screen") exec slate-lock ;;
+      "Log Out") close_all "Log out" && exec swaymsg exit ;;
+      "Restart") close_all "Restart" && exec systemctl reboot ;;
+      "Shut Down") close_all "Shut down" && exec systemctl poweroff ;;
+    esac
+  '';
   # The appearance switch (dark / light / wallpaper); plain Python, no toolkit.
   slateTheme = pkgs.stdenv.mkDerivation {
     pname = "slate-theme";
@@ -345,6 +385,7 @@ in
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
+        slateLock slateSessionMenu swayosd
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -430,6 +471,10 @@ in
       }];
     };
     services.gvfs.enable = lib.mkIf cfg.desktop.enable true;
+    # The lock screen authenticates through PAM.
+    security.pam.services.swaylock = lib.mkIf cfg.desktop.enable { };
+    # Brightness keys: swayosd's rule lets the video group (the desktop user) set the backlight.
+    services.udev.packages = lib.mkIf cfg.desktop.enable [ pkgs.swayosd ];
     xdg.portal = lib.mkIf cfg.desktop.enable {
       enable = true;
       wlr.enable = true;
@@ -447,6 +492,7 @@ in
       "slate/wallpaper-light.jpg".source = ../desktop/wallpaper-light.jpg;
       "slate/sway.d/effects.conf" = lib.mkIf cfg.desktop.effects { source = ../desktop/sway/effects.conf; };
       "slate/dock.json".source = dockDefaults;
+      "slate/swayosd.css".source = ../desktop/swayosd/style.css;
     };
     services.greetd = lib.mkIf cfg.desktop.enable {
       enable = true;

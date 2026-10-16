@@ -1,0 +1,21 @@
+/* SlateOS volume and brightness pop-up (swayosd): a small frosted bezel, the same in
+   both appearances. SwayFX blurs what is behind it (layer_effects "swayosd"). */
+window#osd {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(30, 30, 34, 0.80);
+}
+window#osd #container { margin: 14px 18px; }
+window#osd image, window#osd label { color: #f2f2f7; }
+window#osd progressbar:disabled, window#osd image:disabled { opacity: 0.5; }
+window#osd progressbar, window#osd segmentedprogress {
+  min-height: 6px; border-radius: 3px; background: transparent; border: none;
+}
+window#osd trough, window#osd segment {
+  min-height: inherit; border-radius: inherit; border: none; background: rgba(255, 255, 255, 0.18);
+}
+window#osd progress, window#osd segment.active {
+  min-height: inherit; border-radius: inherit; border: none; background: #f2f2f7;
+}
+window#osd segment { margin-left: 8px; }
+window#osd segment:first-child { margin-left: 0; }
