@@ -31,6 +31,7 @@ Changes since 0.0.19:
 - Fix: GTK4 applications without libadwaita (Volume Control) stayed light in the dark appearance: GTK 4.22 does not infer the dark style from the portal's colour scheme. slate-theme now sets `gtk-application-prefer-dark-theme` in GTK4's `settings.ini`, keeping the rest of the file.
 - Fix: per-user copies of the desktop's files (mako, fuzzel, waybar, foot) were written once and did not follow system updates; the theme is re-applied at login.
 - Fix: the first terminal of a session opened on Slate's background screen (sway opens a window on the workspace focused when its command runs); it now opens after workspace 1 has the focus.
+- Fix: `desktop_read` right after a page loaded often returned only the browser's own buttons: Firefox shows the new title before the page's content is on the accessibility bus (more often with the effects on a machine without a GPU). Reading and listing elements now wait up to three seconds for a page on screen that is still loading or has no content yet.
 - Fix: the panel and the dock run as the supervised `slate-panel` user service, so a waybar crash (it can crash while reloading its style on a theme switch) no longer leaves the session without them until the next login.
 
 Known limitations:

@@ -35,6 +35,8 @@ const MAX_NODES: usize = 4000;
 const MAX_ELEMENTS: usize = 250;
 /// Cap on the text `read` returns.
 const MAX_TEXT: usize = 12_000;
+/// How long a read waits for a page that is still loading.
+const DOCUMENT_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// One node of the tree, as an agent sees it.
 #[derive(Debug, Clone, Serialize)]
@@ -270,6 +272,22 @@ impl A11y {
         }
     }
 
+    /// `nodes_for_frame`, giving a page that is still loading a moment to reach the tree.
+    /// Right after a navigation Firefox shows the new title before the document's
+    /// content is on the accessibility bus, and a read then finds only the browser's
+    /// own controls.
+    fn settled_nodes_for_frame(&self, app: &Ref, title: &str) -> Result<(Vec<Node>, Ref)> {
+        let deadline = std::time::Instant::now() + DOCUMENT_WAIT;
+        loop {
+            let (nodes, frame_ref) = self.nodes_for_frame(app, title)?;
+            let pending = document_pending(&self.subtree(&nodes, &frame_ref));
+            if !pending || std::time::Instant::now() >= deadline {
+                return Ok((nodes, frame_ref));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
     fn nodes_from_cache(&self, app: &Ref) -> Result<Vec<Node>> {
         let cache: Ref = (
             app.0.clone(),
@@ -458,7 +476,7 @@ impl A11y {
         all: bool,
     ) -> Result<Vec<Element>> {
         let app = self.application_for(pid, app_hint)?;
-        let (nodes, frame_ref) = self.nodes_for_frame(&app, title)?;
+        let (nodes, frame_ref) = self.settled_nodes_for_frame(&app, title)?;
         let frame_title = nodes
             .iter()
             .find(|n| n.r == frame_ref)
@@ -548,7 +566,7 @@ impl A11y {
     /// The readable content of the window as an outline: headings, text, links, labels.
     pub fn read(&mut self, pid: u32, app_hint: &str, title: &str) -> Result<String> {
         let app = self.application_for(pid, app_hint)?;
-        let (nodes, frame_ref) = self.nodes_for_frame(&app, title)?;
+        let (nodes, frame_ref) = self.settled_nodes_for_frame(&app, title)?;
         let frame_title = nodes
             .iter()
             .find(|n| n.r == frame_ref)
@@ -1017,6 +1035,20 @@ fn is_document_role(role: u32) -> bool {
     )
 }
 
+/// A document on screen that is still loading, or has no content in the tree yet.
+/// Documents of tabs in the background do not count (restored tabs stay empty until
+/// they are opened).
+fn document_pending(sub: &[&Node]) -> bool {
+    let uses_showing = sub.iter().any(|n| has_state(n.states, STATE_SHOWING));
+    let parents: std::collections::HashSet<&Ref> =
+        sub.iter().filter_map(|n| n.parent.as_ref()).collect();
+    sub.iter().any(|n| {
+        is_document_role(n.role)
+            && (!uses_showing || has_state(n.states, STATE_SHOWING))
+            && (has_state(n.states, STATE_BUSY) || !parents.contains(&n.r))
+    })
+}
+
 fn names_matter(role: u32) -> bool {
     matches!(
         role_name(role),
@@ -1055,6 +1087,7 @@ fn names_matter(role: u32) -> bool {
 }
 
 const STATE_ACTIVE: u32 = 1;
+const STATE_BUSY: u32 = 3;
 const STATE_CHECKED: u32 = 4;
 const STATE_EDITABLE: u32 = 7;
 const STATE_ENABLED: u32 = 8;
@@ -1139,6 +1172,44 @@ mod tests {
         assert!(has_state(s, STATE_SHOWING));
         assert!(has_state(s, STATE_HAS_POPUP));
         assert!(!has_state(s, STATE_FOCUSED));
+    }
+
+    fn node(path: &str, parent: Option<&str>, role: &str, states: &[u32]) -> Node {
+        let r = |p: &str| (":1.1".to_string(), OwnedObjectPath::try_from(p).unwrap());
+        Node {
+            r: r(path),
+            parent: parent.map(r),
+            name: String::new(),
+            role: (0..200).find(|n| role_name(*n) == Some(role)).unwrap(),
+            role_name: None,
+            states: states.iter().fold(0, |s, b| s | 1u64 << b),
+            interfaces: vec![],
+        }
+    }
+
+    #[test]
+    fn a_page_on_screen_without_content_is_pending() {
+        let frame = node("/f", None, "frame", &[STATE_SHOWING]);
+        let doc = node("/d", Some("/f"), "document web", &[STATE_SHOWING]);
+        assert!(document_pending(&[&frame, &doc]));
+        let heading = node("/h", Some("/d"), "heading", &[STATE_SHOWING]);
+        assert!(!document_pending(&[&frame, &doc, &heading]));
+        let busy = node(
+            "/d",
+            Some("/f"),
+            "document web",
+            &[STATE_SHOWING, STATE_BUSY],
+        );
+        assert!(document_pending(&[&frame, &busy, &heading]));
+    }
+
+    #[test]
+    fn a_background_tab_without_content_is_not_pending() {
+        let frame = node("/f", None, "frame", &[STATE_SHOWING]);
+        let doc = node("/d", Some("/f"), "document web", &[STATE_SHOWING]);
+        let heading = node("/h", Some("/d"), "heading", &[STATE_SHOWING]);
+        let hidden = node("/t", Some("/f"), "document web", &[]);
+        assert!(!document_pending(&[&frame, &doc, &heading, &hidden]));
     }
 
     #[test]
