@@ -88,10 +88,10 @@ let
   # background screen. If that combination fails to start on some hardware, plain sway.
   slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
     start=$(date +%s)
-    WLR_BACKENDS=drm,libinput,headless ${pkgs.sway}/bin/sway "$@"
+    WLR_BACKENDS=drm,libinput,headless ${config.programs.sway.package}/bin/sway "$@"
     code=$?
     if [ $code -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
-      exec ${pkgs.sway}/bin/sway "$@"
+      exec ${config.programs.sway.package}/bin/sway "$@"
     fi
     exit $code
   '';
@@ -193,6 +193,17 @@ in
       '';
     };
 
+    desktop.effects = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Run the desktop on SwayFX, sway with rounded corners, shadows and frosted
+        translucency (same configuration and IPC, same protocols for the agent seat).
+        Off: plain sway, square and flat. Translucency can also be turned off per user
+        in Settings, Appearance (for machines without a GPU, where blur costs CPU).
+      '';
+    };
+
     desktop.autologinUser = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -230,7 +241,8 @@ in
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
         firefox thunar mousepad imv pavucontrol wl-mirror
-        papirus-icon-theme adwaita-icon-theme gnome-themes-extra
+        # The look: GTK3 apps drawn like libadwaita ones, rounded app icons, a clear cursor.
+        adw-gtk3 colloid-icon-theme bibata-cursors adwaita-icon-theme gnome-themes-extra
       ])
       ++ lib.optionals (cfg.desktop.enable && cfg.desktop.apps == "full") (with pkgs; [
         libreoffice thunderbird zathura mpv
@@ -245,7 +257,7 @@ in
     environment.sessionVariables = lib.mkMerge [
       { SLATE_FALLBACK_SHELL = cfg.fallbackShell; }
       (lib.mkIf cfg.desktop.enable {
-        XCURSOR_THEME = "Adwaita";
+        XCURSOR_THEME = "Bibata-Modern-Classic";
         XCURSOR_SIZE = "24";
         QT_QPA_PLATFORMTHEME = "gtk3";
         # Every toolkit publishes its widget tree on the accessibility bus, which is
@@ -274,12 +286,16 @@ in
 
     programs.sway = lib.mkIf cfg.sway.enable {
       enable = true;
+      package = if cfg.desktop.enable && cfg.desktop.effects then pkgs.swayfx else pkgs.sway;
       wrapperFeatures.gtk = true;
       extraPackages = with pkgs; [ foot grim slurp wl-clipboard wlr-randr swaybg ];
     };
 
     # The desktop profile.
     fonts.packages = lib.mkIf cfg.desktop.enable (with pkgs; [ inter jetbrains-mono font-awesome noto-fonts noto-fonts-cjk-sans noto-fonts-color-emoji dejavu_fonts ]);
+    # Greyscale antialiasing and slight hinting: crisp on HiDPI, no colour fringes.
+    fonts.fontconfig.hinting.style = lib.mkIf cfg.desktop.enable "slight";
+    fonts.fontconfig.subpixel.rgba = lib.mkIf cfg.desktop.enable "none";
     fonts.fontconfig.defaultFonts = lib.mkIf cfg.desktop.enable {
       sansSerif = [ "Inter" "Noto Sans" "Noto Sans CJK SC" ];
       monospace = [ "JetBrains Mono" "Noto Sans Mono CJK SC" ];
@@ -293,9 +309,12 @@ in
         settings."org/gnome/desktop/interface" = {
           toolkit-accessibility = true;
           color-scheme = "prefer-dark";
-          gtk-theme = "Adwaita-dark";
-          icon-theme = "Papirus-Dark";
-          cursor-theme = "Adwaita";
+          gtk-theme = "adw-gtk3-dark";
+          icon-theme = "Colloid-Dark";
+          cursor-theme = "Bibata-Modern-Classic";
+          cursor-size = lib.gvariant.mkInt32 24;
+          font-antialiasing = "grayscale";
+          font-hinting = "slight";
           font-name = "Inter 10";
           document-font-name = "Inter 11";
           monospace-font-name = "JetBrains Mono 10";
@@ -316,7 +335,9 @@ in
       "xdg/fuzzel/fuzzel.ini".source = ../desktop/fuzzel/fuzzel.ini;
       "xdg/mako/config".source = ../desktop/mako/config;
       "xdg/foot/foot.ini".source = ../desktop/foot/foot.ini;
-      "slate/wallpaper.png".source = ../desktop/wallpaper.png;
+      "slate/wallpaper-dark.jpg".source = ../desktop/wallpaper-dark.jpg;
+      "slate/wallpaper-light.jpg".source = ../desktop/wallpaper-light.jpg;
+      "slate/sway.d/effects.conf" = lib.mkIf cfg.desktop.effects { source = ../desktop/sway/effects.conf; };
     };
     services.greetd = lib.mkIf cfg.desktop.enable {
       enable = true;

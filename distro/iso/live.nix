@@ -21,8 +21,8 @@ in
   image.baseName = lib.mkForce "slateos-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}";
   isoImage.makeEfiBootable = true;
   isoImage.makeUsbBootable = true;
-  isoImage.splashImage = ../desktop/wallpaper.png;
-  isoImage.efiSplashImage = ../desktop/wallpaper.png;
+  isoImage.splashImage = ../desktop/splash.png;
+  isoImage.efiSplashImage = ../desktop/splash.png;
   isoImage.appendToMenuLabel = " Live";
   isoImage.squashfsCompression = "zstd -Xcompression-level 6";
 

@@ -24,36 +24,48 @@ MAKO_USER = os.path.join(HOME, ".config/mako/config")
 FUZZEL_USER = os.path.join(HOME, ".config/fuzzel/fuzzel.ini")
 FOOT_USER = os.path.join(HOME, ".config/foot/foot.ini")
 SYSTEM_WAYBAR = "/etc/xdg/waybar"
-DEFAULT_WALLPAPER = "/etc/slate/wallpaper.png"
+# "default" follows the theme; the old single wallpaper path means the same.
+DEFAULT_WALLPAPER = "default"
+LEGACY_DEFAULTS = ("/etc/slate/wallpaper.png",)
+THEME_WALLPAPER = "/etc/slate/wallpaper-{theme}.jpg"
 
 THEMES = {
     "dark": {
-        "color_scheme": "prefer-dark", "gtk": "Adwaita-dark", "icons": "Papirus-Dark",
+        "color_scheme": "prefer-dark", "gtk": "adw-gtk3-dark", "icons": "Colloid-Dark",
+        # Title bars match adw-gtk3's dark header; focus shows in the title's colour.
         "sway": [
-            "client.focused #2a2e3a #2a2e3a #e8eaf0 #7c9cf5 #3a3f4e",
-            "client.focused_inactive #1c1f27 #1c1f27 #9ba1b0 #1c1f27 #262a36",
-            "client.unfocused #1c1f27 #1c1f27 #6b7080 #1c1f27 #262a36",
+            "client.focused #303030 #303030 #f2f2f7 #303030 #ffffff1f",
+            "client.focused_inactive #2a2a2a #2a2a2a #8e8e93 #2a2a2a #ffffff12",
+            "client.unfocused #2a2a2a #2a2a2a #8e8e93 #2a2a2a #ffffff12",
             "client.urgent #e5a35a #e5a35a #13151b #e5a35a #e5a35a",
         ],
         "waybar_css": "style.css",
-        "mako": {"background-color": "#161820f5", "text-color": "#d7dae2", "border-color": "#ffffff1a", "progress-color": "over #7c9cf5"},
-        "fuzzel": {"background": "161820f5", "text": "d7dae2ff", "placeholder": "6b7080ff", "prompt": "8fa7f0ff", "input": "e8eaf0ff",
-                   "match": "8fa7f0ff", "selection": "262a36ff", "selection-text": "ffffffff", "selection-match": "8fa7f0ff", "border": "ffffff1a"},
+        "mako": {"background-color": "#1f1f23d9", "text-color": "#f2f2f7", "border-color": "#ffffff1f", "progress-color": "over #7c9cf5"},
+        "fuzzel": {"background": "1f1f23e0", "text": "f2f2f7ff", "placeholder": "8e8e93ff", "prompt": "8fa7f0ff", "input": "f2f2f7ff",
+                   "match": "aec2ffff", "selection": "7c9cf540", "selection-text": "ffffffff", "selection-match": "d4dfffff", "border": "ffffff1f"},
     },
     "light": {
-        "color_scheme": "prefer-light", "gtk": "Adwaita", "icons": "Papirus",
+        "color_scheme": "prefer-light", "gtk": "adw-gtk3", "icons": "Colloid",
         "sway": [
-            "client.focused #d5d9e3 #d5d9e3 #1c1f27 #3b6de8 #c2c8d6",
-            "client.focused_inactive #eceef3 #eceef3 #6b7080 #eceef3 #dfe2ea",
-            "client.unfocused #eceef3 #eceef3 #8a90a0 #eceef3 #dfe2ea",
+            "client.focused #ebebeb #ebebeb #1d1d1f #ebebeb #0000001f",
+            "client.focused_inactive #f2f2f2 #f2f2f2 #8e8e93 #f2f2f2 #00000014",
+            "client.unfocused #f2f2f2 #f2f2f2 #8e8e93 #f2f2f2 #00000014",
             "client.urgent #e5a35a #e5a35a #13151b #e5a35a #e5a35a",
         ],
         "waybar_css": "style-light.css",
-        "mako": {"background-color": "#ffffffee", "text-color": "#1c1f27", "border-color": "#0000001f", "progress-color": "over #3b6de8"},
-        "fuzzel": {"background": "f7f8fbf5", "text": "1c1f27ff", "placeholder": "8a90a0ff", "prompt": "3b6de8ff", "input": "1c1f27ff",
-                   "match": "3b6de8ff", "selection": "dfe4f0ff", "selection-text": "1c1f27ff", "selection-match": "3b6de8ff", "border": "0000001f"},
+        "mako": {"background-color": "#f7f7f9e6", "text-color": "#1d1d1f", "border-color": "#0000001a", "progress-color": "over #3b6de8"},
+        "fuzzel": {"background": "f7f7f9eb", "text": "1d1d1fff", "placeholder": "8e8e93ff", "prompt": "3b6de8ff", "input": "1d1d1fff",
+                   "match": "2f5bd0ff", "selection": "3b6de826", "selection-text": "1d1d1fff", "selection-match": "2f5bd0ff", "border": "0000001a"},
     },
 }
+
+
+def wallpaper_for(state):
+    """The image to show: the person's, or the theme's own when they chose the default."""
+    w = state.get("wallpaper") or DEFAULT_WALLPAPER
+    if w == DEFAULT_WALLPAPER or w in LEGACY_DEFAULTS or not os.path.exists(w):
+        return THEME_WALLPAPER.format(theme=state.get("theme", "dark"))
+    return w
 
 
 def load():
@@ -102,9 +114,7 @@ def signal_processes(names, sig):
 
 def apply(state):
     t = THEMES[state["theme"]]
-    wallpaper = state.get("wallpaper") or DEFAULT_WALLPAPER
-    if not os.path.exists(wallpaper):
-        wallpaper = DEFAULT_WALLPAPER
+    wallpaper = wallpaper_for(state)
 
     # GTK3 reads gsettings; GTK4/libadwaita, foot and others read the portal, which reads the same keys.
     for key, val in (("color-scheme", t["color_scheme"]), ("gtk-theme", t["gtk"]), ("icon-theme", t["icons"])):
@@ -164,6 +174,8 @@ def apply(state):
             key = line.split("=", 1)[0].strip()
             if section == "[colors]" and key in t["fuzzel"]:
                 out.append(f"{key}={t['fuzzel'][key]}\n")
+            elif section == "[main]" and key == "icon-theme":
+                out.append(f"icon-theme={t['icons']}\n")
             else:
                 out.append(line)
         with open(FUZZEL_USER, "w") as f:
@@ -184,7 +196,7 @@ def main():
             print("usage: slate-theme wallpaper PATH|default", file=sys.stderr)
             sys.exit(2)
         path = DEFAULT_WALLPAPER if args[1] == "default" else os.path.abspath(os.path.expanduser(args[1]))
-        if not os.path.isfile(path):
+        if path != DEFAULT_WALLPAPER and not os.path.isfile(path):
             print(f"no such image: {path}", file=sys.stderr)
             sys.exit(1)
         state["wallpaper"] = path
