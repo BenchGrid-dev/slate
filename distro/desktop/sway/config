@@ -29,8 +29,10 @@ for_window [app_id=".*"] floating enable
 for_window [class=".*"] floating enable
 # The AI view is the one tiled window: it fills the workspace between the panel and the dock.
 for_window [app_id="at.yrlf.wl_mirror"] floating disable, border none
-for_window [app_id="foot"] resize set 1000 640
-for_window [app_id="firefox"] resize set 1180 740
+# Opening sizes fit the free area (the screen less the menu bar and the dock: ppt is a
+# share of it), then the window is centred there, so none starts under the dock.
+for_window [app_id="foot"] resize set 900 px 560 px, move position center
+for_window [app_id="firefox"] resize set 86 ppt 92 ppt, move position center
 # Title bars in the colour of the window's own header (adw-gtk3), the title centred;
 # focus shows in the title's colour and the shadow, as on macOS, not in a coloured bar.
 default_border normal 1
