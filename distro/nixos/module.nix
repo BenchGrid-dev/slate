@@ -119,6 +119,10 @@ let
     ${slateTheme}/bin/slate-theme apply >/dev/null
     systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
     systemctl --user restart slate-desktop.service slate-panel.service slate-dock.service slate-apps.service
+    # The first terminal, exec'd now that the focus is on the person's workspace (sway
+    # opens a window on the workspace focused when its command was started).
+    sleep 2
+    swaymsg exec foot
   '';
   # The appearance switch (dark / light / wallpaper); plain Python, no toolkit.
   slateTheme = pkgs.stdenv.mkDerivation {

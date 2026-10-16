@@ -34,21 +34,21 @@ PASSIVE_HIDE_SECONDS = 18
 
 CSS_LIGHT = b"""
 window.slate { background: transparent; }
-.pill { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 24px;
+.pill { background: rgba(250, 250, 252, 0.74); border: 1px solid rgba(0, 0, 0, 0.10); border-radius: 24px;
         padding: 6px 14px 6px 12px; }
 .glyph { color: #3b6de8; font-size: 17px; margin-right: 8px; }
 @keyframes slate-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
 .glyph.working { animation: slate-pulse 1.2s ease-in-out infinite; }
 .glyph.controlling { color: #b26a00; animation: slate-pulse 0.7s ease-in-out infinite; }
-entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #1c1f27; font-size: 15px;
+entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #1d1d1f; font-size: 15px;
                             caret-color: #3b6de8; min-height: 0; padding: 4px 0; }
 entry.ask placeholder, entry.ask text placeholder { color: #8a90a0; }
 .hint { color: #8a90a0; font-size: 12px; margin-left: 8px; }
 .hint.controlling { color: #b26a00; font-weight: 600; }
-.card { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 18px;
+.card { background: rgba(250, 250, 252, 0.80); border: 1px solid rgba(0, 0, 0, 0.10); border-radius: 18px;
         padding: 12px 16px; }
 .query { color: #6b7080; font-size: 13px; }
-.reply { color: #1c1f27; font-size: 14px; }
+.reply { color: #1d1d1f; font-size: 14px; }
 .reply.error { color: #c0392b; }
 .activity { color: #8a90a0; font-size: 12px; }
 .activity.failed { color: #c0392b; }
@@ -57,7 +57,7 @@ entry.ask placeholder, entry.ask text placeholder { color: #8a90a0; }
 .approval-title { color: #b26a00; font-weight: 600; font-size: 13px; }
 .approval-detail { font-family: monospace; color: #1c1f27; font-size: 12px; }
 .approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
-.queue { background: rgba(247, 248, 251, 0.97); border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 14px; padding: 8px 12px; }
+.queue { background: rgba(250, 250, 252, 0.80); border: 1px solid rgba(0, 0, 0, 0.10); border-radius: 14px; padding: 8px 12px; }
 .queue-title { color: #8a90a0; font-size: 11px; font-weight: 600; }
 .queue-text { color: #1c1f27; font-size: 13px; }
 .queue-btn { min-height: 22px; min-width: 22px; padding: 0 4px; color: #6b7080; }
@@ -65,30 +65,30 @@ entry.ask placeholder, entry.ask text placeholder { color: #8a90a0; }
 
 CSS = b"""
 window.slate { background: transparent; }
-.pill { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 24px;
+.pill { background: rgba(30, 30, 34, 0.72); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 24px;
         padding: 6px 14px 6px 12px; }
 .glyph { color: #8fa7f0; font-size: 17px; margin-right: 8px; }
 @keyframes slate-pulse { 0% { opacity: 1; } 50% { opacity: 0.35; } 100% { opacity: 1; } }
 .glyph.working { animation: slate-pulse 1.2s ease-in-out infinite; }
 .glyph.controlling { color: #e5a35a; animation: slate-pulse 0.7s ease-in-out infinite; }
-entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #e8eaf0; font-size: 15px;
+entry.ask, entry.ask text { background: none; border: none; box-shadow: none; outline: none; color: #f2f2f7; font-size: 15px;
                             caret-color: #8fa7f0; min-height: 0; padding: 4px 0; }
-entry.ask placeholder, entry.ask text placeholder { color: #6b7080; }
-.hint { color: #6b7080; font-size: 12px; margin-left: 8px; }
+entry.ask placeholder, entry.ask text placeholder { color: #8e8e93; }
+.hint { color: #8e8e93; font-size: 12px; margin-left: 8px; }
 .hint.controlling { color: #e5a35a; font-weight: 600; }
-.card { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 18px;
+.card { background: rgba(30, 30, 34, 0.76); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 18px;
         padding: 12px 16px; }
-.query { color: #9ba1b0; font-size: 13px; }
-.reply { color: #e8eaf0; font-size: 14px; }
+.query { color: #a1a1a8; font-size: 13px; }
+.reply { color: #f2f2f7; font-size: 14px; }
 .reply.error { color: #ff8a80; }
-.activity { color: #6b7080; font-size: 12px; }
+.activity { color: #8e8e93; font-size: 12px; }
 .thought { color: #7a8091; font-size: 12px; font-style: italic; }
 .activity.failed { color: #ff8a80; }
 .approval { background: rgba(229, 163, 90, 0.10); border: 1px solid rgba(229, 163, 90, 0.45); border-radius: 12px; padding: 10px 12px; }
 .approval-title { color: #e5a35a; font-weight: 600; font-size: 13px; }
 .approval-detail { font-family: monospace; color: #d7dae2; font-size: 12px; }
 .approval button { border-radius: 8px; padding: 2px 12px; min-height: 26px; }
-.queue { background: rgba(24, 26, 34, 0.97); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 8px 12px; }
+.queue { background: rgba(30, 30, 34, 0.76); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 14px; padding: 8px 12px; }
 .queue-title { color: #6b7080; font-size: 11px; font-weight: 600; }
 .queue-text { color: #d7dae2; font-size: 13px; }
 .queue-btn { min-height: 22px; min-width: 22px; padding: 0 4px; color: #9ba1b0; }

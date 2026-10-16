@@ -104,8 +104,9 @@ include ~/.config/slate/sway.d/*.conf
 # the focus on a real screen, hands the display to systemd and starts the supervised
 # services: the agent seat (it must exist before any app starts, apps ignore seats added
 # later), the panel (waybar), the dock (slate-dock) and the application list (slate-apps).
+# It also opens the first terminal: sway puts a window on the workspace that was focused
+# when its command was exec'd, and at this point that is the background screen.
 exec slateos-session-start
 exec mako
 exec sleep 3 && slate-shell --hidden
-exec sleep 3 && foot
 exec sleep 4 && wl-mirror HEADLESS-1
