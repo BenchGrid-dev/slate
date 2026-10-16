@@ -12,7 +12,7 @@
     "custom/launcher": {
         "format": "◆",
         "tooltip-format": "Applications (Super+Space)",
-        "on-click": "fuzzel"
+        "on-click": "swaymsg exec fuzzel"
     },
     "sway/workspaces": {
         "disable-scroll": true,
@@ -28,7 +28,7 @@
         "format-muted": "",
         "format-icons": ["", "", ""],
         "tooltip-format": "{volume}% · {node_name}",
-        "on-click": "pavucontrol",
+        "on-click": "swaymsg exec pavucontrol",
         "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
         "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"
     },
@@ -39,16 +39,16 @@
         "tooltip-format-wifi": "{essid} · {ipaddr}",
         "tooltip-format-ethernet": "{ifname} · {ipaddr}",
         "tooltip-format-disconnected": "offline",
-        "on-click": "slate-settings"
+        "on-click": "swaymsg exec slate-settings"
     },
     "custom/slate": {
         "exec": "slate agent-status",
         "return-type": "json",
         "interval": 1,
         "format": "{}",
-        "on-click": "slate-shell",
-        "on-click-middle": "slate-desktop show",
-        "on-click-right": "slate-settings"
+        "on-click": "swaymsg exec slate-shell",
+        "on-click-middle": "swaymsg exec slate-desktop show",
+        "on-click-right": "swaymsg exec slate-settings"
     }
 },
 {
@@ -61,11 +61,11 @@
     "modules-left": [],
     "modules-center": ["custom/dock-launcher", "custom/dock-files", "custom/dock-browser", "custom/dock-terminal", "custom/dock-settings", "wlr/taskbar"],
     "modules-right": [],
-    "custom/dock-launcher": { "format": "", "tooltip-format": "Applications", "on-click": "fuzzel" },
-    "custom/dock-files": { "format": "", "tooltip-format": "Files", "on-click": "thunar" },
-    "custom/dock-browser": { "format": "", "tooltip-format": "Firefox", "on-click": "firefox" },
-    "custom/dock-terminal": { "format": "", "tooltip-format": "Terminal", "on-click": "foot" },
-    "custom/dock-settings": { "format": "", "tooltip-format": "Settings", "on-click": "slate-settings" },
+    "custom/dock-launcher": { "format": "", "tooltip-format": "Applications", "on-click": "swaymsg exec fuzzel" },
+    "custom/dock-files": { "format": "", "tooltip-format": "Files", "on-click": "swaymsg exec thunar" },
+    "custom/dock-browser": { "format": "", "tooltip-format": "Firefox", "on-click": "swaymsg exec firefox" },
+    "custom/dock-terminal": { "format": "", "tooltip-format": "Terminal", "on-click": "swaymsg exec foot" },
+    "custom/dock-settings": { "format": "", "tooltip-format": "Settings", "on-click": "swaymsg exec slate-settings" },
     "wlr/taskbar": {
         "format": "{icon}",
         "icon-size": 24,

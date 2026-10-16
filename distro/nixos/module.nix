@@ -358,6 +358,25 @@ in
       };
     };
 
+    # The panel and the dock (one waybar, two bars). Supervised: waybar can crash while
+    # it reloads its style (slate-theme asks it to), and a session without a panel
+    # and a dock has no way back short of logging out.
+    systemd.user.services.slate-panel = lib.mkIf cfg.desktop.enable {
+      description = "SlateOS panel and dock";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      # The dock starts applications and the panel runs slate: resolve like the user.
+      path = [ pkg "/run/wrappers" "/etc/profiles/per-user/%u" "/run/current-system/sw" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.waybar}/bin/waybar";
+        Restart = "always";
+        RestartSec = 1;
+        # Its clicks start applications through sway (swaymsg exec), outside this
+        # unit; should one ever run as a child, a restart must not take it along.
+        KillMode = "process";
+      };
+    };
+
     # The agent seat owner. Started by the compositor (it needs WAYLAND_DISPLAY),
     # supervised by systemd so a crash never leaves the session without a seat.
     systemd.user.services.slate-desktop = lib.mkIf cfg.desktop.enable {
