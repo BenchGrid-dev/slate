@@ -1,0 +1,29 @@
+diff --git a/thunar/thunar-shortcuts-model.c b/thunar/thunar-shortcuts-model.c
+index 6f1b57e..c5cfa28 100644
+--- a/thunar/thunar-shortcuts-model.c
++++ b/thunar/thunar-shortcuts-model.c
+@@ -1156,6 +1156,9 @@ thunar_shortcuts_model_shortcut_places (ThunarShortcutsModel *model)
+           shortcut->group = THUNAR_SHORTCUT_GROUP_PLACES_TRASH;
+           shortcut->name = g_strdup (_("Trash"));
+           shortcut->file = file;
++          /* a themed icon, like the other places: drawn from the file, the icon
++           * comes out blurred and off-centre on HiDPI screens */
++          shortcut->gicon = g_themed_icon_new (thunar_file_get_item_count (file) > 0 ? "user-trash-full" : "user-trash");
+           shortcut->hidden = thunar_shortcuts_model_get_hidden (model, shortcut);
+           thunar_shortcuts_model_add_shortcut (model, shortcut);
+         }
+@@ -1825,6 +1828,14 @@ thunar_shortcuts_model_file_changed (ThunarFile           *file,
+       /* Only update the shortcut if trash has changed or the related g_file has changed (rename) */
+       if (thunar_file_is_trash (file) || (shortcut->location != NULL && g_file_equal (g_file, shortcut->location) == FALSE))
+         {
++          /* the trash icon follows the fill state */
++          if (shortcut->group == THUNAR_SHORTCUT_GROUP_PLACES_TRASH)
++            {
++              if (shortcut->gicon != NULL)
++                g_object_unref (shortcut->gicon);
++              shortcut->gicon = g_themed_icon_new (thunar_file_get_item_count (file) > 0 ? "user-trash-full" : "user-trash");
++            }
++
+           /* generate an iterator for the path */
+           GTK_TREE_ITER_INIT (iter, model->stamp, lp);
+ 

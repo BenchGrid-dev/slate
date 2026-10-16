@@ -4,6 +4,8 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+- Fix: in Thunar's side pane the Trash icon was smaller than the others, blurred and off-centre on HiDPI screens (Thunar drew it from the trash folder instead of the icon theme); a patch gives it the themed icon the other places use.
+
 ## 0.1.0 — 2026-10-15
 
 The first milestone. SlateOS runs as a daily desktop on the development machine: you and an AI agent share the computer, the agent works through a seat and a screen of its own, and its work is approved, audited and undoable. This release marks what the 0.0.x snapshots built, and gives the desktop a finished look: rounded, shadowed, frosted windows, a dock, a menu bar, a lock screen and a session menu. Everything the agent relies on works the same on the new compositor (the e2e suites pass on it).

@@ -122,6 +122,12 @@ let
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
 
+  # Thunar draws the Trash in its side pane from the file, blurred and off-centre on
+  # HiDPI screens; the patch gives it a themed icon like the other places.
+  thunarPatched = pkgs.thunar-unwrapped.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ./patches/thunar-trash-icon.patch ];
+  });
+
   # With effects, SwayFX first; should it not start on this machine (it needs GLES2),
   # plain sway with the same configuration. A start that fails within 20 s counts.
   slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
@@ -403,7 +409,7 @@ in
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
-        firefox thunar mousepad imv pavucontrol wl-mirror
+        firefox (lib.hiPrio thunarPatched) mousepad imv pavucontrol wl-mirror
         # The look: GTK3 apps drawn like libadwaita ones, rounded app icons, a clear cursor.
         adw-gtk3 colloid-icon-theme bibata-cursors adwaita-icon-theme gnome-themes-extra
       ])
