@@ -86,14 +86,20 @@ let
   };
   # The session: sway with the headless backend next to DRM, so it can create the agent's
   # background screen. If that combination fails to start on some hardware, plain sway.
+  # With effects, SwayFX first; should it not start on this machine (it needs GLES2),
+  # plain sway with the same configuration. A start that fails within 20 s counts.
   slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
-    start=$(date +%s)
-    WLR_BACKENDS=drm,libinput,headless ${config.programs.sway.package}/bin/sway "$@"
-    code=$?
-    if [ $code -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
-      exec ${config.programs.sway.package}/bin/sway "$@"
-    fi
-    exit $code
+    try() {
+      start=$(date +%s)
+      "$@"
+      code=$?
+      if [ $code -eq 0 ] || [ $(( $(date +%s) - start )) -ge 20 ]; then exit $code; fi
+    }
+    export WLR_BACKENDS=drm,libinput,headless
+    try ${config.programs.sway.package}/bin/sway "$@"
+    ${lib.optionalString (cfg.desktop.enable && cfg.desktop.effects) ''try ${pkgs.sway}/bin/sway "$@"''}
+    unset WLR_BACKENDS
+    exec ${pkgs.sway}/bin/sway "$@"
   '';
   # The appearance switch (dark / light / wallpaper); plain Python, no toolkit.
   slateTheme = pkgs.stdenv.mkDerivation {
