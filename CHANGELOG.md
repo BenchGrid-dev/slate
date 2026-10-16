@@ -4,9 +4,20 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
-## 0.1.1 — 2026-10-15
+## 0.1.0 — 2026-10-15
 
-A new look for the desktop, closer to what people expect of a finished one: rounded, shadowed, frosted windows, a dock, a menu bar, a lock screen and a session menu. Everything the agent relies on works the same on the new compositor (the e2e suites pass on it).
+The first milestone. SlateOS runs as a daily desktop on the development machine: you and an AI agent share the computer, the agent works through a seat and a screen of its own, and its work is approved, audited and undoable. This release marks what the 0.0.x snapshots built, and gives the desktop a finished look: rounded, shadowed, frosted windows, a dock, a menu bar, a lock screen and a session menu. Everything the agent relies on works the same on the new compositor (the e2e suites pass on it).
+
+What is in it:
+
+- **slash**, the login shell: plain language goes to the agent, `!` runs your real shell on a pty, `/` commands control the session. Claude Code and Codex backends with session resume, model choice and an identity prompt that makes the agent operate this machine rather than write code.
+- **The Slate prompt** (Super+S): one exchange at a time over whatever you are doing, approvals as buttons, a message queue with edit, steer and delete, and answers that come back when a background task finishes.
+- **The agent seat**: its own Wayland input seat, so it never moves your cursor or types into your window; its own background screen, with the AI workspace as a live view of it and `desktop_show` / `desktop_hide` to move windows between the two; applications read and driven through the accessibility tree (AT-SPI2) first and the pointer second.
+- **Task controls**: an approval broker for Claude Code's tool calls with a policy you can edit, an audit log, a btrfs snapshot before the first change of every task, scoped `/undo` with a preview, memories, and root only with your consent through a password dialog.
+- **The desktop**: a SwayFX session (rounded corners, soft shadows, frosted translucency, short animations) with a menu bar, a dock, the AI workspace, a lock screen and a session menu, dark and light themes that switch everything live, a settings app (display, sound, network, appearance, AI, memories) and an application suite (Firefox, Thunar, LibreOffice, Thunderbird, Mousepad, zathura, mpv, imv).
+- **The distribution**: a NixOS module (`services.slate.enable`), SlateOS branding and system commands (`slateos-rebuild` and friends), OS Skills kept in step with the installed version, and a live/installer image (`nix build .#iso`).
+
+Changes since 0.0.19:
 
 - **A new look.** Windows have rounded corners and soft shadows, translucent surfaces are frosted, and windows fade in and out: the session runs SwayFX 0.6 (sway 1.12 with effects; the module builds it, nixpkgs has 0.5.3, which cannot capture single windows) when `services.slate.desktop.effects` is on, the default, and falls back to plain sway if it does not start. Title bars are centred, in the apps' own header colours; GTK3 apps use adw-gtk3, icons are Colloid and the cursor Bibata Modern Classic. New wallpapers, one per appearance, follow it unless you pick your own.
 - **A dock** of its own (`slate-dock`): pinned and open apps in one row, a dot under the ones with a window on your screen, a ◆ on the ones Slate has a window of on its background screen (a click brings the window over), right-click menus and the trash. The panel is now a translucent menu bar, the launcher (Super+Space) opens like Spotlight, and notifications are frosted.
@@ -20,19 +31,7 @@ A new look for the desktop, closer to what people expect of a finished one: roun
 - Fix: GTK4 applications without libadwaita (Volume Control) stayed light in the dark appearance: GTK 4.22 does not infer the dark style from the portal's colour scheme. slate-theme now sets `gtk-application-prefer-dark-theme` in GTK4's `settings.ini`, keeping the rest of the file.
 - Fix: per-user copies of the desktop's files (mako, fuzzel, waybar, foot) were written once and did not follow system updates; the theme is re-applied at login.
 - Fix: the first terminal of a session opened on Slate's background screen (sway opens a window on the workspace focused when its command runs); it now opens after workspace 1 has the focus.
-
-## 0.1.0 — 2026-10-15
-
-The first milestone. SlateOS runs as a daily desktop on the development machine: you and an AI agent share the computer, the agent works through a seat and a screen of its own, and its work is approved, audited and undoable. This release marks what the 0.0.x snapshots built; the only change since 0.0.19 is a fix: the panel and the dock run as the supervised `slate-panel` user service, so a waybar crash (it can crash while reloading its style on a theme switch) no longer leaves the session without them until the next login.
-
-What is in it:
-
-- **slash**, the login shell: plain language goes to the agent, `!` runs your real shell on a pty, `/` commands control the session. Claude Code and Codex backends with session resume, model choice and an identity prompt that makes the agent operate this machine rather than write code.
-- **The Slate prompt** (Super+S): one exchange at a time over whatever you are doing, approvals as buttons, a message queue with edit, steer and delete, and answers that come back when a background task finishes.
-- **The agent seat**: its own Wayland input seat, so it never moves your cursor or types into your window; its own background screen, with the AI workspace as a live view of it and `desktop_show` / `desktop_hide` to move windows between the two; applications read and driven through the accessibility tree (AT-SPI2) first and the pointer second.
-- **Task controls**: an approval broker for Claude Code's tool calls with a policy you can edit, an audit log, a btrfs snapshot before the first change of every task, scoped `/undo` with a preview, memories, and root only with your consent through a password dialog.
-- **The desktop**: a sway session with a panel, a dock, the AI workspace, dark and light themes that switch everything live, a settings app (display, sound, network, appearance, AI, memories) and an application suite (Firefox, Thunar, LibreOffice, Thunderbird, Mousepad, zathura, mpv, imv).
-- **The distribution**: a NixOS module (`services.slate.enable`), SlateOS branding and system commands (`slateos-rebuild` and friends), OS Skills kept in step with the installed version, and a live/installer image (`nix build .#iso`).
+- Fix: the panel and the dock run as the supervised `slate-panel` user service, so a waybar crash (it can crash while reloading its style on a theme switch) no longer leaves the session without them until the next login.
 
 Known limitations:
 
@@ -41,7 +40,8 @@ Known limitations:
 - Undo covers the snapshot root, which must be a btrfs subvolume the user owns; changes outside it cannot be undone.
 - The image builds and boots, but a full installation with `slateos-install` has not been exercised end to end, and there is no graphical installer.
 - Firefox 156 aborted once right after an accessibility walk of its session-restore page; not reproduced.
-- The desktop has no rounded corners, shadows, translucency or animations yet.
+- There is no graphical login screen; installs log in automatically.
+- Without a GPU the frosted translucency costs CPU; Settings, Appearance, "Reduce transparency" turns it down.
 
 ## 0.0.19 — 2026-10-04
 
