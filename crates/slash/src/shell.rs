@@ -253,6 +253,19 @@ fn append_capped(buf: &mut Vec<u8>, data: &[u8]) {
     }
 }
 
+/// The terminal's width in columns, when stdout is a terminal.
+pub fn terminal_cols() -> Option<usize> {
+    let mut ws = Winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let fd = io::stdout().as_raw_fd();
+    let ok = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ as libc::c_ulong, &mut ws) } == 0;
+    (ok && ws.ws_col > 0).then_some(ws.ws_col as usize)
+}
+
 fn current_winsize() -> Winsize {
     let mut ws = Winsize {
         ws_row: 24,

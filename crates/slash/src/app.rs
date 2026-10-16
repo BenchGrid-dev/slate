@@ -260,25 +260,35 @@ impl App {
             }
             None => "slated: off",
         };
-        let desktop_note = if self.desktop_bin.is_some() {
-            "  ·  desktop: on"
-        } else {
-            ""
-        };
-        self.warn_if_updated();
-        println!(
-            "{} {}  {}",
-            bold("slash"),
-            dim(slate_proto::VERSION),
-            dim(&format!(
-                "backend: {}{}  ·  {slated_note}{desktop_note}  ·  /help",
-                self.backend.name(),
-                self.backend
-                    .model()
-                    .map(|m| format!(" ({m})"))
-                    .unwrap_or_default()
-            ))
+        let backend_note = format!(
+            "backend: {}{}",
+            self.backend.name(),
+            self.backend
+                .model()
+                .map(|m| format!(" ({m})"))
+                .unwrap_or_default()
         );
+        let mut notes = vec![backend_note.as_str(), slated_note];
+        if self.desktop_bin.is_some() {
+            notes.push("desktop: on");
+        }
+        notes.push("/help");
+        self.warn_if_updated();
+        // "slash 0.1.0  " then the notes, broken at their separators in a narrow terminal.
+        let head = format!("slash {}  ", slate_proto::VERSION).chars().count();
+        let cols = crate::shell::terminal_cols().unwrap_or(usize::MAX);
+        for (i, line) in render::wrap_notes(head, &notes, cols).iter().enumerate() {
+            if i == 0 {
+                println!(
+                    "{} {}  {}",
+                    bold("slash"),
+                    dim(slate_proto::VERSION),
+                    dim(line)
+                );
+            } else {
+                println!("{}{}", " ".repeat(head), dim(line));
+            }
+        }
         let rl_cfg = RlConfig::builder().auto_add_history(true).build();
         let mut rl = DefaultEditor::with_config(rl_cfg)?;
         let hist = history_path();

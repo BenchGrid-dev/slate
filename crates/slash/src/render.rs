@@ -53,6 +53,32 @@ pub fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Join `notes` with "  ·  " after a head `head_width` columns wide, breaking at the
+/// separators so no line is wider than `cols`. Continuation lines are meant to be
+/// indented by `head_width`, under the first note.
+pub fn wrap_notes(head_width: usize, notes: &[&str], cols: usize) -> Vec<String> {
+    const SEP: &str = "  ·  ";
+    let sep = SEP.chars().count();
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    let mut width = head_width;
+    for note in notes {
+        let n = note.chars().count();
+        if line.is_empty() {
+            width += n;
+        } else if width + sep + n <= cols {
+            line.push_str(SEP);
+            width += sep + n;
+        } else {
+            lines.push(std::mem::take(&mut line));
+            width = head_width + n;
+        }
+        line.push_str(note);
+    }
+    lines.push(line);
+    lines
+}
+
 pub fn flush() {
     let _ = io::stdout().flush();
 }
@@ -236,5 +262,43 @@ mod markdown_tests {
         );
         assert_eq!(plain(&["issue #42 and C#\n"]), "issue #42 and C#\n");
         assert_eq!(plain(&["trailing *"]), "trailing *");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_notes;
+
+    const NOTES: [&str; 4] = [
+        "backend: claude (sonnet)",
+        "slated: approvals, audit, undo",
+        "desktop: on",
+        "/help",
+    ];
+
+    #[test]
+    fn notes_stay_on_one_line_when_they_fit() {
+        assert_eq!(
+            wrap_notes(13, &NOTES, 200),
+            ["backend: claude (sonnet)  ·  slated: approvals, audit, undo  ·  desktop: on  ·  /help"]
+        );
+    }
+
+    #[test]
+    fn notes_break_at_separators_on_a_narrow_terminal() {
+        let lines = wrap_notes(13, &NOTES, 80);
+        assert_eq!(
+            lines,
+            [
+                "backend: claude (sonnet)  ·  slated: approvals, audit, undo",
+                "desktop: on  ·  /help"
+            ]
+        );
+        assert!(lines.iter().all(|l| 13 + l.chars().count() <= 80));
+    }
+
+    #[test]
+    fn a_note_wider_than_the_terminal_gets_a_line_of_its_own() {
+        assert_eq!(wrap_notes(13, &NOTES, 20), NOTES);
     }
 }
