@@ -1,6 +1,6 @@
 # Releasing
 
-Versions are small and frequent. Every `0.0.x` is a snapshot the maintainer can test; `0.1.0` is cut only after a full manual pass.
+Versions are small and frequent. A patch release is a snapshot the maintainer can test; a minor release (`0.1.0`, `0.2.0`) marks a milestone and is the maintainer's call.
 
 0. Run `tests/e2e/` on the dev VM; do not release with failures.
 1. Update `CHANGELOG.md` (move items from "Unreleased" under the new version with the date).

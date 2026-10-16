@@ -1,6 +1,6 @@
 # Roadmap
 
-Dates are intentions, not promises. Everything here is open for discussion. Releases are small and frequent (`0.0.x`); `0.1.0` comes after a full manual pass by the maintainer.
+Dates are intentions, not promises. Everything here is open for discussion. Releases are small and frequent; `0.1.0` (2026-10-15) is the first milestone.
 
 ## M0: design — done for v0
 
@@ -69,7 +69,7 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 - [ ] Compositor patches upstreamed or carried (seat filtering, ghost cursor)
 - [ ] Base OS Skills: browser, files, mail, calendar, printing, Bluetooth, power
 - [ ] Installable image and installer (homes as user-owned btrfs subvolumes, skills preinstalled, agent sign-in on first boot)
-- [ ] `0.1.0` after the maintainer's full manual pass
+- [x] `0.1.0`, the first milestone (2026-10-15)
 
 ## Later
 

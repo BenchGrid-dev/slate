@@ -1,8 +1,30 @@
 # Changelog
 
-Small releases, often. `0.0.x` are development snapshots; `0.1.0` comes after a full manual pass by the maintainer.
+Small releases, often. Patch releases are snapshots the maintainer can test; a minor release (`0.1.0`, `0.2.0`) marks a milestone the maintainer chooses. `0.0.x` were the development snapshots before the first one.
 
 ## Unreleased
+
+## 0.1.0 — 2026-10-15
+
+The first milestone. SlateOS runs as a daily desktop on the development machine: you and an AI agent share the computer, the agent works through a seat and a screen of its own, and its work is approved, audited and undoable. This release marks what the 0.0.x snapshots built; the only change since 0.0.19 is a fix: the panel and the dock run as the supervised `slate-panel` user service, so a waybar crash (it can crash while reloading its style on a theme switch) no longer leaves the session without them until the next login.
+
+What is in it:
+
+- **slash**, the login shell: plain language goes to the agent, `!` runs your real shell on a pty, `/` commands control the session. Claude Code and Codex backends with session resume, model choice and an identity prompt that makes the agent operate this machine rather than write code.
+- **The Slate prompt** (Super+S): one exchange at a time over whatever you are doing, approvals as buttons, a message queue with edit, steer and delete, and answers that come back when a background task finishes.
+- **The agent seat**: its own Wayland input seat, so it never moves your cursor or types into your window; its own background screen, with the AI workspace as a live view of it and `desktop_show` / `desktop_hide` to move windows between the two; applications read and driven through the accessibility tree (AT-SPI2) first and the pointer second.
+- **Task controls**: an approval broker for Claude Code's tool calls with a policy you can edit, an audit log, a btrfs snapshot before the first change of every task, scoped `/undo` with a preview, memories, and root only with your consent through a password dialog.
+- **The desktop**: a sway session with a panel, a dock, the AI workspace, dark and light themes that switch everything live, a settings app (display, sound, network, appearance, AI, memories) and an application suite (Firefox, Thunar, LibreOffice, Thunderbird, Mousepad, zathura, mpv, imv).
+- **The distribution**: a NixOS module (`services.slate.enable`), SlateOS branding and system commands (`slateos-rebuild` and friends), OS Skills kept in step with the installed version, and a live/installer image (`nix build .#iso`).
+
+Known limitations:
+
+- Codex runs under its own sandbox without Slate's approvals (Claude Code goes through them).
+- GTK4/libadwaita applications need the user-seat fallback for pointer and keyboard input; Qt, Chromium/Electron and Flatpak applications are untested.
+- Undo covers the snapshot root, which must be a btrfs subvolume the user owns; changes outside it cannot be undone.
+- The image builds and boots, but a full installation with `slateos-install` has not been exercised end to end, and there is no graphical installer.
+- Firefox 156 aborted once right after an accessibility walk of its session-restore page; not reproduced.
+- The desktop has no rounded corners, shadows, translucency or animations yet.
 
 ## 0.0.19 — 2026-10-04
 
