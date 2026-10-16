@@ -5,6 +5,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 ## Unreleased
 
 - **Window buttons.** Every title bar has minimize, maximize and close buttons at the right, round and in the title's colour like libadwaita's (the SwayFX the module builds carries a SlateOS patch for them; sway has none). Apps that draw their own title bar, Settings and Firefox among them, show the same three: the compositor now advertises maximize and minimize to them, and handles their requests instead of ignoring them. Maximize fills the space between the menu bar and the dock and gives the window its size back when pressed again; a double click on a title bar does the same, and moving or resizing a maximized window by hand makes it an ordinary one. A minimized window waits in sway's scratchpad: its dock icon brings it back when the app has no other window on your screen.
+- The dock no longer lifts an icon under the pointer; the grey highlight stays.
 - The agent sees minimized windows as `minimized` in `desktop_windows` (they were reported as on the screen), and `desktop_focus` or `desktop_show` brings one back on your screen. When it clicks a title bar to focus a window, it keeps clear of the buttons.
 - Fix: in Thunar's side pane the Trash icon was smaller than the others, blurred and off-centre on HiDPI screens (Thunar drew it from the trash folder instead of the icon theme); a patch gives it the themed icon the other places use.
 

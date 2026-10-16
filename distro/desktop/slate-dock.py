@@ -41,8 +41,7 @@ CSS = """
 window.slate-dock { background: transparent; }
 .pill { border-radius: 22px; padding: 5px 7px; }
 .item { padding: 4px 4px 0 4px; border-radius: 14px; transition: background 140ms ease-out; }
-.item image { transition: margin 140ms ease-out; margin-top: 4px; margin-bottom: 0; }
-.item:hover image { margin-top: 0; margin-bottom: 4px; }
+.item image { margin-top: 4px; }
 .dot { min-width: 4px; min-height: 4px; border-radius: 2px; margin: 2px 0 1px 0; }
 .dot.off { opacity: 0; }
 .badge { font-size: 11px; margin: 0 0 0 0; padding: 0; }
