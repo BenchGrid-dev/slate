@@ -8,6 +8,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - The dock no longer lifts an icon under the pointer; the grey highlight stays.
 - The agent sees minimized windows as `minimized` in `desktop_windows` (they were reported as on the screen), and `desktop_focus` or `desktop_show` brings one back on your screen. When it clicks a title bar to focus a window, it keeps clear of the buttons.
 - Fix: after the agent clicked or scrolled on your screen, its cursor stayed there as a second pointer until its next action somewhere else. It now goes back to the agent's own screen once it has rested for five seconds. The desktop daemon also serves each client on its own connection, so a command-line call no longer waits behind the agent's open connection.
+- Fix: switching between dark and light, or choosing a wallpaper, showed a black screen for a moment (sway ends its background program before the new one has drawn). The new background now covers the screen before sway swaps its own.
 - Fix: in Thunar's side pane the Trash icon was smaller than the others, blurred and off-centre on HiDPI screens (Thunar drew it from the trash folder instead of the icon theme); a patch gives it the themed icon the other places use.
 
 ## 0.1.0 — 2026-10-15

@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 HOME = os.path.expanduser("~")
 STATE = os.path.join(HOME, ".config/slate/theme.json")
@@ -131,6 +132,25 @@ def swaymsg(command):
     return run(["swaymsg", command])
 
 
+def cover_background(wallpaper):
+    """Put the new background up before sway replaces its own.
+
+    sway's `output * bg` ends its swaybg before the new one has drawn, and the screen
+    shows black in between. A swaybg of our own with the new image covers that gap:
+    surfaces stack in the order they appear, so it shows above the old background as
+    soon as it has drawn, sway's new one shows above it, and it leaves by itself.
+    Returns when it started, or None."""
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return None
+    try:
+        subprocess.Popen(["timeout", "5", "swaybg", "-i", wallpaper, "-m", "fill"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return None
+    return time.monotonic()
+
+
 def signal_processes(names, sig):
     """Send `sig` to every process whose comm is one of `names` (NixOS wraps binaries as
     .name-wrapped, so plain pkill -x misses them)."""
@@ -182,6 +202,7 @@ def write_ini_key(path, section, key, value):
 def apply(state):
     t = THEMES[state["theme"]]
     wallpaper = wallpaper_for(state)
+    covered = cover_background(wallpaper)
     apply_transparency(state)
 
     # GTK3 reads gsettings; GTK4/libadwaita, foot and others read the portal, which reads the same keys.
@@ -195,12 +216,14 @@ def apply(state):
     write_ini_key(GTK4_USER, "Settings", "gtk-application-prefer-dark-theme",
                   "1" if state["theme"] == "dark" else "0")
 
-    # sway: window colours and background, live now and in the user's config for next time.
+    # sway: window colours and background, live now and in the user's config for next time
+    # (the background last, see cover_background).
     os.makedirs(os.path.dirname(SWAY_D), exist_ok=True)
-    lines = ["# written by slate-theme; do not edit, use `slate-theme`", *t["sway"], f'output * bg "{wallpaper}" fill']
+    background = f'output * bg "{wallpaper}" fill'
+    lines = ["# written by slate-theme; do not edit, use `slate-theme`", *t["sway"], background]
     with open(SWAY_D, "w") as f:
         f.write("\n".join(lines) + "\n")
-    for line in lines[1:]:
+    for line in t["sway"]:
         swaymsg(line)
 
     # waybar: the user's style overrides the system one; it imports the system file of
@@ -266,6 +289,11 @@ def apply(state):
                 out.append(line)
         with open(FUZZEL_USER, "w") as f:
             f.writelines(out)
+
+    # Half a second is enough for swaybg to read and draw a wallpaper.
+    if covered is not None:
+        time.sleep(max(0.0, covered + 0.5 - time.monotonic()))
+    swaymsg(background)
 
 
 def main():
