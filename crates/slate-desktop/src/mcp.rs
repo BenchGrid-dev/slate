@@ -417,6 +417,17 @@ fn background_output() -> Option<String> {
         .find(|n| is_background_output(n))
 }
 
+/// How long the agent pointer may rest on the person's screen after an action there.
+/// Its cursor is drawn like theirs: left in place, it reads as a stuck second pointer.
+const POINTER_REST: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Park the agent pointer once it has rested on the person's screen (see POINTER_REST).
+pub fn park_idle_agent_pointer(d: &mut Desktop) {
+    if d.agent_pointer_rested(POINTER_REST) {
+        park_agent_pointer(d);
+    }
+}
+
 /// Rest the agent's pointer in the middle of its own screen. sway draws every seat's
 /// cursor, and a new seat's starts in the middle of the layout's first output: a
 /// second, idle cursor on the user's screen.

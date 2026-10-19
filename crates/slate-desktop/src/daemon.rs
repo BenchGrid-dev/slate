@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::{Arc, Mutex};
 
 pub fn run() -> Result<()> {
     let path = slate_proto::desktop_socket_path();
@@ -51,11 +52,17 @@ pub fn run() -> Result<()> {
         "slate-desktop daemon: agent seat ready, listening on {}",
         path.display()
     );
-    std::thread::spawn(|| {
+    let desktop = Arc::new(Mutex::new(desktop));
+    let parking = desktop.clone();
+    std::thread::spawn(move || {
         let mut n = 0u32;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(500));
             mcp::takeover_tick();
+            // Not while a call runs: it is using the pointer.
+            if let Ok(mut d) = parking.try_lock() {
+                mcp::park_idle_agent_pointer(&mut d);
+            }
             n += 1;
             // Every 5 s: a hotplugged or reconfigured output may have been auto-placed
             // next to the background screen.
@@ -84,16 +91,21 @@ pub fn run() -> Result<()> {
         }
         std::thread::sleep(std::time::Duration::from_secs(2));
     });
+    // A connection per client (the MCP server keeps its own for the session); calls
+    // take turns on the one seat.
     for conn in listener.incoming() {
         let Ok(stream) = conn else { continue };
-        if let Err(e) = handle(&mut desktop, stream) {
-            slate_proto::log!("slate-desktop daemon: {e:#}");
-        }
+        let desktop = desktop.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = handle(&desktop, stream) {
+                slate_proto::log!("slate-desktop daemon: {e:#}");
+            }
+        });
     }
     Ok(())
 }
 
-fn handle(desktop: &mut Desktop, stream: UnixStream) -> Result<()> {
+fn handle(desktop: &Mutex<Desktop>, stream: UnixStream) -> Result<()> {
     let reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     for line in reader.lines() {
@@ -105,7 +117,8 @@ fn handle(desktop: &mut Desktop, stream: UnixStream) -> Result<()> {
             Ok(req) => {
                 let name = req.get("name").and_then(Value::as_str).unwrap_or("");
                 let args = req.get("args").cloned().unwrap_or(Value::Null);
-                mcp::call(desktop, name, &args)
+                let mut d = desktop.lock().unwrap_or_else(|e| e.into_inner());
+                mcp::call(&mut d, name, &args)
             }
             Err(e) => {
                 json!({"content": [{"type": "text", "text": format!("bad request: {e}")}], "isError": true})

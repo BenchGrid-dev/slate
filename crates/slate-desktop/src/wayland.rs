@@ -119,6 +119,9 @@ pub struct Desktop {
     agent_pointers: HashMap<String, vp::ZwlrVirtualPointerV1>,
     /// Output the agent pointer was last moved on; button events follow the move.
     agent_pointer_output: Option<String>,
+    /// When the agent pointer last moved on a screen the person sees; None while it is
+    /// on the background screen.
+    agent_pointer_shown: Option<Instant>,
     keyboard: vk::ZwpVirtualKeyboardV1,
     /// Virtual devices on the user's own seat, for the GTK4 fallback.
     user_pointer: vp::ZwlrVirtualPointerV1,
@@ -254,6 +257,7 @@ impl Desktop {
             pointer,
             agent_pointers,
             agent_pointer_output: None,
+            agent_pointer_shown: None,
             keyboard,
             user_pointer,
             user_keyboard,
@@ -455,6 +459,8 @@ impl Desktop {
         // Layout coordinates → the output under them, in that output's own space.
         let (w, h, ox, oy) = match (seat, self.output_at(x, y)) {
             (Seat::Agent, Some((name, (w, h), (ox, oy)))) => {
+                self.agent_pointer_shown =
+                    (!crate::mcp::is_background_output(&name)).then(Instant::now);
                 self.agent_pointer_output = Some(name);
                 (w, h, ox, oy)
             }
@@ -475,6 +481,18 @@ impl Desktop {
         p.frame();
         self.queue.flush()?;
         self.roundtrip()
+    }
+
+    /// Whether the agent pointer has rested on a screen the person sees for `rest`;
+    /// answers yes once per rest.
+    pub fn agent_pointer_rested(&mut self, rest: Duration) -> bool {
+        let rested = self
+            .agent_pointer_shown
+            .is_some_and(|t| t.elapsed() >= rest);
+        if rested {
+            self.agent_pointer_shown = None;
+        }
+        rested
     }
 
     /// Click at absolute coordinates. `button`: "left" | "right" | "middle".
