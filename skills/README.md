@@ -34,6 +34,10 @@ skills/base/<name>/
 | `media-mpv` | Playback and control over mpv's IPC socket |
 | `text-mousepad` | Opening and editing text files in a window |
 | `appearance` | Dark / light theme and the desktop background (`slate-theme`) |
+| `bluetooth` | bluetoothctl for paired devices; pairing goes through Settings, with the person |
+| `printing` | lp, lpstat and cancel; driverless network printers need no setup |
+| `power-battery` | upower, powerprofilesctl, the screen lock and its timeouts |
+| `apps-flatpak` | Desktop apps from Flathub for the person; AppImages and downloaded programs |
 
 ## Conventions
 

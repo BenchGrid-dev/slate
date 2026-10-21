@@ -1,0 +1,4 @@
+name = "printing"
+description = "Print files, list printers, set the default printer and manage the queue with CUPS."
+tiers = { list = "observe", print = "confirm", cancel = "reversible", default = "reversible" }
+requires = ["lp", "lpstat"]

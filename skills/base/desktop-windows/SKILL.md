@@ -51,4 +51,8 @@ Menus, dialogs and new windows appear as new elements: call `desktop_elements` a
 
 Tier: reversible. Closing a window may lose unsaved work: say so before closing an editor or browser with unsaved changes.
 
+When the screen is locked (the person is away, or pressed Super+L), keyboard and pointer tools return an error saying so: reading (`desktop_read`, `desktop_elements`, window screenshots) and element actions (`desktop_element_click`, `desktop_element_set_text`) still work. Wait for the person, or finish with elements; never type into the lock screen.
+
+Your own seat types exactly what you send, whatever input method (Chinese Pinyin, Japanese) the person uses. Text typed with `seat: "user"` goes through the person's input method and may come out converted: prefer your own seat, or `desktop_element_set_text`.
+
 Every title bar has minimize, maximize and close buttons at the right; a double click on a title bar maximizes the window or gives it its size back, and its dock icon brings a minimized window back. The SlateOS desktop's own shortcuts, for when the user asks: Super+Return terminal, Super+Space launcher, Super+s Slate prompt, Super+w browser, Super+e files, Super+t editor, Super+comma settings, Super+q close, Super+1..5 workspaces, Super+f fullscreen, Super+l lock the screen, Super+Escape the lock / log out / restart / shut down menu.

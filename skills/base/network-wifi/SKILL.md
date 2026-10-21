@@ -5,7 +5,7 @@ description: List, connect to, or disconnect from Wi-Fi with nmcli. Use for any 
 
 # Wi-Fi
 
-Use `nmcli` (NetworkManager). Do not open a settings GUI for this.
+Use `nmcli` (NetworkManager). Do not open a settings GUI for this. When the person wants to choose a network or type a password themselves, Settings, Network (`slate-settings network`) lists the networks and asks for the password.
 
 ## See what is around and what is connected
 

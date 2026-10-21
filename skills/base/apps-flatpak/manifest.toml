@@ -1,0 +1,5 @@
+name = "apps-flatpak"
+description = "Desktop applications from Flathub for the person, AppImages, and downloaded Linux programs."
+tiers = { search = "observe", install = "confirm", update = "reversible", uninstall = "confirm" }
+requires = ["flatpak"]
+applies_to = { distro = ["slateos"] }

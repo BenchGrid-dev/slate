@@ -1,0 +1,5 @@
+name = "power-battery"
+description = "Battery level, power mode, the screen lock and its timeouts."
+tiers = { read = "observe", mode = "reversible", lock = "reversible", timeouts = "reversible" }
+requires = ["upower", "powerprofilesctl"]
+applies_to = { distro = ["slateos"] }

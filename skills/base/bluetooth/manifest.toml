@@ -1,0 +1,4 @@
+name = "bluetooth"
+description = "Bluetooth power, and connecting, disconnecting and forgetting paired devices, with bluetoothctl."
+tiers = { list = "observe", connect = "reversible", power = "reversible", remove = "confirm" }
+requires = ["bluetoothctl"]

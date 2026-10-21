@@ -23,6 +23,21 @@ Tier: observe (nothing persists).
 2. Add the package to `environment.systemPackages`. Tier: reversible (it is a file edit; it may need root, see below).
 3. Rebuild: `sudo slateos-rebuild switch`. Tier: confirm. Tell the user what will change before asking.
 
+## Settings that Settings makes for the system
+
+Some system choices have a switch in Settings and live in `/etc/slateos/settings.json`, which the SlateOS module reads; change them through `slateos-settings`, which writes the file and rebuilds, instead of editing the configuration:
+
+```
+slateos-settings show                                      # what the system offers and has
+sudo slateos-settings set input-methods pinyin             # Chinese Pinyin; also rime, mozc (Japanese), hangul (Korean)
+sudo slateos-settings set input-methods pinyin,mozc        # several, in this order
+sudo slateos-settings set input-methods none
+```
+
+Tier: confirm (a rebuild that downloads the input method, a minute or more). After it, the person switches with Ctrl+Space; apps opened before may need reopening. Settings, Keyboard does the same for the person.
+
+Desktop applications (chat, office, browsers) come from Flathub for the person instead: see the apps-flatpak skill.
+
 ## Root
 
 Editing `/etc/slateos` and rebuilding need root. Run the command with plain `sudo` (never `sudo -S`, never `echo password |`, never ask for a password in chat). On the SlateOS desktop, sudo opens a password dialog for the person at the screen; they type it, the command runs, and you only see the result. Tell the user before the first sudo of a task what it will run, since the dialog does not show the command. If sudo fails with "no askpass program" or "a terminal is required", there is no desktop session: give the user the exact command to run themselves.
