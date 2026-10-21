@@ -1,8 +1,9 @@
 # SlateOS system configuration. Edit, then `sudo slateos-rebuild switch`.
 { config, pkgs, lib, ... }:
 let
-  # The Slate runtime and desktop, from the flake pinned at install time.
-  slate = builtins.getFlake "path:/etc/slateos/slate";
+  # The Slate runtime and desktop, from the flake pinned at install time, next to this
+  # file (/etc/slateos/slate; under /mnt while the installer builds the system).
+  slate = builtins.getFlake "path:${toString ./slate}";
 in
 {
   imports = [
@@ -13,9 +14,11 @@ in
   services.slate = {
     enable = true;
     desktop.enable = true;
-    desktop.apps = "full";
+    desktop.apps = "@APPS@";
     desktop.autologinUser = "@USER@";
     loginShellUsers = [ "@USER@" ];
+    # What Settings chooses for the whole system (input methods), next to this file.
+    settingsFile = ./settings.json;
   };
 
   users.users."@USER@" = {
@@ -31,6 +34,7 @@ in
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
+  @LUKS@
 
   nixpkgs.config.allowUnfree = true; # the agent CLIs
   nix.settings.experimental-features = [ "nix-command" "flakes" ];

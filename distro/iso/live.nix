@@ -5,7 +5,7 @@
 let
   installer = pkgs.writeShellApplication {
     name = "slateos-install";
-    runtimeInputs = with pkgs; [ parted btrfs-progs dosfstools util-linux coreutils gnused mkpasswd ];
+    runtimeInputs = with pkgs; [ parted btrfs-progs dosfstools util-linux coreutils gnused mkpasswd cryptsetup ];
     text = builtins.readFile ./slateos-install.sh;
   };
 in

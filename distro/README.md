@@ -99,16 +99,16 @@ Both `x86_64-linux` and `aarch64-linux` are defined (`nixosConfigurations.iso-<a
 From a terminal in the live desktop:
 
 ```
-sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox --tz Europe/Berlin
+sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox --tz Europe/Berlin [--encrypt] [--apps minimal]
 ```
 
-It asks for the disk name again and for the user's password, then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the full application set, copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
+It asks for the disk name again, for the user's password and, with `--encrypt`, for a disk passphrase, then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume, inside LUKS2 with `--encrypt`, with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the chosen application set (`full` unless `--apps minimal`), copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. An encrypted system asks for the passphrase at every boot, before the desktop logs in. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
 
-Status: the aarch64 image builds (about 2.9 GB) and boots to the graphical target in QEMU (verified over the serial console: greetd starts, the getty greets as SlateOS); the installer's partitioning, subvolume and configuration steps have been exercised on a loop device (`--dry-run`). A complete install on real hardware or in a virtual machine has not been run yet. Report what happens.
+Status: the aarch64 image builds (about 2.9 GB) and boots to the graphical target in QEMU (verified over the serial console: greetd starts, the getty greets as SlateOS). A complete encrypted install (`--encrypt --apps minimal`) has been run onto a disk image from the development system and booted in QEMU: the passphrase prompt, then the SlateOS desktop as the new user. Not yet: an install from the image itself, on x86_64, or on real hardware. Report what happens.
 
 ## What the installer does not do yet
 
-- Encryption (LUKS) and dual boot.
+- Dual boot.
 - A graphical installer; `slateos-install` is a command.
 - Agent sign-in on first boot (Settings → AI does it after login).
 - Ship the patched compositor once the seat-filtering and ghost-cursor patches exist (ADR 0007).
