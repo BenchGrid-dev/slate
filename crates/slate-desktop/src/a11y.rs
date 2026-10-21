@@ -72,6 +72,8 @@ struct Node {
     role_name: Option<String>,
     states: u64,
     interfaces: Vec<String>,
+    /// How many children the node says it has (the cache may list fewer).
+    child_count: usize,
 }
 
 pub struct A11y {
@@ -233,11 +235,13 @@ impl A11y {
         let frame_ref = frame.r.clone();
         let under = self.subtree(&nodes, &frame_ref).len();
         if under >= 30 {
-            // Browsers cache web content lazily: a document whose children are not in
-            // the cache yet is walked directly, which also makes the app cache it.
+            // Toolkits cache lazily: browsers a document's content, GTK4 whatever an AT
+            // has not asked for yet (a dialog that just opened). Parts the cache lists
+            // fewer children of than they have are walked directly, which also makes
+            // the app cache them.
             let mut nodes = nodes;
-            let mut extra = vec![];
-            {
+            let roots: Vec<(Ref, Option<Ref>)> = {
+                let sub = self.subtree(&nodes, &frame_ref);
                 let mut has_child: std::collections::HashSet<&Ref> =
                     std::collections::HashSet::new();
                 for n in &nodes {
@@ -245,23 +249,38 @@ impl A11y {
                         has_child.insert(p);
                     }
                 }
-                let docs: Vec<Ref> = self
-                    .subtree(&nodes, &frame_ref)
+                let docs = sub
                     .iter()
                     .filter(|n| is_document_role(n.role) && !has_child.contains(&n.r))
-                    .map(|n| n.r.clone())
-                    .collect();
+                    .map(|n| n.r.clone());
+                let mut roots: Vec<Ref> = incomplete(&sub);
                 for d in docs {
-                    let parent = nodes
-                        .iter()
-                        .find(|n| n.r == d)
-                        .and_then(|n| n.parent.clone());
-                    if let Ok(walked) = self.nodes_recursive(&d, parent) {
-                        extra.extend(walked.into_iter().skip(1));
+                    if !roots.contains(&d) {
+                        roots.push(d);
+                    }
+                }
+                roots
+                    .into_iter()
+                    .map(|r| {
+                        let parent = nodes
+                            .iter()
+                            .find(|n| n.r == r)
+                            .and_then(|n| n.parent.clone());
+                        (r, parent)
+                    })
+                    .collect()
+            };
+            let mut seen: std::collections::HashSet<Ref> =
+                nodes.iter().map(|n| n.r.clone()).collect();
+            for (r, parent) in roots {
+                if let Ok(walked) = self.nodes_recursive(&r, parent) {
+                    for n in walked.into_iter().skip(1) {
+                        if seen.insert(n.r.clone()) {
+                            nodes.push(n);
+                        }
                     }
                 }
             }
-            nodes.extend(extra);
             return Ok((nodes, frame_ref));
         }
         let walked = self.nodes_recursive(&frame_ref, Some(app.clone()))?;
@@ -313,7 +332,7 @@ impl A11y {
             .into_iter()
             .take(MAX_NODES)
             .map(
-                |(r, _app, parent, _idx, _child_count, interfaces, name, role, _desc, states)| {
+                |(r, _app, parent, _idx, child_count, interfaces, name, role, _desc, states)| {
                     Node {
                         r,
                         parent: if parent.1.as_str() == "/org/a11y/atspi/null" {
@@ -326,6 +345,7 @@ impl A11y {
                         role_name: None,
                         states: state_bits(&states),
                         interfaces,
+                        child_count: child_count.max(0) as usize,
                     }
                 },
             )
@@ -357,6 +377,7 @@ impl A11y {
                 role_name: Some(role_name),
                 states: state_bits(&states),
                 interfaces,
+                child_count: children.len(),
             });
             for c in children {
                 queue.push_back((c, Some(r.clone())));
@@ -879,6 +900,41 @@ fn role_name(role: u32) -> Option<&'static str> {
     ROLES.get(role as usize).copied()
 }
 
+/// The topmost nodes of `sub` that have more children than `sub` lists for them.
+fn incomplete(sub: &[&Node]) -> Vec<Ref> {
+    let mut listed: HashMap<&Ref, usize> = HashMap::new();
+    for n in sub {
+        if let Some(p) = &n.parent {
+            *listed.entry(p).or_default() += 1;
+        }
+    }
+    let short: std::collections::HashSet<&Ref> = sub
+        .iter()
+        .filter(|n| n.child_count > listed.get(&n.r).copied().unwrap_or(0))
+        .map(|n| &n.r)
+        .collect();
+    let parent_of: HashMap<&Ref, &Ref> = sub
+        .iter()
+        .filter_map(|n| n.parent.as_ref().map(|p| (&n.r, p)))
+        .collect();
+    // Document order, and none whose ancestor is walked anyway.
+    sub.iter()
+        .map(|n| &n.r)
+        .filter(|r| short.contains(r))
+        .filter(|r| {
+            let mut a = parent_of.get(r);
+            while let Some(p) = a {
+                if short.contains(p) {
+                    return false;
+                }
+                a = parent_of.get(p);
+            }
+            true
+        })
+        .cloned()
+        .collect()
+}
+
 fn is_frame_role(role: u32) -> bool {
     matches!(
         role_name(role),
@@ -1184,7 +1240,27 @@ mod tests {
             role_name: None,
             states: states.iter().fold(0, |s, b| s | 1u64 << b),
             interfaces: vec![],
+            child_count: 0,
         }
+    }
+
+    #[test]
+    fn parts_the_cache_lists_too_few_children_of_are_walked() {
+        let mut frame = node("/f", None, "frame", &[STATE_SHOWING]);
+        frame.child_count = 2;
+        let mut panel = node("/p", Some("/f"), "panel", &[STATE_SHOWING]);
+        // A dialog that just opened: the cache has its box but not what is in it.
+        panel.child_count = 1;
+        let mut inner = node("/i", Some("/p"), "panel", &[STATE_SHOWING]);
+        inner.child_count = 3;
+        let mut list = node("/l", Some("/f"), "list", &[STATE_SHOWING]);
+        list.child_count = 1;
+        let item = node("/li", Some("/l"), "list item", &[STATE_SHOWING]);
+        let nodes = [frame, panel, inner, list, item];
+        let sub: Vec<&Node> = nodes.iter().collect();
+        let roots = incomplete(&sub);
+        let paths: Vec<&str> = roots.iter().map(|r| r.1.as_str()).collect();
+        assert_eq!(paths, vec!["/i"]);
     }
 
     #[test]
