@@ -125,6 +125,13 @@ let
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
 
+  # swaylock exits when a seat's keyboard has no keymap, and then nothing is locked: the
+  # input method's virtual keyboard has none until it first forwards a key, and an
+  # agent seat's keyboard none until it first types. The patch ignores such a seat.
+  swaylockPatched = pkgs.swaylock-effects.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ./patches/swaylock-no-keymap.patch ];
+  });
+
   # Thunar draws the Trash in its side pane from the file, blurred and off-centre on
   # HiDPI screens; the patch gives it a themed icon like the other places.
   thunarPatched = pkgs.thunar-unwrapped.overrideAttrs (old: {
@@ -171,7 +178,7 @@ let
   # The lock screen: the desktop, blurred and darkened, a large clock; Super+L. No font
   # size: swaylock-effects then sizes the time and the date from the ring, at any scale.
   slateLock = pkgs.writeShellScriptBin "slate-lock" ''
-    exec ${pkgs.swaylock-effects}/bin/swaylock --daemonize \
+    exec ${swaylockPatched}/bin/swaylock --daemonize \
       --screenshots --effect-blur 14x4 --effect-vignette 0.35:0.65 --fade-in 0.25 \
       --clock --timestr "%H:%M" --datestr "%A, %-d %B" --font "Inter Display" \
       --indicator --indicator-idle-visible --indicator-radius 120 --indicator-thickness 4 \

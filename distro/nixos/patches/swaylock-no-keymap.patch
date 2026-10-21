@@ -1,0 +1,26 @@
+--- a/seat.c
++++ b/seat.c
+@@ -13,9 +13,11 @@
+ 	struct swaylock_seat *seat = data;
+ 	struct swaylock_state *state = seat->state;
+ 	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
++		// A seat whose keyboard has no keymap (no keyboard yet, or a virtual one that
++		// has not set its keymap): nothing to type there. Locking must not fail for it.
+ 		close(fd);
+-		swaylock_log(LOG_ERROR, "Unknown keymap format %d, aborting", format);
+-		exit(1);
++		swaylock_log(LOG_DEBUG, "Ignoring keymap format %d", format);
++		return;
+ 	}
+ 	char *map_shm = mmap(NULL, size - 1, PROT_READ, MAP_PRIVATE, fd, 0);
+ 	if (map_shm == MAP_FAILED) {
+@@ -60,6 +62,9 @@
+ 	struct swaylock_seat *seat = data;
+ 	struct swaylock_state *state = seat->state;
+ 	enum wl_keyboard_key_state key_state = _key_state;
++	if (state->xkb.state == NULL) {
++		return;
++	}
+ 	xkb_keysym_t sym = xkb_state_key_get_one_sym(state->xkb.state, key + 8);
+ 	uint32_t keycode = key_state == WL_KEYBOARD_KEY_STATE_PRESSED ?
+ 		key + 8 : 0;

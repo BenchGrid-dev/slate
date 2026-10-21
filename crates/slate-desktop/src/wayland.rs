@@ -269,7 +269,11 @@ impl Desktop {
             last_window: None,
         };
         // Start with the standard keymap so key combos work before any text is typed.
+        // The keyboard on the person's seat too: sway makes a new keyboard the seat's
+        // active one when it has none (as after the previous daemon's keyboard went
+        // away), and a seat without a keymap makes swaylock give up.
         d.ensure_us(Seat::Agent)?;
+        d.ensure_us(Seat::User)?;
         Ok(d)
     }
 
