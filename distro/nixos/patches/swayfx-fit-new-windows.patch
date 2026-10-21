@@ -1,0 +1,42 @@
+diff --git a/sway/tree/container.c b/sway/tree/container.c
+index 3163f10..ad0e2f0 100644
+--- a/sway/tree/container.c
++++ b/sway/tree/container.c
+@@ -1121,13 +1121,32 @@ void container_floating_resize_and_center(struct sway_container *con) {
+ 			con->pending.y = ws->y + (ws->height - con->pending.height) / 2;
+ 		}
+ 	} else {
+-		if (con->pending.content_width > ws->width
+-				|| con->pending.content_height > ws->height) {
++		// A window larger than the workspace (the output less the panels' exclusive
++		// zones) gets the largest size that fits it, title bar and borders included,
++		// and is centred there: centred on the output instead, its title bar would be
++		// under the menu bar and its bottom under the dock.
++		int border_width = 0, top = 0;
++		if (con->pending.border != B_CSD) {
++			border_width = con->pending.border_thickness * (con->pending.border != B_NONE);
++			top = con->pending.border == B_NORMAL ?
++				(int)container_titlebar_height() : border_width;
++		}
++		int fit_width = ws->width - border_width * 2;
++		int fit_height = ws->height - top - border_width;
++		if (fit_width > 0 && fit_height > 0) {
++			if (con->pending.content_width > fit_width) {
++				con->pending.content_width = fit_width;
++			}
++			if (con->pending.content_height > fit_height) {
++				con->pending.content_height = fit_height;
++			}
++			con->pending.content_x = ws->x + border_width
++				+ (fit_width - con->pending.content_width) / 2;
++			con->pending.content_y = ws->y + top
++				+ (fit_height - con->pending.content_height) / 2;
++		} else {
+ 			con->pending.content_x = ob.x + (ob.width - con->pending.content_width) / 2;
+ 			con->pending.content_y = ob.y + (ob.height - con->pending.content_height) / 2;
+-		} else {
+-			con->pending.content_x = ws->x + (ws->width - con->pending.content_width) / 2;
+-			con->pending.content_y = ws->y + (ws->height - con->pending.content_height) / 2;
+ 		}
+ 
+ 		// If the view's border is B_NONE then these properties are ignored.

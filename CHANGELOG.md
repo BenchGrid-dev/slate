@@ -4,6 +4,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+- Windows that open larger than the space between the menu bar and the dock are fitted into it (a SwayFX patch); they were centred on the whole screen, their title bar under the menu bar.
 - Fix: the screen lock did not lock when a seat's keyboard had no keymap: swaylock exited instead. The agent seat's keyboard on your seat had none after the desktop daemon restarted, and an input method's has none until it first forwards a key; Super+L then did nothing. slate-desktop now gives its keyboards a keymap at once, and the lock is swaylock-effects with a patch that ignores such a seat.
 - Fix: the agent did not see a dialog that a GTK4 application had just opened (GTK4 caches its accessibility tree only as far as an assistive tool has asked); parts the cache lists fewer children of than they have are now read directly.
 

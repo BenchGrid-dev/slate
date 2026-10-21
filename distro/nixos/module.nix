@@ -90,8 +90,9 @@ let
   # SwayFX 0.6, based on sway 1.12: 0.5.x (nixpkgs) is based on 1.11, which lacks
   # ext-foreign-toplevel-image-capture-source, and slate-desktop captures single windows
   # through it. 0.6 needs scenefx 0.5 and wlroots 0.20. Sway 1.12's NixOS patches apply.
-  # Ours adds minimize, maximize and close buttons to the title bars of floating windows
-  # and lets windows be maximized (sway ignores maximize requests).
+  # Ours add minimize, maximize and close buttons to the title bars of floating windows
+  # and let windows be maximized (sway ignores maximize requests), and fit a window that
+  # opens larger than the space between the menu bar and the dock into it.
   scenefx05 = (pkgs.scenefx.override { wlroots_0_19 = pkgs.wlroots_0_20; }).overrideAttrs (old: {
     version = "0.5";
     buildInputs = old.buildInputs ++ [ pkgs.lcms2 ];  # 0.5 colour-manages its renderer
@@ -121,7 +122,7 @@ let
       ]
       ++ lib.optionals (!finalAttrs.isNixOS) [ "${sway112}/sway-config-no-nix-store-references.patch" ]
       ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ]
-      ++ [ ./patches/swayfx-titlebar-buttons.patch ];
+      ++ [ ./patches/swayfx-titlebar-buttons.patch ./patches/swayfx-fit-new-windows.patch ];
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
 
