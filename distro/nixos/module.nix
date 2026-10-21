@@ -78,10 +78,19 @@ let
     dontUnpack = true;
     nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
     buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    # A hidden entry: the dock shows the dialog with a padlock.
     installPhase = ''
-      mkdir -p $out/bin
+      mkdir -p $out/bin $out/share/applications
       cp $src $out/bin/slate-askpass
       chmod +x $out/bin/slate-askpass
+      cat > $out/share/applications/dev.benchgrid.slate.Askpass.desktop <<EOF
+      [Desktop Entry]
+      Type=Application
+      Name=Password
+      Exec=slate-askpass
+      Icon=dialog-password
+      NoDisplay=true
+      EOF
     '';
     meta.mainProgram = "slate-askpass";
   };
@@ -141,19 +150,33 @@ let
 
   # With effects, SwayFX first; should it not start on this machine (it needs GLES2),
   # plain sway with the same configuration. A start that fails within 20 s counts.
+  # The session's services end with it: slateos-session.target, which the session starts,
+  # is stopped when sway exits.
   slateosSession = pkgs.writeShellScriptBin "slateos-session" ''
+    ended() { systemctl --user stop slateos-session.target 2>/dev/null; }
     try() {
       start=$(date +%s)
       "$@"
       code=$?
+      ended
       if [ $code -eq 0 ] || [ $(( $(date +%s) - start )) -ge 20 ]; then exit $code; fi
     }
     export WLR_BACKENDS=drm,libinput,headless
     try ${config.programs.sway.package}/bin/sway "$@"
     ${lib.optionalString (cfg.desktop.enable && cfg.desktop.effects) ''try ${pkgs.sway}/bin/sway "$@"''}
     unset WLR_BACKENDS
-    exec ${pkgs.sway}/bin/sway "$@"
+    ${pkgs.sway}/bin/sway "$@"
+    code=$?
+    ended
+    exit $code
   '';
+  slatePolkitAgent = pkgs.writeShellScript "slate-polkit-agent" ''
+    while :; do ${pkgs.soteria}/bin/soteria; sleep 2; done
+  '';
+  # The supervised services of a session, (re)started when it begins.
+  sessionUnits = [ "slate-desktop.service" "slate-panel.service" "slate-dock.service" "slate-apps.service"
+    "slate-idle.service" "slate-battery.service" "slate-mirror.service" ]
+    ++ lib.optional (inputMethods != [ ]) "slate-input-method.service";
   # The first thing the session runs: the background screen if the backend gave none,
   # the person's focus on a real screen (sway focuses the first output, which can be the
   # headless one, and the first windows would open there), then the display handed to
@@ -161,25 +184,42 @@ let
   slateosSessionStart = pkgs.writeShellScriptBin "slateos-session-start" ''
     outputs() { swaymsg -t get_outputs | grep -o '"name": "[^"]*"' | cut -d'"' -f4; }
     outputs | grep -q '^HEADLESS-' || swaymsg create_output
-    sleep 0.5
-    for o in $(outputs); do
-      case "$o" in HEADLESS-*) ;; *) swaymsg focus output "$o"; break ;; esac
+    # Both screens, before anything opens on them: on a slow machine they take a moment
+    # (at most 15 s).
+    for _ in $(seq 1 60); do
+      outputs | grep -q '^HEADLESS-' && outputs | grep -qv '^HEADLESS-' && break
+      sleep 0.25
     done
-    swaymsg workspace number 1
+    screen() {
+      for o in $(outputs); do
+        case "$o" in HEADLESS-*) ;; *) swaymsg focus output "$o"; break ;; esac
+      done
+      swaymsg workspace number 1
+    }
+    screen
     # The person's theme, rebuilt from this version's system files (mako, fuzzel, waybar
     # and foot read per-user copies that slate-theme writes).
     ${slateTheme}/bin/slate-theme apply >/dev/null
-    systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
-    systemctl --user restart slate-desktop.service slate-panel.service slate-dock.service slate-apps.service
-    # The first terminal, exec'd now that the focus is on the person's workspace (sway
-    # opens a window on the workspace focused when its command was started).
+    systemctl --user import-environment PATH WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_ID
+    # graphical-session.target, for the units NixOS starts with every graphical session.
+    systemctl --user start slateos-session.target
+    # The polkit agent, in the session (see security.polkit); started again should
+    # it stop.
+    swaymsg exec ${slatePolkitAgent}
+    systemctl --user restart ${lib.concatStringsSep " " sessionUnits}
+    # The first terminal, exec'd with the focus on the person's workspace (sway opens a
+    # window on the workspace focused when its command was started).
     sleep 2
+    screen
     swaymsg exec foot
   '';
   # The lock screen: the desktop, blurred and darkened, a large clock; Super+L. No font
   # size: swaylock-effects then sizes the time and the date from the ring, at any scale.
+  # `--idle` (the idle timer): input in the first five seconds dismisses it unasked.
   slateLock = pkgs.writeShellScriptBin "slate-lock" ''
-    exec ${swaylockPatched}/bin/swaylock --daemonize \
+    grace=""
+    [ "$1" = --idle ] && grace="--grace 5"
+    exec ${swaylockPatched}/bin/swaylock --daemonize $grace \
       --screenshots --effect-blur 14x4 --effect-vignette 0.35:0.65 --fade-in 0.25 \
       --clock --timestr "%H:%M" --datestr "%A, %-d %B" --font "Inter Display" \
       --indicator --indicator-idle-visible --indicator-radius 120 --indicator-thickness 4 \
@@ -190,6 +230,72 @@ let
       --text-color ffffffee --text-clear-color ffffffee --text-ver-color ffffffee --text-wrong-color ffffffee \
       --text-caps-lock-color ffffffee --show-failed-attempts --ignore-empty-password
   '';
+  # Away from the computer: the lock after `lock_after` seconds without input on the
+  # person's seat (seat0; the agent's activity does not count), the screens off after
+  # `screen_off_after`, and the lock before the computer sleeps. Both from
+  # ~/.config/slate/idle.json (Settings, Power); 0 turns one off.
+  slateIdle = pkgs.writeShellScriptBin "slate-idle" ''
+    conf="$HOME/.config/slate/idle.json"
+    lock=600 off=900
+    if [ -r "$conf" ]; then
+      lock=$(${pkgs.jq}/bin/jq -r '.lock_after // 600' "$conf")
+      off=$(${pkgs.jq}/bin/jq -r '.screen_off_after // 900' "$conf")
+    fi
+    set -- -w -S seat0
+    [ "$lock" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$lock" 'slate-lock --idle'
+    [ "$off" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$off" 'slate-screens off' resume 'slate-screens on'
+    exec ${pkgs.swayidle}/bin/swayidle "$@" before-sleep slate-lock after-resume 'slate-screens on' lock slate-lock
+  '';
+  # The person's screens on or off; the agent's background screen stays on (its apps
+  # keep drawing).
+  slateScreens = pkgs.writeShellScriptBin "slate-screens" ''
+    case "$1" in on|off) ;; *) echo "usage: slate-screens on|off" >&2; exit 2 ;; esac
+    for o in $(swaymsg -t get_outputs | ${pkgs.jq}/bin/jq -r '.[] | select(.name | startswith("HEADLESS-") | not) | .name'); do
+      swaymsg -q output "$o" power "$1"
+    done
+  '';
+  # Low battery notifications (the menu bar shows the level).
+  slateBattery = pkgs.stdenv.mkDerivation {
+    pname = "slate-battery";
+    version = pkg.version;
+    src = ../desktop/slate-battery.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsNoGuiHook pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.glib (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slate-battery
+      chmod +x $out/bin/slate-battery
+    '';
+    meta.mainProgram = "slate-battery";
+  };
+  # System-wide choices Settings makes (input methods), applied as root with a rebuild.
+  slateosSettings = pkgs.stdenv.mkDerivation {
+    pname = "slateos-settings";
+    version = pkg.version;
+    src = ../desktop/slateos-settings.py;
+    dontUnpack = true;
+    buildInputs = [ pkgs.python3 ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slateos-settings
+      chmod +x $out/bin/slateos-settings
+      patchShebangs $out/bin/slateos-settings
+    '';
+    meta.mainProgram = "slateos-settings";
+  };
+  # Input methods Settings can install, by the name fcitx5's profile gives them.
+  inputMethodAddons = {
+    pinyin = pkgs.qt6Packages.fcitx5-chinese-addons;  # Pinyin, Shuangpin, Wubi, Cangjie tables
+    rime = pkgs.fcitx5-rime;
+    mozc = pkgs.fcitx5-mozc;
+    hangul = pkgs.fcitx5-hangul;
+  };
+  inputMethods = lib.unique cfg.desktop.inputMethods;
+  # What Settings chose for the whole system (see settingsFile).
+  settingsFromFile =
+    if cfg.settingsFile != null && builtins.pathExists cfg.settingsFile
+    then lib.importJSON cfg.settingsFile else { };
   # The session menu: right click on the panel's diamond, or Super+Escape.
   # Before logging out, restarting or shutting down it asks every window to close, as a
   # person closing them would: apps save their state and ask about unsaved work, and none
@@ -303,7 +409,7 @@ let
   dockDefaults = pkgs.writeText "dock.json" (builtins.toJSON {
     pinned = [ "slate:launcher" "thunar.desktop" "firefox.desktop" "foot.desktop" ]
       ++ lib.optionals (cfg.desktop.apps == "full") [ "thunderbird.desktop" "writer.desktop" ]
-      ++ [ "org.xfce.mousepad.desktop" "slate-settings.desktop" "slate:slate" ];
+      ++ [ "org.xfce.mousepad.desktop" "io.github.kolunmi.Bazaar.desktop" "slate-settings.desktop" "slate:slate" ];
   });
 in
 {
@@ -371,10 +477,43 @@ in
       '';
     };
 
+    desktop.inputMethods = lib.mkOption {
+      type = lib.types.listOf (lib.types.enum (builtins.attrNames inputMethodAddons));
+      default = settingsFromFile.inputMethods or [ ];
+      defaultText = lib.literalMD "the `inputMethods` of `settingsFile`, else none";
+      example = [ "pinyin" ];
+      description = ''
+        Input methods for languages typed by composition, through fcitx5 on Wayland's own
+        input method protocol: "pinyin" (Chinese: Pinyin, Shuangpin, Wubi, Cangjie),
+        "rime" (Chinese with Rime: Traditional, Zhuyin and more), "mozc" (Japanese),
+        "hangul" (Korean). None by default; Settings, Keyboard installs them for the
+        person. Ctrl+Space switches between the keyboard and the input methods.
+      '';
+    };
+
     desktop.autologinUser = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "With desktop.enable, log this user straight into sway instead of showing a greeter.";
+    };
+
+    settingsFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default =
+        if !(builtins ? currentSystem) then null
+        else if builtins.pathExists "/etc/slateos" then "/etc/slateos/settings.json"
+        else "/etc/nixos/settings.json";
+      defaultText = lib.literalMD ''
+        `/etc/slateos/settings.json` (`/etc/nixos/settings.json` without `/etc/slateos`)
+        when the configuration is evaluated impurely, as a `configuration.nix` is; null
+        for a flake, which cannot read files outside it
+      '';
+      description = ''
+        The JSON file where Settings (through `slateos-settings`) keeps the system-wide
+        choices it makes for the person: today `inputMethods`, the default of
+        `desktop.inputMethods`. A value the configuration sets wins. A flake in
+        /etc/slateos can set this to `./settings.json`.
+      '';
     };
 
     snapshotRoot = lib.mkOption {
@@ -416,7 +555,12 @@ in
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
-        slateLock slateSessionMenu swayosd
+        slateLock slateSessionMenu swayosd slateIdle slateScreens slateBattery slateosSettings
+        # Advanced network settings (VPN, 802.1X, static addresses), from Settings, Network.
+        networkmanagerapplet
+        # An app store for Flathub.
+        bazaar
+        soteria
         waybar fuzzel mako swaybg grim slurp wl-clipboard libnotify
         # The minimal set: every app here exposes an accessibility tree and binds every
         # seat (GTK3), so the agent can work in them without borrowing the user's input.
@@ -505,6 +649,77 @@ in
       }];
     };
     services.gvfs.enable = lib.mkIf cfg.desktop.enable true;
+
+    # A computer, not only a VM: firmware for Wi-Fi, Bluetooth and graphics chips,
+    # compressed swap in memory (small machines run a browser and an agent), and the
+    # services behind Settings' Network, Bluetooth, Power and Printers pages.
+    hardware.enableRedistributableFirmware = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    zramSwap.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    networking.networkmanager.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    hardware.bluetooth = lib.mkIf cfg.desktop.enable {
+      enable = lib.mkDefault true;
+      powerOnBoot = lib.mkDefault true;
+    };
+    services.upower.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    services.power-profiles-daemon.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    # Printing: printers that speak IPP Everywhere (most made in the last decade, on the
+    # network or over USB) need no driver; CUPS finds network ones through Avahi itself,
+    # so cups-browsed, which listens on the network, stays off. Older printers need a
+    # driver in services.printing.drivers.
+    services.printing = lib.mkIf cfg.desktop.enable {
+      enable = lib.mkDefault true;
+      browsed.enable = lib.mkDefault false;
+    };
+    services.ipp-usb.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    services.avahi = lib.mkIf cfg.desktop.enable {
+      enable = lib.mkDefault true;
+      nssmdns4 = lib.mkDefault true;
+      openFirewall = lib.mkDefault true;
+    };
+    programs.system-config-printer.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    services.system-config-printer.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    # Asks the person when an application needs a privilege (polkit): a Flatpak installed
+    # for every user, a printer added, a disk mounted (sudo has slate-askpass). Started by
+    # the session (slateos-session-start): polkit only takes an agent from inside the
+    # login session, and a user service runs outside it.
+    security.polkit.enable = lib.mkIf cfg.desktop.enable true;
+
+    # Software beyond nixpkgs: Flathub apps (Bazaar, the store; each person's apps go in
+    # their own installation, so installing needs no password), AppImages that run when
+    # opened, and downloaded Linux programs that expect a usual system (nix-ld).
+    services.flatpak.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    programs.appimage = lib.mkIf cfg.desktop.enable {
+      enable = lib.mkDefault true;
+      binfmt = lib.mkDefault true;
+    };
+    programs.nix-ld.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+
+    # Input methods, when the person installed one (Settings, Keyboard). The Wayland
+    # frontend: apps take composed text through the compositor (text-input), each seat
+    # on its own, so the agent's typing never goes through the person's Pinyin.
+    i18n.inputMethod = lib.mkIf (cfg.desktop.enable && inputMethods != [ ]) {
+      enable = true;
+      type = "fcitx5";
+      fcitx5.waylandFrontend = true;
+      fcitx5.addons = map (m: inputMethodAddons.${m}) inputMethods;
+      # The keyboard first, then the input methods in the order they were added.
+      fcitx5.settings.inputMethod = {
+        GroupOrder."0" = "Default";
+        "Groups/0" = { Name = "Default"; "Default Layout" = "us"; DefaultIM = lib.head inputMethods; };
+        "Groups/0/Items/0" = { Name = "keyboard-us"; Layout = ""; };
+      } // lib.listToAttrs (lib.imap1 (i: m:
+        lib.nameValuePair "Groups/0/Items/${toString i}" { Name = m; Layout = ""; }) inputMethods);
+      # The candidate window follows the appearance and uses the desktop's font.
+      fcitx5.settings.addons.classicui.globalSection = {
+        Theme = "default";
+        DarkTheme = "default-dark";
+        UseDarkTheme = "True";
+        UseAccentColor = "True";
+        Font = "Inter 11";
+        MenuFont = "Inter 10";
+        TrayFont = "Inter Medium 10";
+      };
+    };
     # The lock screen authenticates through PAM.
     security.pam.services.swaylock = lib.mkIf cfg.desktop.enable { };
     # Brightness keys: swayosd's rule lets the video group (the desktop user) set the backlight.
@@ -527,6 +742,10 @@ in
       "slate/sway.d/effects.conf" = lib.mkIf cfg.desktop.effects { source = ../desktop/sway/effects.conf; };
       "slate/dock.json".source = dockDefaults;
       "slate/swayosd.css".source = ../desktop/swayosd/style.css;
+      "slate/system-settings.json".text = builtins.toJSON {
+        file = cfg.settingsFile;
+        inputMethods = { available = builtins.attrNames inputMethodAddons; enabled = inputMethods; };
+      };
     };
     services.greetd = lib.mkIf cfg.desktop.enable {
       enable = true;
@@ -612,6 +831,88 @@ in
         RestartSec = 1;
         KillMode = "process";
       };
+    };
+
+    # The graphical session, from slateos-session-start until sway exits. It holds
+    # graphical-session.target, which our services are part of and which other units
+    # (the polkit agent) start with.
+    systemd.user.targets.slateos-session = lib.mkIf cfg.desktop.enable {
+      description = "SlateOS graphical session";
+      bindsTo = [ "graphical-session.target" ];
+      wants = [ "graphical-session-pre.target" ];
+      after = [ "graphical-session-pre.target" ];
+    };
+
+    # Locks the screen when the person is away and before sleep (slate-idle).
+    systemd.user.services.slate-idle = lib.mkIf cfg.desktop.enable {
+      description = "Lock the screen when idle and before sleep";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ slateLock slateScreens config.programs.sway.package ];
+      serviceConfig = {
+        ExecStart = "${slateIdle}/bin/slate-idle";
+        Restart = "always";
+        RestartSec = 1;
+      };
+    };
+
+    systemd.user.services.slate-battery = lib.mkIf cfg.desktop.enable {
+      description = "Low battery notifications";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ pkgs.libnotify ];
+      serviceConfig = {
+        ExecStart = "${slateBattery}/bin/slate-battery";
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
+    };
+
+    # The AI workspace's live view of the agent's screen (sway assigns the window there),
+    # started with the session once that screen exists, and again should it stop.
+    systemd.user.services.slate-mirror = lib.mkIf cfg.desktop.enable {
+      description = "Live view of the agent's screen on the AI workspace";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ config.programs.sway.package ];
+      script = ''
+        out=$(swaymsg -t get_outputs | ${pkgs.jq}/bin/jq -r '[.[] | select(.name | startswith("HEADLESS-")) | .name][0] // empty')
+        [ -n "$out" ] || exit 1
+        exec ${pkgs.wl-mirror}/bin/wl-mirror "$out"
+      '';
+      serviceConfig = {
+        Restart = "on-failure";
+        RestartSec = 3;
+      };
+    };
+
+    # The input method, when one is installed. Under sway, which runs no XDG autostart.
+    systemd.user.services.slate-input-method = lib.mkIf (cfg.desktop.enable && inputMethods != [ ]) {
+      description = "Input method (fcitx5)";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      serviceConfig = {
+        ExecStart = "${config.i18n.inputMethod.package}/bin/fcitx5 --replace";
+        Restart = "on-failure";
+        RestartSec = 2;
+      };
+    };
+
+    # Flathub for each person's own installation: the store installs there, without a
+    # password. Needs the network once; tried again at every login until it worked.
+    systemd.user.services.slate-flathub = lib.mkIf cfg.desktop.enable {
+      description = "Add Flathub to the person's Flatpak installation";
+      wantedBy = [ "default.target" ];
+      path = [ config.services.flatpak.package ];
+      script = ''
+        flatpak remote-list --user --columns=name | grep -qx flathub && exit 0
+        for _ in 1 2 3 4 5 6; do
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && exit 0
+          sleep 20
+        done
+        exit 1
+      '';
+      serviceConfig.Type = "oneshot";
     };
 
     # The agent seat owner. Started by the compositor (it needs WAYLAND_DISPLAY),

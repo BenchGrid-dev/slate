@@ -909,6 +909,21 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
     }
 }
 
+/// Whether a screen locker of this user is running (the compositor does not say).
+fn screen_locked() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
+    let Ok(procs) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    procs.flatten().any(|p| {
+        let path = p.path();
+        let comm = std::fs::read_to_string(path.join("comm")).unwrap_or_default();
+        matches!(comm.trim(), "swaylock" | ".swaylock-wrapp")
+            && std::fs::metadata(&path).map(|m| m.uid()).ok() == uid
+    })
+}
+
 fn seat_of(args: &Value) -> Seat {
     Seat::parse(args.get("seat").and_then(Value::as_str).unwrap_or("agent"))
 }
@@ -962,12 +977,21 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
         }
         _ => {}
     }
-    if seat_of(args) == Seat::User
-        && matches!(
-            name,
-            "desktop_click" | "desktop_type" | "desktop_key" | "desktop_scroll" | "desktop_move"
-        )
-    {
+    let input = matches!(
+        name,
+        "desktop_click" | "desktop_type" | "desktop_key" | "desktop_scroll" | "desktop_move"
+    );
+    // A locked screen takes every seat's keyboard and pointer: keys would go to the lock
+    // screen (failed unlock attempts) and clicks onto it.
+    if input && screen_locked() {
+        return error(
+            "the screen is locked: keyboard and pointer input cannot reach windows until the \
+             person unlocks it. Reading (desktop_read, desktop_elements, desktop_screenshot of a \
+             window) and element actions (desktop_element_click, desktop_element_set_text) still \
+             work.",
+        );
+    }
+    if seat_of(args) == Seat::User && input {
         if let Err(e) = takeover_begin() {
             return error(format!("{e:#}"));
         }

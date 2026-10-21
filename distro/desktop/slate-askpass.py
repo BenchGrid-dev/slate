@@ -7,6 +7,9 @@ the person at the desktop and prints what they type on stdout. The agent only
 ever sees whether the command ran. Cancel exits non-zero and sudo fails.
 
 Usage: slate-askpass [prompt]
+
+A program that asks for root on the person's own behalf (Settings) says why in
+SLATE_ASKPASS_TITLE and SLATE_ASKPASS_BODY; without them the dialog speaks of a task.
 """
 import os
 import sys
@@ -49,8 +52,11 @@ def main():
         win = Adw.ApplicationWindow(application=app, title="SlateOS", default_width=420, resizable=False)
         win.add_css_class("askpass")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=22, margin_bottom=18, margin_start=24, margin_end=24)
-        box.append(Gtk.Label(label="Slate needs your password", xalign=0, css_classes=["askpass-title"]))
-        body = "A task wants to run a command as administrator" + (f" (user {who})" if who else "") + ". The password goes to sudo only; the agent never sees it."
+        title = os.environ.get("SLATE_ASKPASS_TITLE") or "Slate needs your password"
+        box.append(Gtk.Label(label=title, xalign=0, css_classes=["askpass-title"]))
+        body = os.environ.get("SLATE_ASKPASS_BODY") or (
+            "A task wants to run a command as administrator" + (f" (user {who})" if who else "")
+            + ". The password goes to sudo only; the agent never sees it.")
         box.append(Gtk.Label(label=body, xalign=0, wrap=True, css_classes=["askpass-body"]))
         entry = Gtk.PasswordEntry(show_peek_icon=True, css_classes=["askpass"], placeholder_text="Password")
         box.append(entry)

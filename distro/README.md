@@ -37,7 +37,11 @@ SlateOS is built on NixOS. This directory holds the NixOS module (`nixos/module.
 - Applications, chosen so that the agent can work in them: each exposes an accessibility tree and has a command-line or D-Bus path for the common tasks. `desktop.apps = "minimal"` installs Firefox, Thunar, Mousepad, imv and pavucontrol; `"full"` (the default) adds LibreOffice, Thunderbird (mail, calendar, contacts), zathura (PDF) and mpv. Each has an OS Skill.
 - Accessibility on for every toolkit (the bus enabled, `NO_AT_BRIDGE` unset, the Firefox/Chromium/Qt switches), so `desktop_elements` and friends see GTK3, GTK4, Firefox, LibreOffice and Qt applications.
 - `slate-desktop daemon` as a supervised user service started first by sway, so the agent seat predates every app.
-- The Slate prompt (`slate-shell`, `Mod+s` or the panel button) and the settings app (`slate-settings`, `Mod+comma`).
+- The Slate prompt (`slate-shell`, `Mod+s` or the panel button) and the settings app (`slate-settings [page]`, `Mod+comma`): Network (Wi-Fi networks and their passwords, wired, and `nm-connection-editor` for VPN and the rest), Bluetooth (pairing, with codes to confirm or type), Display, Appearance, Sound, Keyboard (input methods), Power (battery, power mode, when the screen locks and turns off), Printers, Slate and AI. The menu bar's icons open their page.
+- What a computer needs beyond a VM: redistributable firmware (Wi-Fi, Bluetooth, graphics), compressed swap in memory (zram), NetworkManager, BlueZ, UPower and power-profiles-daemon, CUPS with Avahi and ipp-usb for driverless printers (cups-browsed stays off), and a polkit agent (soteria) started inside the session. The menu bar shows the battery and Bluetooth when the computer has them; `slate-battery` warns at 10 % and 5 %.
+- The screen locks after 10 minutes without input on the person's seat and before the computer sleeps, and turns off after 15 (`slate-idle`: swayidle; Settings, Power changes both, `~/.config/slate/idle.json`). The agent's activity does not count; while the screen is locked the agent's keyboard and pointer tools refuse to run (reading and element actions still work). The lock is swaylock-effects with a patch: swaylock exits when a seat's keyboard has no keymap yet (an input method's or an agent's virtual keyboard), and then nothing is locked.
+- Software beyond nixpkgs: Flatpak with Flathub in each person's own installation (no password to install), Bazaar as the store on the dock, AppImages that run when opened (`programs.appimage.binfmt`), and nix-ld for downloaded Linux programs.
+- Input methods on demand (`desktop.inputMethods`; Settings, Keyboard installs them): fcitx5 on Wayland's input method protocol, so each seat has its own state and the agent's typing is never converted by the person's Pinyin.
 - greetd: autologin into sway for `desktop.autologinUser`, or tuigreet.
 
 Keys: `Mod+Return` terminal · `Mod+Space` launcher · `Mod+s` Slate prompt · `Mod+grave` / `Mod+0` the AI workspace (a live view of the agent's screen) · `Mod+b` show the agent's background windows · `Mod+w` browser · `Mod+e` files · `Mod+t` editor · `Mod+comma` settings · `Mod+q` close · `Mod+1..5` workspaces · `Mod+f` fullscreen · `Mod+l` lock · `Mod+Escape` lock, log out, restart, shut down · Esc while the panel blinks "controlling" takes your mouse and keyboard back.
@@ -61,6 +65,8 @@ Agent tool calls run without a terminal, so `sudo` could never ask for a passwor
 | `fallbackShell` | bash | The POSIX shell slash uses for `!` lines and non-interactive invocations |
 | `snapshotRoot` | the user's home | A user-owned btrfs subvolume slated snapshots for undo; set it when home is not one |
 | `desktop.apps` | `"full"` | `"full"` or `"minimal"` application set (see above) |
+| `desktop.inputMethods` | from `settingsFile`, else none | Any of `"pinyin"`, `"rime"`, `"mozc"`, `"hangul"`; Ctrl+Space switches |
+| `settingsFile` | `/etc/slateos/settings.json` (impure evaluation), else null | Where Settings keeps the system-wide choices it makes (`slateos-settings`); the configuration wins. A flake sets it to `./settings.json` |
 | `agents` | `[ pkgs.claude-code ]` | Agent CLIs to install |
 | `sway.enable` | true | Enable sway with the tools slate-desktop relies on |
 | `package` | the flake's `slate` | Override the Slate package |

@@ -7,7 +7,7 @@
     "output": ["!HEADLESS-1", "!HEADLESS-2", "*"],
     "modules-left": ["custom/launcher", "sway/workspaces", "sway/window"],
     "modules-center": [],
-    "modules-right": ["tray", "network", "wireplumber", "custom/slate", "clock"],
+    "modules-right": ["tray", "bluetooth", "network", "wireplumber", "battery", "custom/slate", "clock"],
     "custom/launcher": {
         "format": "◆",
         "tooltip-format": "Applications (Super+Space) · right click: lock, log out, restart, shut down",
@@ -32,6 +32,28 @@
         "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
         "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"
     },
+    "battery": {
+        "states": { "warning": 20, "critical": 10 },
+        "format": "{icon}",
+        "format-warning": "{capacity}% {icon}",
+        "format-critical": "{capacity}% {icon}",
+        "format-charging": " {icon}",
+        "format-plugged": "",
+        "format-icons": ["", "", "", "", ""],
+        "tooltip-format": "{capacity}% · {timeTo}",
+        "on-click": "swaymsg exec 'slate-settings power'"
+    },
+    "bluetooth": {
+        "format": "",
+        "format-disabled": "",
+        "format-off": "",
+        "format-no-controller": "",
+        "tooltip-format": "Bluetooth on",
+        "tooltip-format-connected": "{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}",
+        "tooltip-format-enumerate-connected-battery": "{device_alias} · {device_battery_percentage}%",
+        "on-click": "swaymsg exec 'slate-settings bluetooth'"
+    },
     "network": {
         "format-wifi": "",
         "format-ethernet": "",
@@ -39,7 +61,7 @@
         "tooltip-format-wifi": "{essid} · {ipaddr}",
         "tooltip-format-ethernet": "{ifname} · {ipaddr}",
         "tooltip-format-disconnected": "offline",
-        "on-click": "swaymsg exec slate-settings"
+        "on-click": "swaymsg exec 'slate-settings network'"
     },
     "custom/slate": {
         "exec": "slate agent-status",

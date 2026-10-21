@@ -320,6 +320,36 @@ def main():
         m.tool("desktop_close", window=th["id"])
         wait_for(lambda: find(m, "thunar", before_th) is None, 10)
 
+    # GTK4 through the tree: a dialog that just opened (GTK4 caches its tree only as far as
+    # an assistive tool asked). Settings, Keyboard: toggling an input method asks first.
+    before_st = {w["id"] for w in m.windows()}
+    m.tool("desktop_launch", command="slate-settings", args=["keyboard"], where="here")
+    st = wait_for(lambda: find(m, "dev.benchgrid.slate.Settings", before_st), 20)
+    if st:
+        time.sleep(2)
+        try:
+            elems, _ = m.tool("desktop_elements", window=st["id"], query="switch")
+            off = next((l for l in elems.splitlines() if l.startswith("e") and " switch " in l and "Toggle" in l and "[checked]" not in l and "—" in l), None)
+            if off:
+                m.tool("desktop_element_click", id=off.split()[0], action="Toggle", verify=False)
+                cancel = wait_for(lambda: next((l for l in m.tool("desktop_elements", window=st["id"], query="Cancel")[0].splitlines() if l.startswith("e") and "push button" in l), None), 8)
+                check("a GTK4 dialog that just opened is in the accessibility tree", bool(cancel), elems.splitlines()[0][:80])
+                if cancel:
+                    m.tool("desktop_element_click", id=cancel.split()[0], verify=False)
+                    time.sleep(1)
+                    again, _ = m.tool("desktop_elements", window=st["id"], query="switch")
+                    name = off.split('"')[1]
+                    row = next((l for l in again.splitlines() if f'"{name}"' in l and "Toggle" in l), "")
+                    check("its Cancel button, pressed through the tree, leaves the setting as it was", "[checked]" not in row, row[:80])
+            else:
+                print("SKIP GTK4 dialog: Settings shows no input method to add")
+        except RuntimeError as e:
+            check("accessibility tree available for Settings (GTK4)", False, str(e)[:120])
+        m.tool("desktop_close", window=st["id"])
+        wait_for(lambda: find(m, "dev.benchgrid.slate.Settings", before_st) is None, 10)
+    else:
+        check("launch Settings appears in windows", False)
+
     m.close()
     print(f"\n{len(FAILS)} failure(s)" if FAILS else "\nall passed")
     sys.exit(1 if FAILS else 0)

@@ -9,8 +9,13 @@ window#waybar { background: rgba(250, 250, 252, 0.56); color: #1d1d1f; border-bo
 #workspaces button.focused { color: #1d1d1f; background: rgba(0, 0, 0, 0.08); }
 #workspaces button:hover { color: #1d1d1f; background: rgba(0, 0, 0, 0.05); }
 #window { color: #1d1d1f; font-weight: 600; padding-left: 6px; }
-#tray, #network, #wireplumber { padding: 0 9px; color: rgba(29, 29, 31, 0.82); }
+#tray, #bluetooth, #network, #wireplumber, #battery { padding: 0 9px; color: rgba(29, 29, 31, 0.82); }
 #network, #wireplumber { font-family: "Font Awesome 7 Free"; font-weight: 900; font-size: 12.5px; }
+/* The battery's level shows in the desktop's font next to the icon when it runs low. */
+#battery { font-family: "Font Awesome 7 Free", "Inter"; font-weight: 900; font-size: 12.5px; }
+#battery.warning:not(.charging) { color: #b25000; }
+#battery.critical:not(.charging) { color: #d70015; }
+#bluetooth { font-family: "Font Awesome 7 Brands"; font-size: 13px; }
 #network.disconnected, #wireplumber.muted { color: rgba(29, 29, 31, 0.38); }
 #clock { color: #1d1d1f; padding: 0 16px 0 8px; }
 #custom-slate { color: #1d1d1f; background: rgba(0, 0, 0, 0.06); border-radius: 8px; margin: 5px 4px; padding: 0 10px; }
