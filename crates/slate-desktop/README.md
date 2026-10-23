@@ -48,7 +48,10 @@ Whether an app reacts to the agent seat depends on its toolkit binding every `wl
 | foot | works | binds all seats |
 | Firefox, GTK3 (Thunar) | works | when the seat predates the app (the daemon guarantees that) |
 | GTK 4 / libadwaita (gnome-text-editor, gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
-| Qt, Chromium/Electron, Flatpak | untested | contributions welcome |
+| Electron (Obsidian 1.14) | ignored | the accessibility tree works: elements by name, `desktop_element_click`; its text fields are not editable over the bus, so typing needs `seat: "user"` |
+| WeChat 4.1 | works (pointer) | draws its own interface: no accessibility tree, screenshots and clicks only |
+| Flatpak apps | as their toolkit | matched to their windows through the sandbox (the bus sees Flatpak's proxy, not the app); measured: Flatseal (GTK4), Obsidian, WeChat |
+| Qt | untested | contributions welcome |
 
 `seat: "user"` injects through the human's own seat and needs approval (slated tier Confirm). Pointer and keyboard both work this way on a real display. See `docs/decisions/0007-toolkits-and-the-agent-seat.md` for the compositor-side fix that removes the need for it.
 

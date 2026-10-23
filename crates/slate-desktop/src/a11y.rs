@@ -9,7 +9,8 @@
 //! toolkits that only listen to the first seat.
 //!
 //! Applications are matched to compositor windows by pid (sway reports the pid of
-//! each view, the bus reports the pid of each connection) and frames by title.
+//! each view, the bus reports the pid of each connection), Flatpak apps by their
+//! sandbox (the bus sees its proxy), and frames by title.
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
@@ -185,7 +186,21 @@ impl A11y {
         if let Some((r, _, _)) = apps.iter().find(|(_, p, _)| *p == pid && pid != 0) {
             return Ok(r.clone());
         }
-        // Wrappers (nix, flatpak) put a different pid on the bus: try the parent chain.
+        // A Flatpak app reaches the bus through the D-Bus proxy of its sandbox, so the
+        // bus has the proxy's pid; the proxy runs in the same Flatpak instance. Nothing
+        // else can be this app (the parent chain leads to whatever launched it).
+        if let Some(instance) = flatpak_instance(pid) {
+            return apps
+                .iter()
+                .find(|(_, p, _)| *p != 0 && flatpak_instance(*p).as_deref() == Some(&instance))
+                .map(|(r, _, _)| r.clone())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "no accessible application for pid {pid} ({app_hint}, a Flatpak app); it draws its own interface without accessibility support: use screenshots, desktop_click and desktop_type"
+                    )
+                });
+        }
+        // Wrappers (nix) put a different pid on the bus: try the parent chain.
         let mut cur = pid;
         for _ in 0..6 {
             let Some(parent) = parent_pid(cur) else { break };
@@ -747,6 +762,15 @@ fn parent_pid(pid: u32) -> Option<u32> {
     // "pid (comm) state ppid ..." and comm may contain spaces/parens.
     let after = s.rsplit(')').next()?;
     after.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// The Flatpak instance a process runs in, from the `/.flatpak-info` Flatpak puts in
+/// each sandbox (the app's and its bus proxies').
+fn flatpak_instance(pid: u32) -> Option<String> {
+    let info = std::fs::read_to_string(format!("/proc/{pid}/root/.flatpak-info")).ok()?;
+    info.lines()
+        .find_map(|l| l.strip_prefix("instance-id="))
+        .map(|s| s.trim().to_string())
 }
 
 fn trim_float(f: f64) -> String {
