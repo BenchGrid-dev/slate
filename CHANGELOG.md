@@ -15,6 +15,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - Fix: the configuration the installer wrote loaded the Slate flake from `/etc/slateos/slate`, which does not exist while `nixos-install` runs on the live system, so an install could not finish. It now loads it from next to the configuration, and keeps Settings' choices there too (an install took those of the machine it ran on).
 - Fix: the agent did not see a dialog that a GTK4 application had just opened (GTK4 caches its accessibility tree only as far as an assistive tool has asked); parts the cache lists fewer children of than they have are now read directly.
 - Fix: the agent did not find the accessibility tree of most Flatpak apps (Obsidian among them): it matches an app to its window by process, and the bus sees the D-Bus proxy of the app's sandbox instead. It now matches them by Flatpak instance. Measured with Flatseal (GTK4), Obsidian (Electron) and WeChat (no accessibility tree: screenshots and clicks); the slate-desktop README lists them.
+- Fix: installing a Flatpak app after the first reported "Permission denied" for hicolor's `index.theme` (Flatpak's icon cache trigger copies it read-only out of the store).
 - The password dialog says who asks when Settings needs root, and the dock shows it with a padlock.
 - The session now holds `graphical-session.target` while it runs (`slateos-session.target`, stopped when sway exits), so units that start with a graphical session work, and the session's own services stop at logout.
 

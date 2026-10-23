@@ -905,6 +905,13 @@ in
       wantedBy = [ "default.target" ];
       path = [ config.services.flatpak.package ];
       script = ''
+        # Flatpak's icon cache trigger copies hicolor's index.theme out of the store,
+        # read-only, and every later install fails to replace it ("Permission denied").
+        # A writable file in its place keeps its mode when cp overwrites it.
+        theme="$HOME/.local/share/flatpak/exports/share/icons/hicolor/index.theme"
+        if [ -e "$theme" ]; then chmod u+w "$theme"
+        else install -Dm644 /run/current-system/sw/share/icons/hicolor/index.theme "$theme" || true
+        fi
         flatpak remote-list --user --columns=name | grep -qx flathub && exit 0
         for _ in 1 2 3 4 5 6; do
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && exit 0
