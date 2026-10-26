@@ -62,6 +62,20 @@ pub fn run() -> Result<()> {
     if let Some(name) = &seat_name {
         lock::apply(name);
     }
+    // Apps the agent launches for itself see only its seat, on a compositor that
+    // filters by security context (SlateOS's SwayFX; the module sets the variable).
+    if std::env::var_os("SLATE_DESKTOP_AGENT_DISPLAY").is_some() {
+        match desktop.open_agent_display() {
+            Ok(()) => slate_proto::log!(
+                "slate-desktop daemon: apps the agent launches connect to {}",
+                desktop
+                    .agent_display()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            ),
+            Err(e) => slate_proto::log!("slate-desktop daemon: no agent display: {e:#}"),
+        }
+    }
     let desktop = Arc::new(Mutex::new(desktop));
     let parking = desktop.clone();
     std::thread::spawn(move || {

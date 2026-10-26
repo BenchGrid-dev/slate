@@ -25,6 +25,10 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 On the SlateOS desktop sway has a second, headless output (`HEADLESS-1`, workspace `agent`). `desktop_launch` opens windows there unless `where: "here"`; `desktop_show` and `desktop_hide` move windows between the screens; `desktop_windows` shows each window's `location`. The agent seat has one virtual pointer per output and routes clicks by layout coordinates, so windows on either screen can be driven the same way. Without a headless output (plain sway), everything opens on the user's screen.
 
+## Apps the agent launches
+
+Most toolkits bind every seat that exists when they start, so they take the agent's input as well as the person's. Chromium and everything built on it (Chrome, Electron apps, CEF) bind one seat, the first: the person's. On SlateOS, `desktop_launch` (in the background) therefore starts a Chromium-based app, known from Chromium's resource files next to its program or in its Flatpak, on a Wayland socket of its own, `$XDG_RUNTIME_DIR/slate/agent-wayland`, which the daemon opens through `wp_security_context_v1` with the sandbox engine `dev.benchgrid.slate.agent` and the agent seat's name as instance id. SlateOS's SwayFX shows the clients of that context the agent's seat and no other, so the app binds it and takes the agent's keyboard and pointer. The person's do not reach it: `desktop_windows` marks such windows `agent_seat_only`, and `desktop_launch` and `desktop_show` say so. Since these apps run one instance, a window the person opens later could land in the agent's; the agent is told to close them when done. Apps for the person open with `where: "here"`, on the session's own socket. Like any client with a security context, the agent's apps get no privileged protocol (screen capture, virtual input, layer shell), Flatpak apps included. The module turns this on with `SLATE_DESKTOP_AGENT_DISPLAY=1` where its SwayFX carries the patch; elsewhere `desktop_launch` uses the session's socket.
+
 ## The locked screen
 
 While a screen locker runs (swaylock), the person decides what the agent may do in windows: `agentWhileLocked` in the system's settings.json, which only root writes (`slateos-settings`, behind the person's password; SlateOS's Settings, AI), or `services.slate.desktop.agentWhileLocked`. Without either, `pause`.
@@ -59,8 +63,8 @@ Whether an app reacts to the agent seat depends on its toolkit binding every `wl
 |---|---|---|
 | foot | works | binds all seats |
 | Firefox, GTK3 (Thunar) | works | when the seat predates the app (the daemon guarantees that) |
-| GTK 4 / libadwaita (gnome-text-editor, gnome-calculator) | ignored | only the first seat is bound; use `seat: "user"` |
-| Electron (Obsidian 1.14) | ignored | the accessibility tree works: elements by name, `desktop_element_click`; its text fields are not editable over the bus, so typing needs `seat: "user"` |
+| GTK 4 / libadwaita (gnome-text-editor 49, Settings) | works | GTK 4.22, when the seat predates the app (measured 2026-10-25; the "ignored" of earlier measurements came from seats created after the app) |
+| Electron (Obsidian 1.14), Chromium | works when the agent launches it on SlateOS; ignored otherwise | one seat is bound: the agent's for apps it launches in the background (see above), the person's otherwise, where element actions or `seat: "user"` remain; the accessibility tree works, but text fields are not editable over the bus |
 | WeChat 4.1 | works (pointer) | draws its own interface: no accessibility tree, screenshots and clicks only |
 | Flatpak apps | as their toolkit | matched to their windows through the sandbox (the bus sees Flatpak's proxy, not the app); measured: Flatseal (GTK4), Obsidian, WeChat |
 | Qt | untested | contributions welcome |
@@ -81,7 +85,7 @@ slate-desktop click X Y [left|right|middle]
 slate-desktop type "echo hi"
 slate-desktop key Return
 slate-desktop launch foot
-slate-desktop --seat user click 700 600     # borrow the human's seat (GTK4 apps)
+slate-desktop --seat user click 700 600     # borrow the human's seat (a Chromium app the user opened)
 ```
 
 Each CLI call creates a fresh transient seat; `serve` keeps one for the life of the MCP session.

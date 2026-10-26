@@ -29,8 +29,10 @@ Measured later the same day (Firefox 156, GTK3): an app accepts pointer and keyb
 
 **Amendment:** the agent seat is owned by one long-lived `slate-desktop daemon` per session, started by the compositor before any application. The MCP server and the CLI proxy to it. Apps started before the daemon (or before login) still need the user-seat fallback.
 
+**Amendment (2026-10-25):** measured again with the daemon's long-lived seat, GTK 4.22 (GNOME Text Editor, the settings app) binds every seat that exists when it starts and takes the agent seat's input: the "never binds it" above was the per-turn transient seat. The toolkit that binds one seat is Chromium (and Electron, CEF), measured with Obsidian. For those the longer-term path is in: `slate-desktop daemon` opens a second Wayland socket through `wp_security_context_v1` (sandbox engine `dev.benchgrid.slate.agent`, instance id = the agent seat's name), and `desktop_launch` starts a Chromium-based app it opens in the background on it (recognised by Chromium's resource files beside its program or in its Flatpak). SlateOS's SwayFX (`swayfx-agent-clients.patch`) shows the clients of such a context the seat its instance id names and no other; like any client with a security context they get no privileged protocol, which also keeps a Flatpak app started this way inside its sandbox's limits (it cannot nest its own context and passes the socket on). The trade is that the person's mouse and keyboard do not reach those windows, and these apps run one instance, so a window the person opens later can land in the agent's: the agent is told to close such apps when done and to open apps for the person with `where: "here"`. Other apps keep the session's socket. Human takeover by attaching the person's devices to the agent seat is not done.
+
 ## Consequences
 
-- The clean "agent never touches your input" story holds for well-behaved clients and for anything the agent launches on a patched compositor, not for pre-existing GTK4 windows on stock sway.
+- The clean "agent never touches your input" story holds for well-behaved clients and for anything the agent launches on a patched compositor, not for Chromium windows the person opened.
 - Compositor patches are now a planned part of SlateOS, not an optional nicety.
 - A per-toolkit compatibility list lives in the slate-desktop README.

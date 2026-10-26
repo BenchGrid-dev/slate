@@ -119,6 +119,10 @@ pub struct Window {
     pub y: Option<i32>,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    /// Opened by the agent for itself: the app sees only the agent's seat, so the
+    /// person's mouse and keyboard do not reach it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub agent_seat_only: bool,
 }
 
 pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
@@ -177,6 +181,7 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 y: g.map(|g| g.content.y),
                 width: g.map(|g| g.content.width),
                 height: g.map(|g| g.content.height),
+                agent_seat_only: g.map(|g| g.agent_only).unwrap_or(false),
             }
         })
         .collect())
@@ -498,7 +503,9 @@ fn resolve(d: &mut Desktop, reference: &str) -> Result<Window> {
 /// including the ones it handed to the user, would be killed whenever
 /// slate-desktop.service stops or restarts (an upgrade restarts it). Without a
 /// user systemd, the program is started directly.
-pub fn launch(cmd: &str, args: &[String]) -> Result<u32> {
+/// Start `cmd` in its own scope; `display`, a Wayland socket other than the session's
+/// (the agent's, whose clients see only its seat).
+pub fn launch(cmd: &str, args: &[String], display: Option<&std::path::Path>) -> Result<u32> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(0);
     let scoped = std::env::var_os("XDG_RUNTIME_DIR")
@@ -535,6 +542,9 @@ pub fn launch(cmd: &str, args: &[String]) -> Result<u32> {
     } else {
         std::process::Command::new(cmd)
     };
+    if let Some(path) = display {
+        c.env("WAYLAND_DISPLAY", path);
+    }
     let mut child = c
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -547,6 +557,90 @@ pub fn launch(cmd: &str, args: &[String]) -> Result<u32> {
         let _ = child.wait();
     });
     Ok(pid)
+}
+
+/// Whether `cmd` runs a Chromium-based app (Chromium, Chrome, Electron, CEF). Those
+/// use the first Wayland seat they see and no other, so they take the agent's input
+/// only when it is the one seat they see. Known from Chromium's resource files next to
+/// the program: in a Flatpak app's files, or beside the binary that a chain of Nix
+/// wrapper scripts ends in.
+fn chromium_based(cmd: &str, args: &[String]) -> bool {
+    use std::path::{Path, PathBuf};
+    const MARKERS: [&str; 3] = ["chrome_100_percent.pak", "resources.pak", "libcef.so"];
+    fn marked(dir: &Path, depth: usize) -> bool {
+        if MARKERS.iter().any(|m| dir.join(m).is_file()) {
+            return true;
+        }
+        depth > 0
+            && std::fs::read_dir(dir)
+                .map(|it| {
+                    it.flatten()
+                        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                        .any(|e| marked(&e.path(), depth - 1))
+                })
+                .unwrap_or(false)
+    }
+    let name = cmd.rsplit('/').next().unwrap_or(cmd);
+    if name == "flatpak" {
+        let Some(id) = args
+            .iter()
+            .skip_while(|a| *a != "run")
+            .skip(1)
+            .find(|a| !a.starts_with('-'))
+        else {
+            return false;
+        };
+        let Ok(out) = std::process::Command::new("flatpak")
+            .args(["info", "--show-location", id])
+            .output()
+        else {
+            return false;
+        };
+        let location = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return !location.is_empty() && marked(&Path::new(&location).join("files"), 2);
+    }
+    let mut path: Option<PathBuf> = if cmd.contains('/') {
+        Some(PathBuf::from(cmd))
+    } else {
+        std::env::var_os("PATH").and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join(cmd))
+                .find(|f| f.is_file())
+        })
+    };
+    for _ in 0..4 {
+        let Some(p) = path.take().and_then(|p| std::fs::canonicalize(p).ok()) else {
+            return false;
+        };
+        let head = std::fs::read(&p)
+            .map(|b| b.into_iter().take(64 * 1024).collect::<Vec<u8>>())
+            .unwrap_or_default();
+        if head.starts_with(b"#!") {
+            path = exec_target(&String::from_utf8_lossy(&head)).map(PathBuf::from);
+            continue;
+        }
+        let Some(dir) = p.parent() else { return false };
+        return marked(dir, 0)
+            || dir
+                .parent()
+                .map(|d| marked(&d.join("libexec"), 1))
+                .unwrap_or(false);
+    }
+    false
+}
+
+/// The program a wrapper script ends by exec'ing (its last `exec` line).
+fn exec_target(script: &str) -> Option<String> {
+    script
+        .lines()
+        .rev()
+        .filter_map(|l| l.trim().strip_prefix("exec "))
+        .find_map(|rest| {
+            rest.split_whitespace()
+                .map(|t| t.trim_matches(|c| c == '"' || c == '\''))
+                .find(|t| t.starts_with('/'))
+                .map(str::to_string)
+        })
 }
 
 fn which(program: &str) -> bool {
@@ -602,28 +696,28 @@ fn tools() -> Value {
                 "button": {"type": "string", "enum": ["left", "right", "middle"]},
                 "count": {"type": "integer", "description": "1 for click, 2 for double-click"},
                 "verify": {"type": "boolean", "description": "default true: return a screenshot of the window after the click so you can see the effect"},
-                "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}
+                "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for Chromium and Electron apps the user opened, which only listen to the first seat, and for apps started before the agent seat existed; use it when agent-seat input has no visible effect. Requires approval."}
             }, "required": ["x", "y"]}
         },
         {
             "name": "desktop_move",
             "description": "Move the agent's pointer without clicking (hover). Same coordinate rules as desktop_click.",
-            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for Chromium and Electron apps the user opened, which only listen to the first seat, and for apps started before the agent seat existed; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
         },
         {
             "name": "desktop_scroll",
             "description": "Scroll at a position. dy > 0 scrolls down, dx > 0 scrolls right (values in pixels, ~15 per notch).",
-            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "dx": {"type": "number"}, "dy": {"type": "number"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "window": {"type": "string"}, "dx": {"type": "number"}, "dy": {"type": "number"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for Chromium and Electron apps the user opened, which only listen to the first seat, and for apps started before the agent seat existed; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["x", "y"]}
         },
         {
             "name": "desktop_type",
             "description": "Type text into a window. Always pass `window`: the tool focuses it for the seat in use and verifies before typing, and the result says which window received the text. Newlines press Return.",
-            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for Chromium and Electron apps the user opened, which only listen to the first seat, and for apps started before the agent seat existed; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["text"]}
         },
         {
             "name": "desktop_key",
             "description": "Press a key or combo on the agent keyboard, e.g. 'Return', 'ctrl+l', 'shift+Tab', 'Escape'. Keys go to the app the agent seat has focused (click a window first). Window-manager shortcuts differ per desktop; use desktop_close / desktop_focus instead of guessing them.",
-            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for GTK4 apps (most GNOME apps), which only listen to the first seat; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
+            "inputSchema": {"type": "object", "properties": {"combo": {"type": "string"}, "window": {"type": "string", "description": "target window (id, app_id or title substring); strongly recommended"}, "verify": {"type": "boolean", "description": "default true: return a screenshot of the last clicked window afterwards"}, "seat": {"type": "string", "enum": ["agent", "user"], "description": "agent (default): the agent's own seat, the human keeps their input. user: borrow the human's mouse/keyboard for this action. Needed for Chromium and Electron apps the user opened, which only listen to the first seat, and for apps started before the agent seat existed; use it when agent-seat input has no visible effect. Requires approval."}}, "required": ["combo"]}
         },
         {
             "name": "desktop_close",
@@ -665,7 +759,7 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_launch",
-            "description": "Start a program and wait for its window. `where` = \"background\" (default): the window opens on the agent's own screen, which the user never sees, so you can work without disturbing them; \"here\": on the user's screen, for tasks the user wants to watch or that involve what they are doing. Returns the window id and where it is.",
+            "description": "Start a program and wait for its window. `where` = \"background\" (default): the window opens on the agent's own screen, which the user never sees, so you can work without disturbing them; \"here\": on the user's screen, for tasks the user wants to watch or that involve what they are doing, or an app the user will go on using. On SlateOS a Chromium-based app (Chromium, Chrome, Electron apps) opened in the background sees only your seat, so it takes your keyboard and pointer, and the user's never reach it, even after desktop_show. Returns the window id and where it is.",
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}, "where": {"type": "string", "enum": ["background", "here"]}}, "required": ["command"]}
         },
         {
@@ -694,7 +788,7 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_element_click",
-            "description": "Activate an element from desktop_elements by id: through its accessibility action when it has one (no pointer needed; works in every toolkit including GTK4), otherwise a pointer click at its centre through the chosen seat. `action` selects a specific action name.",
+            "description": "Activate an element from desktop_elements by id: through its accessibility action when it has one (no pointer needed; works in every toolkit), otherwise a pointer click at its centre through the chosen seat. `action` selects a specific action name.",
             "inputSchema": {"type": "object", "properties": {
                 "id": {"type": "string"},
                 "action": {"type": "string"},
@@ -1441,7 +1535,14 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                             user_focus: seat0_focus(),
                         });
                 }
-                let pid = launch(cmd, &a)?;
+                // A Chromium-based app the agent opens for itself sees only the agent's
+                // seat; anything else, and what it opens for the person, the session's.
+                let display = if wanted == "here" || !chromium_based(cmd, &a) {
+                    None
+                } else {
+                    d.agent_display().map(std::path::Path::to_path_buf)
+                };
+                let pid = launch(cmd, &a, display.as_deref())?;
                 if wanted == "here" {
                     allow_on_screen(pid);
                 }
@@ -1479,8 +1580,13 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                             }
                         }
                         d.last_window = Some(w.id.clone());
+                        let own_seat = if display.is_some() {
+                            " It draws with Chromium, which listens to one seat: it got yours, so the user's mouse and keyboard do not reach it. Such apps run one instance, and a window the user opens later could open in this one: close it (desktop_close) when you are done, and open apps the user will use with where: \"here\"."
+                        } else {
+                            ""
+                        };
                         text(format!(
-                            "started {cmd} (pid {pid}): window {} ({}) is {}{}",
+                            "started {cmd} (pid {pid}): window {} ({}) is {}{}.{own_seat}",
                             w.id,
                             w.title,
                             if w.location == "background" { "in the background (the user does not see it; desktop_show brings it to their screen)" } else { "on the user's screen" },
@@ -1511,6 +1617,7 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 };
                 let screen = screen_output().ok_or_else(|| anyhow!("no output"))?;
                 let mut moved = vec![];
+                let mut agent_only = vec![];
                 for w in &wins {
                     let Some(con) = w.con_id else { continue };
                     // A minimized window cannot be moved until a focus brings it back.
@@ -1526,8 +1633,19 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     };
                     if sway::command_for_con(con, &cmd).is_ok() {
                         moved.push(format!("{} ({})", w.id, w.title));
+                        if !to_bg && w.agent_seat_only {
+                            agent_only.push(format!("{} ({})", w.id, w.title));
+                        }
                     }
                 }
+                let note = if agent_only.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n{} only take your seat's input (you opened them in the background): the user sees them but cannot use them with their mouse and keyboard. To hand an app over, open it again with desktop_launch where: \"here\".",
+                        agent_only.join(", ")
+                    )
+                };
                 text(if moved.is_empty() {
                     if to_bg {
                         "nothing to hide".to_string()
@@ -1536,7 +1654,7 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     }
                 } else {
                     format!(
-                        "{} {}: {}",
+                        "{} {}: {}{note}",
                         if to_bg {
                             "hidden in the background"
                         } else {
@@ -1656,6 +1774,21 @@ pub fn cli_call(name: &str, args: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wrapper_script_names_what_it_execs() {
+        let nix = "#! /nix/store/x-bash/bin/bash -e\nexport PATH=/a:$PATH\nexec -a \"$0\" \"/nix/store/y-chromium/libexec/chromium/chromium\"  \"$@\"\n";
+        assert_eq!(
+            exec_target(nix).as_deref(),
+            Some("/nix/store/y-chromium/libexec/chromium/chromium")
+        );
+        let electron = "#!/bin/sh\nexec /nix/store/z-electron/bin/electron --no-sandbox /nix/store/w-app/app.asar \"$@\"\n";
+        assert_eq!(
+            exec_target(electron).as_deref(),
+            Some("/nix/store/z-electron/bin/electron")
+        );
+        assert_eq!(exec_target("#!/bin/sh\necho hi\n"), None);
+    }
 
     #[test]
     fn launched_command_matches_its_windows() {

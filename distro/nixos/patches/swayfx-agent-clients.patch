@@ -1,0 +1,54 @@
+diff --git a/sway/server.c b/sway/server.c
+index 8526b82..6d51bbc 100644
+--- a/sway/server.c
++++ b/sway/server.c
+@@ -61,6 +61,7 @@
+ #include "sway/config.h"
+ #include "sway/desktop/idle_inhibit_v1.h"
+ #include "sway/input/input-manager.h"
++#include "sway/input/seat.h"
+ #include "sway/output.h"
+ #include "sway/server.h"
+ #include "sway/input/cursor.h"
+@@ -132,6 +133,31 @@ static bool is_privileged(const struct wl_global *global) {
+ 		global == server.workspace_manager_v1->global;
+ }
+ 
++// SlateOS: the apps an agent launches for itself connect through a Wayland socket that
++// the owner of the agent's seat (slate-desktop) created with this sandbox engine and
++// the seat's name as instance id. Of the seats they see that one only, so toolkits
++// that use a single seat (Chromium, Electron) take the agent's input and not the
++// person's. Like any client with a security context they get no privileged protocol:
++// a Flatpak app started this way, which cannot nest its own context, keeps its
++// sandbox's limits.
++#define SLATE_AGENT_ENGINE "dev.benchgrid.slate.agent"
++
++static bool agent_client_sees_seat(const struct wlr_security_context_v1_state *context,
++		const struct wl_global *global) {
++	if (context == NULL || context->sandbox_engine == NULL ||
++			strcmp(context->sandbox_engine, SLATE_AGENT_ENGINE) != 0) {
++		return true;
++	}
++	struct sway_seat *seat;
++	wl_list_for_each(seat, &server.input->seats, link) {
++		if (seat->wlr_seat->global == global) {
++			return context->instance_id != NULL &&
++				strcmp(seat->wlr_seat->name, context->instance_id) == 0;
++		}
++	}
++	return true;
++}
++
+ static bool filter_global(const struct wl_client *client,
+ 		const struct wl_global *global, void *data) {
+ #if WLR_HAS_XWAYLAND
+@@ -149,6 +175,9 @@ static bool filter_global(const struct wl_client *client,
+ 	if (is_privileged(global)) {
+ 		return security_context == NULL;
+ 	}
++	if (!agent_client_sees_seat(security_context, global)) {
++		return false;
++	}
+ 
+ 	return true;
+ }

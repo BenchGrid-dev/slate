@@ -137,6 +137,9 @@ let
         # `seat <name> lock_exempt yes`: what lets the agent keep working behind the
         # lock screen, when the person allows it (desktop.agentWhileLocked).
         ./patches/swayfx-lock-exempt.patch
+        # Chromium-based apps the agent launches for itself see only its seat, so they
+        # take its input (slate-desktop's agent socket, a security context).
+        ./patches/swayfx-agent-clients.patch
       ];
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
@@ -1011,6 +1014,8 @@ in
       # NixOS gives every unit a minimal PATH; apps the agent launches must resolve
       # like the user's own, so put the system and per-user profiles on it.
       path = [ pkg "/run/wrappers" "/etc/profiles/per-user/%u" "/run/current-system/sw" ];
+      # SwayFX here carries the patch that shows the agent's apps only its seat.
+      environment = lib.mkIf cfg.desktop.effects { SLATE_DESKTOP_AGENT_DISPLAY = "1"; };
       serviceConfig = {
         ExecStart = "${pkg}/bin/slate-desktop daemon";
         Restart = "always";

@@ -35,8 +35,9 @@ Tier: confirm. Say what it is and how big the download is (the first app of a ki
 
 The desktop tools work on Flatpak apps as on any other; what they can do depends on the app's toolkit, not on Flatpak:
 
-- GTK, Qt and Electron apps (Flatseal, Obsidian, VS Code) have an accessibility tree: start with `desktop_elements` and `desktop_element_click`. GTK4 and Electron apps ignore the agent seat's keyboard and pointer; where an element action is not enough (typing into an Electron text field), use `seat: "user"`.
-- Apps that draw their own interface (WeChat, most games) have no tree: work from window screenshots with `desktop_click` and `desktop_type`, and retry with `seat: "user"` when input has no visible effect.
+- GTK, Qt and Electron apps (Flatseal, Obsidian, VS Code) have an accessibility tree: start with `desktop_elements` and `desktop_element_click`.
+- Apps that draw their own interface (WeChat, most games) have no tree: work from window screenshots with `desktop_click` and `desktop_type`.
+- Your seat's keyboard and pointer work in all of them, with one exception: an Electron app the user opened listens only to theirs (there, element actions, or `seat: "user"` when you must type). One you open in the background listens only to yours; close it when you are done (see the windows skill).
 - An app's files live in `~/.var/app/<ID>`; files elsewhere reach it only through the file chooser or the folders it was granted (`flatpak info --show-permissions <ID>`).
 
 ## Update / remove

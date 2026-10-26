@@ -29,6 +29,9 @@ use wayland_protocols::ext::image_copy_capture::v1::client::{
 use wayland_protocols::ext::transient_seat::v1::client::{
     ext_transient_seat_manager_v1 as tseat_mgr, ext_transient_seat_v1 as tseat,
 };
+use wayland_protocols::wp::security_context::v1::client::{
+    wp_security_context_manager_v1 as sc_mgr, wp_security_context_v1 as sc,
+};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
     zwp_virtual_keyboard_manager_v1 as vk_mgr, zwp_virtual_keyboard_v1 as vk,
 };
@@ -36,14 +39,30 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
     zwlr_virtual_pointer_manager_v1 as vp_mgr, zwlr_virtual_pointer_v1 as vp,
 };
 
+/// The sandbox engine slate-desktop names in the security context of the Wayland socket
+/// it opens for the apps the agent launches. SlateOS's SwayFX shows such clients the seat
+/// named by the context's instance id and no other.
+pub const AGENT_ENGINE: &str = "dev.benchgrid.slate.agent";
+
+/// A Wayland socket of the compositor's whose clients see only the agent's seat.
+struct AgentDisplay {
+    path: std::path::PathBuf,
+    _listener: std::os::unix::net::UnixListener,
+    /// The compositor stops accepting on the socket once this (the pipe's write end)
+    /// closes, with the daemon.
+    _close: OwnedFd,
+    _context: sc::WpSecurityContextV1,
+}
+
 /// Which seat an input action uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Seat {
     /// The agent's own transient seat. The human keeps their mouse and keyboard.
     #[default]
     Agent,
-    /// The human's seat (seat0). Needed for toolkits that only bind the first
-    /// seat (GTK4); takes over the user's input while the action runs.
+    /// The human's seat (seat0). Needed for toolkits that only bind the first seat
+    /// (Chromium) in apps the person opened; takes over the user's input while the
+    /// action runs.
     User,
 }
 
@@ -110,6 +129,8 @@ pub struct Desktop {
     tl_source_mgr: Option<tl_source_mgr::ExtForeignToplevelImageCaptureSourceManagerV1>,
     _toplevel_list: list::ExtForeignToplevelListV1,
     _transient: tseat::ExtTransientSeatV1,
+    security_mgr: Option<sc_mgr::WpSecurityContextManagerV1>,
+    agent_display: Option<AgentDisplay>,
     pub seat_name: Option<u32>,
     agent_seat: wl_seat::WlSeat,
     user_seat: wl_seat::WlSeat,
@@ -123,7 +144,7 @@ pub struct Desktop {
     /// on the background screen.
     agent_pointer_shown: Option<Instant>,
     keyboard: vk::ZwpVirtualKeyboardV1,
-    /// Virtual devices on the user's own seat, for the GTK4 fallback.
+    /// Virtual devices on the user's own seat, for the first-seat-only fallback.
     user_pointer: vp::ZwlrVirtualPointerV1,
     user_keyboard: vk::ZwpVirtualKeyboardV1,
     keymap: Option<Keymap>,
@@ -175,6 +196,7 @@ impl Desktop {
         let vk_mgr: vk_mgr::ZwpVirtualKeyboardManagerV1 = globals
             .bind(&qh, 1..=1, ())
             .context("zwp_virtual_keyboard_manager_v1")?;
+        let security_mgr = globals.bind(&qh, 1..=1, ()).ok();
 
         // Outputs.
         globals.contents().with_list(|list| {
@@ -251,6 +273,8 @@ impl Desktop {
             tl_source_mgr,
             _toplevel_list: toplevel_list,
             _transient: transient,
+            security_mgr,
+            agent_display: None,
             seat_name: Some(seat_name),
             agent_seat: seat.clone(),
             user_seat: user_seat.clone(),
@@ -275,6 +299,52 @@ impl Desktop {
         d.ensure_us(Seat::Agent)?;
         d.ensure_us(Seat::User)?;
         Ok(d)
+    }
+
+    /// Open a Wayland socket whose clients see only the agent's seat: toolkits that use
+    /// a single seat (Chromium, Electron) then take the agent's input. The compositor must
+    /// filter globals by security context (SlateOS's SwayFX); elsewhere such clients only
+    /// lose privileged protocols, so the daemon opens it when told the compositor can.
+    pub fn open_agent_display(&mut self) -> Result<()> {
+        use std::os::fd::FromRawFd;
+        let mgr = self
+            .security_mgr
+            .clone()
+            .ok_or_else(|| anyhow!("the compositor has no wp_security_context_manager_v1"))?;
+        let seat = self
+            .seat_display_name(Seat::Agent)
+            .ok_or_else(|| anyhow!("the agent seat has no name yet"))?;
+        let path = slate_proto::desktop_socket_path().with_file_name("agent-wayland");
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path)
+            .with_context(|| format!("binding {}", path.display()))?;
+        let mut fds = [0i32; 2];
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            return Err(std::io::Error::last_os_error()).context("pipe");
+        }
+        let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        for fd in fds {
+            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+        }
+        let context = mgr.create_listener(listener.as_fd(), read.as_fd(), &self.qh, ());
+        context.set_sandbox_engine(AGENT_ENGINE.into());
+        context.set_app_id("slate-desktop".into());
+        context.set_instance_id(seat);
+        context.commit();
+        self.roundtrip()?;
+        drop(read);
+        self.agent_display = Some(AgentDisplay {
+            path,
+            _listener: listener,
+            _close: write,
+            _context: context,
+        });
+        Ok(())
+    }
+
+    /// The socket for apps the agent launches for itself, if one is open.
+    pub fn agent_display(&self) -> Option<&std::path::Path> {
+        self.agent_display.as_ref().map(|a| a.path.as_path())
     }
 
     /// Give clients time to bind a freshly created seat before injecting input.
@@ -1011,6 +1081,8 @@ delegate_noop!(State: ignore wl_shm::WlShm);
 delegate_noop!(State: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(State: ignore wl_buffer::WlBuffer);
 delegate_noop!(State: tseat_mgr::ExtTransientSeatManagerV1);
+delegate_noop!(State: sc_mgr::WpSecurityContextManagerV1);
+delegate_noop!(State: sc::WpSecurityContextV1);
 delegate_noop!(State: vp_mgr::ZwlrVirtualPointerManagerV1);
 delegate_noop!(State: vp::ZwlrVirtualPointerV1);
 delegate_noop!(State: vk_mgr::ZwpVirtualKeyboardManagerV1);

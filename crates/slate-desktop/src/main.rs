@@ -47,7 +47,7 @@ usage:
   slate-desktop move X Y
   slate-desktop type TEXT
   slate-desktop key COMBO                 e.g. ctrl+l, Return, alt+Tab
-      input commands take --seat agent|user (user = borrow the human's seat, for GTK4 apps)
+      input commands take --seat agent|user (user = borrow the human's seat, for Chromium apps the user opened)
       and --window W (focus that window first; click/move coordinates become window-relative)
   slate-desktop elements WINDOW [QUERY]   interactive elements from the accessibility tree
   slate-desktop read WINDOW               readable text from the accessibility tree

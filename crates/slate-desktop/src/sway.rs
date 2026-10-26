@@ -35,6 +35,9 @@ pub struct WindowGeometry {
     pub z: usize,
     /// Title bar drawn by the compositor (relative to the workspace origin); zero height = none.
     pub deco: Rect,
+    /// The client connected through slate-desktop's agent socket: it sees only the
+    /// agent's seat.
+    pub agent_only: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -357,6 +360,8 @@ fn walk(
                 width: 0,
                 height: 0,
             }),
+            agent_only: node.get("sandbox_engine").and_then(Value::as_str)
+                == Some(crate::wayland::AGENT_ENGINE),
         });
     }
     for key in ["nodes", "floating_nodes"] {
