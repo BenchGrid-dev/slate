@@ -336,106 +336,6 @@ def save_slash_config(cfg):
         f.write("\n".join(lines) + "\n")
 
 
-class AIPage(Gtk.Box):
-    """Slate AI: which agent runs slash, how it is signed in, how chatty it is."""
-
-    BACKENDS = ["claude", "codex"]
-
-    def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.cfg = load_slash_config()
-        page = Adw.PreferencesPage()
-        self.append(page)
-
-        agent = Adw.PreferencesGroup(title="Agent", description="Slate drives the official Claude Code or Codex CLI with your own subscription. Changes apply to new sessions.")
-        page.add(agent)
-        self.backend = Adw.ComboRow(title="Backend", model=Gtk.StringList.new(["Claude Code", "Codex"]))
-        self.backend.set_selected(self.BACKENDS.index(self.cfg.get("backend", "claude")) if self.cfg.get("backend", "claude") in self.BACKENDS else 0)
-        self.backend.connect("notify::selected", lambda *_: self.set_value(["backend"], self.BACKENDS[self.backend.get_selected()]))
-        agent.add(self.backend)
-        self.model = Adw.EntryRow(title="Claude model (sonnet, opus, haiku or a model id)")
-        self.model.set_text(str(self.cfg.get("claude", {}).get("model") or ""))
-        self.model.connect("apply", lambda *_: self.set_value(["claude", "model"], self.model.get_text().strip() or None))
-        self.model.set_show_apply_button(True)
-        agent.add(self.model)
-        self.codex_model = Adw.EntryRow(title="Codex model (empty keeps Codex's default)")
-        self.codex_model.set_text(str(self.cfg.get("codex", {}).get("model") or ""))
-        self.codex_model.connect("apply", lambda *_: self.set_value(["codex", "model"], self.codex_model.get_text().strip() or None))
-        self.codex_model.set_show_apply_button(True)
-        agent.add(self.codex_model)
-
-        signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in happens in the agent's own CLI (a terminal opens). Slate never sees your credentials.")
-        page.add(signin)
-        self.claude_row = Adw.ActionRow(title="Claude Code")
-        self.add_auth_buttons(self.claude_row, ["claude", "auth", "login"], ["claude", "auth", "logout"])
-        signin.add(self.claude_row)
-        self.codex_row = Adw.ActionRow(title="Codex")
-        self.add_auth_buttons(self.codex_row, ["codex", "login"], ["codex", "logout"])
-        signin.add(self.codex_row)
-        self.refresh_auth()
-
-        behaviour = Adw.PreferencesGroup(title="Behaviour")
-        page.add(behaviour)
-        self.verbose = Adw.SwitchRow(title="Verbose log", subtitle="Show raw agent events, tool details and session ids in slash (also /verbose)")
-        self.verbose.set_active(bool(self.cfg.get("verbose", False)))
-        self.verbose.connect("notify::active", lambda *_: self.set_value(["verbose"], self.verbose.get_active()))
-        behaviour.add(self.verbose)
-        self.auto = Adw.SwitchRow(title="Bypass approvals by default", subtitle="Start every session as /auto on: actions that would ask for confirmation just run (still audited, still undoable)")
-        self.auto.set_active(bool(self.cfg.get("auto_approve", False)))
-        self.auto.connect("notify::active", lambda *_: self.set_value(["auto_approve"], self.auto.get_active()))
-        behaviour.add(self.auto)
-        restart = Adw.ActionRow(title="Restart the Slate prompt", subtitle="Applies the settings above to the prompt in the top-right corner")
-        btn = Gtk.Button(label="Restart", valign=Gtk.Align.CENTER)
-        btn.connect("clicked", self.restart_prompt)
-        restart.add_suffix(btn)
-        behaviour.add(restart)
-        config_row = Adw.ActionRow(title="Configuration file", subtitle=SLASH_CONFIG)
-        behaviour.add(config_row)
-
-    def set_value(self, path, value):
-        node = self.cfg
-        for k in path[:-1]:
-            node = node.setdefault(k, {})
-        if value is None:
-            node.pop(path[-1], None)
-        else:
-            node[path[-1]] = value
-        save_slash_config(self.cfg)
-
-    def add_auth_buttons(self, row, login_cmd, logout_cmd):
-        login = Gtk.Button(label="Sign in…", valign=Gtk.Align.CENTER)
-        login.connect("clicked", lambda *_: self.run_in_terminal(login_cmd))
-        logout = Gtk.Button(label="Sign out", valign=Gtk.Align.CENTER, css_classes=["flat"])
-        logout.connect("clicked", lambda *_: (run(logout_cmd), self.refresh_auth()))
-        row.add_suffix(login)
-        row.add_suffix(logout)
-
-    def run_in_terminal(self, cmd):
-        # The CLI opens a browser and waits for the code; leave a shell so the window stays readable.
-        subprocess.Popen(["foot", "-e", "sh", "-c", " ".join(cmd) + '; echo; echo "Done. You can close this window."; exec ${SHELL:-sh}'])
-        GLib.timeout_add_seconds(15, lambda: (self.refresh_auth(), False)[1])
-
-    def refresh_auth(self):
-        def work():
-            claude = run(["claude", "auth", "status"])
-            try:
-                st = json.loads(claude)
-                who = st.get("email") or st.get("account") or st.get("authMethod") or ""
-                claude_text = f"Signed in ({who})" if st.get("loggedIn") else "Not signed in"
-            except Exception:  # noqa: BLE001
-                claude_text = "claude not installed" if not claude else claude.splitlines()[0]
-            codex = run(["codex", "login", "status"])
-            codex_text = codex.splitlines()[0] if codex else "codex not installed"
-            GLib.idle_add(self.claude_row.set_subtitle, claude_text)
-            GLib.idle_add(self.codex_row.set_subtitle, codex_text)
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def restart_prompt(self, *_):
-        subprocess.run(["pkill", "-f", "bin/.slate-shell-wrapped"], check=False)
-        subprocess.Popen(["slate-shell", "--hidden"])
-
-
 class AppearancePage(Gtk.Box):
     """Dark or light, and the desktop background; applied through slate-theme."""
 
@@ -599,6 +499,244 @@ def in_thread(work, done):
             res = e
         GLib.idle_add(lambda: (done(res), False)[1])
     threading.Thread(target=go, daemon=True).start()
+
+
+# What the agent may do in windows while the screen is locked (slate-desktop's lock.rs),
+# safest first: (value, title, subtitle, confirmation heading and body when choosing it).
+WHILE_LOCKED = [
+    ("pause", "Pause", "It can look at windows but not use them until you unlock. Its commands keep running. The safest.", None),
+    ("elements", "Press buttons and fill in fields",
+     "Through the apps' accessibility interface, not with its keyboard and pointer. It can also open and close windows.",
+     ("Let the agent use windows while the screen is locked?",
+      "While you are away it can press buttons, fill in fields, and open and close windows. You see what it did only when you come back. "
+      "The lock still keeps everyone else out.")),
+    ("continue", "Keep working",
+     "Its keyboard and pointer keep working in the windows behind the lock screen, never on it.",
+     ("Let the agent keep working while the screen is locked?",
+      "While you are away it can type and click in your windows as if the screen were unlocked, with no one watching. "
+      "The lock still keeps everyone else out, and the agent cannot unlock it.")),
+]
+KEEP_AWAKE = ("Keep the screen unlocked while the agent works?",
+              "While the agent uses the screen, it will not lock or turn off when you are away, and anyone at the computer can use it: "
+              "your files, your accounts and the agent itself. It locks a minute after the agent stops. Super+L and sleeping still lock.")
+SLATEOS_SETTINGS = "/run/current-system/sw/bin/slateos-settings"
+
+
+class AIPage(Page):
+    """Slate AI: which agent runs slash, how it is signed in, how chatty it is, and what
+    it may do while you are away."""
+
+    BACKENDS = ["claude", "codex"]
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.cfg = load_slash_config()
+        page = self.page
+
+        agent = Adw.PreferencesGroup(title="Agent", description="Slate drives the official Claude Code or Codex CLI with your own subscription. Changes apply to new sessions.")
+        page.add(agent)
+        self.backend = Adw.ComboRow(title="Backend", model=Gtk.StringList.new(["Claude Code", "Codex"]))
+        self.backend.set_selected(self.BACKENDS.index(self.cfg.get("backend", "claude")) if self.cfg.get("backend", "claude") in self.BACKENDS else 0)
+        self.backend.connect("notify::selected", lambda *_: self.set_value(["backend"], self.BACKENDS[self.backend.get_selected()]))
+        agent.add(self.backend)
+        self.model = Adw.EntryRow(title="Claude model (sonnet, opus, haiku or a model id)")
+        self.model.set_text(str(self.cfg.get("claude", {}).get("model") or ""))
+        self.model.connect("apply", lambda *_: self.set_value(["claude", "model"], self.model.get_text().strip() or None))
+        self.model.set_show_apply_button(True)
+        agent.add(self.model)
+        self.codex_model = Adw.EntryRow(title="Codex model (empty keeps Codex's default)")
+        self.codex_model.set_text(str(self.cfg.get("codex", {}).get("model") or ""))
+        self.codex_model.connect("apply", lambda *_: self.set_value(["codex", "model"], self.codex_model.get_text().strip() or None))
+        self.codex_model.set_show_apply_button(True)
+        agent.add(self.codex_model)
+
+        signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in happens in the agent's own CLI (a terminal opens). Slate never sees your credentials.")
+        page.add(signin)
+        self.claude_row = Adw.ActionRow(title="Claude Code")
+        self.add_auth_buttons(self.claude_row, ["claude", "auth", "login"], ["claude", "auth", "logout"])
+        signin.add(self.claude_row)
+        self.codex_row = Adw.ActionRow(title="Codex")
+        self.add_auth_buttons(self.codex_row, ["codex", "login"], ["codex", "logout"])
+        signin.add(self.codex_row)
+        self.refresh_auth()
+
+        behaviour = Adw.PreferencesGroup(title="Behaviour")
+        page.add(behaviour)
+        self.verbose = Adw.SwitchRow(title="Verbose log", subtitle="Show raw agent events, tool details and session ids in slash (also /verbose)")
+        self.verbose.set_active(bool(self.cfg.get("verbose", False)))
+        self.verbose.connect("notify::active", lambda *_: self.set_value(["verbose"], self.verbose.get_active()))
+        behaviour.add(self.verbose)
+        self.auto = Adw.SwitchRow(title="Bypass approvals by default", subtitle="Start every session as /auto on: actions that would ask for confirmation just run (still audited, still undoable)")
+        self.auto.set_active(bool(self.cfg.get("auto_approve", False)))
+        self.auto.connect("notify::active", lambda *_: self.set_value(["auto_approve"], self.auto.get_active()))
+        behaviour.add(self.auto)
+        restart = Adw.ActionRow(title="Restart the Slate prompt", subtitle="Applies the settings above to the prompt in the top-right corner")
+        btn = Gtk.Button(label="Restart", valign=Gtk.Align.CENTER)
+        btn.connect("clicked", self.restart_prompt)
+        restart.add_suffix(btn)
+        behaviour.add(restart)
+        config_row = Adw.ActionRow(title="Configuration file", subtitle=SLASH_CONFIG)
+        behaviour.add(config_row)
+        self.add_away(page)
+
+    # ---- while you are away: root's choices (slateos-settings), behind the password
+
+    def add_away(self, page):
+        agent = system_settings().get("agent")
+        try:
+            effective = json.loads(run([SLATEOS_SETTINGS, "show"]) or "{}").get("effective", {})
+        except ValueError:
+            effective = {}
+        self.while_locked = effective.get("agent-while-locked", "pause")
+        self.keep_locking = effective.get("lock-while-agent-works", "yes") == "yes"
+        offered = (agent or {}).get("whileLockedChoices", [])
+        note = "Changes need your password, so the agent cannot make them itself."
+        if agent is None:
+            note = "This system does not offer these choices yet (it runs without the SlateOS module's desktop, or a version before 0.2)."
+        elif agent.get("whileLocked") is not None or agent.get("lockWhileWorking") is not None:
+            note += " Choices the system configuration sets cannot be changed here."
+        locked = Adw.PreferencesGroup(
+            title="When the Screen Is Locked",
+            description="The lock keeps others out while you are away. This is what the agent may do in your windows meanwhile. " + note)
+        page.add(locked)
+        self.away_radios = {}
+        first = None
+        for value, title, sub, _confirm in WHILE_LOCKED:
+            row = Adw.ActionRow(title=title, subtitle=sub, activatable=True)
+            radio = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
+            first = first or radio
+            radio.set_active(value == self.while_locked)
+            radio.connect("toggled", lambda r, v=value: r.get_active() and self.choose_while_locked(v))
+            row.add_prefix(radio)
+            row.set_activatable_widget(radio)
+            if value not in offered or (agent or {}).get("whileLocked") is not None:
+                row.set_sensitive(False)
+                if value == "continue" and agent is not None and value not in offered:
+                    row.set_subtitle(sub + " Needs the desktop's effects (SwayFX), which let the agent's seat past the lock.")
+            locked.add(row)
+            self.away_radios[value] = radio
+
+        awake = Adw.PreferencesGroup()
+        page.add(awake)
+        self.keep_locking_row = Adw.SwitchRow(
+            title="Lock while the agent works",
+            subtitle="Off: while the agent uses the screen it stays unlocked and on, and anyone at the computer can use it.")
+        self.keep_locking_row.set_active(self.keep_locking)
+        self.keep_locking_row.set_sensitive(agent is not None and agent.get("lockWhileWorking") is None)
+        self.keep_locking_row.connect("notify::active", lambda r, *_: self.choose_keep_locking(r.get_active()))
+        awake.add(self.keep_locking_row)
+        self.away_busy = False
+
+    def choose_while_locked(self, value):
+        if self.away_busy or value == self.while_locked:
+            return
+        safer = [v for v, *_ in WHILE_LOCKED].index(value) < [v for v, *_ in WHILE_LOCKED].index(self.while_locked)
+        confirm = next(c for v, _t, _s, c in WHILE_LOCKED if v == value)
+        title = next(t for v, t, *_ in WHILE_LOCKED if v == value)
+        self.confirm_away(None if safer else confirm, f"To change what the agent may do while the screen is locked: {title}.",
+                          "agent-while-locked", value, self.revert_away)
+
+    def choose_keep_locking(self, active):
+        if self.away_busy or active == self.keep_locking:
+            return
+        self.confirm_away(None if active else KEEP_AWAKE,
+                          "To let the screen lock while the agent works." if active
+                          else "To keep the screen unlocked while the agent works.",
+                          "lock-while-agent-works", "yes" if active else "no", self.revert_away)
+
+    def confirm_away(self, confirm, why, key, value, revert):
+        if confirm is None:
+            self.set_away(why, key, value)
+            return
+        d = Adw.AlertDialog(heading=confirm[0], body=confirm[1])
+        d.add_response("cancel", "Cancel")
+        d.add_response("ok", "Allow")
+        d.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_default_response("cancel")
+        d.set_close_response("cancel")
+        d.connect("response", lambda _d, resp: self.set_away(why, key, value) if resp == "ok" else revert())
+        d.present(self.win)
+
+    def set_away(self, why, key, value):
+        env = dict(os.environ, SLATE_ASKPASS_TITLE="Settings needs your password", SLATE_ASKPASS_BODY=why)
+        # -k: always the password, never sudo's cached credentials (which a click by
+        # the agent within minutes of the person's own change would ride on).
+        cmd = ["sudo", "-k", "-A", SLATEOS_SETTINGS, "set", key, value]
+        self.away_busy = True
+
+        def work():
+            p = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+            return p.returncode, (p.stderr or p.stdout).strip()
+
+        def done(res):
+            self.away_busy = False
+            code, msg = (1, str(res)) if isinstance(res, Exception) else res
+            if code == 0:
+                if key == "agent-while-locked":
+                    self.while_locked = value
+                else:
+                    self.keep_locking = value == "yes"
+                    run(["systemctl", "--user", "restart", "slate-idle.service"])
+                self.toast("Saved.")
+                return
+            self.revert_away()
+            if all(line.startswith("sudo:") for line in msg.splitlines() if line.strip()):
+                self.toast("Nothing changed: the password was not given.")
+            else:
+                err = Adw.AlertDialog(heading="Nothing was changed", body=msg[-600:])
+                err.add_response("ok", "OK")
+                err.present(self.win)
+
+        in_thread(work, done)
+
+    def revert_away(self):
+        self.away_busy = True
+        self.away_radios[self.while_locked].set_active(True)
+        self.keep_locking_row.set_active(self.keep_locking)
+        self.away_busy = False
+
+    def set_value(self, path, value):
+        node = self.cfg
+        for k in path[:-1]:
+            node = node.setdefault(k, {})
+        if value is None:
+            node.pop(path[-1], None)
+        else:
+            node[path[-1]] = value
+        save_slash_config(self.cfg)
+
+    def add_auth_buttons(self, row, login_cmd, logout_cmd):
+        login = Gtk.Button(label="Sign in…", valign=Gtk.Align.CENTER)
+        login.connect("clicked", lambda *_: self.run_in_terminal(login_cmd))
+        logout = Gtk.Button(label="Sign out", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        logout.connect("clicked", lambda *_: (run(logout_cmd), self.refresh_auth()))
+        row.add_suffix(login)
+        row.add_suffix(logout)
+
+    def run_in_terminal(self, cmd):
+        # The CLI opens a browser and waits for the code; leave a shell so the window stays readable.
+        subprocess.Popen(["foot", "-e", "sh", "-c", " ".join(cmd) + '; echo; echo "Done. You can close this window."; exec ${SHELL:-sh}'])
+        GLib.timeout_add_seconds(15, lambda: (self.refresh_auth(), False)[1])
+
+    def refresh_auth(self):
+        def work():
+            claude = run(["claude", "auth", "status"])
+            try:
+                st = json.loads(claude)
+                who = st.get("email") or st.get("account") or st.get("authMethod") or ""
+                claude_text = f"Signed in ({who})" if st.get("loggedIn") else "Not signed in"
+            except Exception:  # noqa: BLE001
+                claude_text = "claude not installed" if not claude else claude.splitlines()[0]
+            codex = run(["codex", "login", "status"])
+            codex_text = codex.splitlines()[0] if codex else "codex not installed"
+            GLib.idle_add(self.claude_row.set_subtitle, claude_text)
+            GLib.idle_add(self.codex_row.set_subtitle, codex_text)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def restart_prompt(self, *_):
+        subprocess.run(["pkill", "-f", "bin/.slate-shell-wrapped"], check=False)
+        subprocess.Popen(["slate-shell", "--hidden"])
 
 
 # ---- Network ----------------------------------------------------------------------
@@ -1636,7 +1774,7 @@ class Window(Adw.ApplicationWindow):
             ("Power", "battery-good-symbolic", lambda: PowerPage(self)),
             ("Printers", "printer-symbolic", lambda: PrintersPage(self)),
             ("Slate", "starred-symbolic", SlatePage),
-            ("AI", "system-run-symbolic", AIPage),
+            ("AI", "system-run-symbolic", lambda: AIPage(self)),
         ]
         for name, icon, ctor in pages:
             row = Gtk.ListBoxRow()

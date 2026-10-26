@@ -25,6 +25,18 @@ That is wlroots-based compositors today. GNOME and KDE do not expose these to cl
 
 On the SlateOS desktop sway has a second, headless output (`HEADLESS-1`, workspace `agent`). `desktop_launch` opens windows there unless `where: "here"`; `desktop_show` and `desktop_hide` move windows between the screens; `desktop_windows` shows each window's `location`. The agent seat has one virtual pointer per output and routes clicks by layout coordinates, so windows on either screen can be driven the same way. Without a headless output (plain sway), everything opens on the user's screen.
 
+## The locked screen
+
+While a screen locker runs (swaylock), the person decides what the agent may do in windows: `agentWhileLocked` in the system's settings.json, which only root writes (`slateos-settings`, behind the person's password; SlateOS's Settings, AI), or `services.slate.desktop.agentWhileLocked`. Without either, `pause`.
+
+| Choice | The agent may |
+|---|---|
+| `pause` | look: windows, elements, text, window screenshots |
+| `elements` | also element actions, and launch, close, move and resize windows; its keyboard and pointer go to the lock screen on stock sway, so they are refused, and so are the element fallbacks that use them |
+| `continue` | everything, when the compositor exempts its seat from the lock: the daemon sends `seat <name> lock_exempt yes` (a SlateOS SwayFX patch), after which sway leaves that seat's focus alone and gives its input to the windows behind the lock screen, never to the lock screen; on a compositor without the patch it acts as `elements` |
+
+`seat: "user"` input is always refused while the screen is locked. `desktop_status` reports the state under `lock`. The daemon also writes the time the agent last used a tool to `$XDG_RUNTIME_DIR/slate/agent-active`, which SlateOS's idle lock waits on when the person lets the agent keep the screen awake.
+
 ## The accessibility tree
 
 `desktop_elements`, `desktop_read`, `desktop_element_click` and `desktop_element_set_text` work through AT-SPI2, the accessibility bus every Linux toolkit speaks. Elements come with a role, a name, a value, states, window-relative extents and their actions; text comes back as text. `desktop_element_click` runs the element's own action (`Action.DoAction`) and `desktop_element_set_text` uses `EditableText`, so neither needs a pointer or a keyboard and both work in toolkits that ignore extra seats (GTK4). Pointer and typing fallbacks kick in when an element has no action or is not editable over the bus.

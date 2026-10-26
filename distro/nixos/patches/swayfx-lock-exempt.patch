@@ -1,0 +1,301 @@
+diff --git a/include/sway/commands.h b/include/sway/commands.h
+index d3be916..0e019fc 100644
+--- a/include/sway/commands.h
++++ b/include/sway/commands.h
+@@ -339,6 +339,7 @@ sway_cmd seat_cmd_hide_cursor;
+ sway_cmd seat_cmd_idle_inhibit;
+ sway_cmd seat_cmd_idle_wake;
+ sway_cmd seat_cmd_keyboard_grouping;
++sway_cmd seat_cmd_lock_exempt;
+ sway_cmd seat_cmd_pointer_constraint;
+ sway_cmd seat_cmd_shortcuts_inhibitor;
+ sway_cmd seat_cmd_xcursor_theme;
+diff --git a/include/sway/config.h b/include/sway/config.h
+index 849411b..0c43c97 100644
+--- a/include/sway/config.h
++++ b/include/sway/config.h
+@@ -247,6 +247,7 @@ struct seat_config {
+ 	enum seat_config_shortcuts_inhibit shortcuts_inhibit;
+ 	enum seat_keyboard_grouping keyboard_grouping;
+ 	uint32_t idle_inhibit_sources, idle_wake_sources;
++	int lock_exempt; // -1 means not set
+ 	struct {
+ 		char *name;
+ 		int size;
+diff --git a/include/sway/input/seat.h b/include/sway/input/seat.h
+index 0766e71..d05459d 100644
+--- a/include/sway/input/seat.h
++++ b/include/sway/input/seat.h
+@@ -115,6 +115,9 @@ struct sway_seat {
+ 
+ 	uint32_t idle_inhibit_sources, idle_wake_sources;
+ 
++	// Created by a client through ext-transient-seat: no person's devices.
++	bool transient;
++
+ 	list_t *deferred_bindings; // struct sway_binding
+ 
+ 	struct sway_input_method_relay im_relay;
+@@ -253,6 +256,15 @@ void seat_idle_notify_activity(struct sway_seat *seat,
+ 
+ bool seat_is_input_allowed(struct sway_seat *seat, struct wlr_surface *surface);
+ 
++/**
++ * Whether a session lock leaves this seat alone (seat <name> lock_exempt yes): only a
++ * transient seat configured by its own name.
++ */
++bool seat_is_lock_exempt(struct sway_seat *seat);
++
++bool seat_has_device(struct sway_seat *seat,
++		struct sway_input_device *input_device);
++
+ void drag_icons_update_position(struct sway_seat *seat);
+ 
+ enum wlr_edges find_resize_edge(struct sway_container *cont,
+diff --git a/sway/commands/seat.c b/sway/commands/seat.c
+index 2d197b6..dd7bfb1 100644
+--- a/sway/commands/seat.c
++++ b/sway/commands/seat.c
+@@ -21,6 +21,7 @@ static const struct cmd_handler seat_handlers[] = {
+ 	{ "idle_inhibit", seat_cmd_idle_inhibit },
+ 	{ "idle_wake", seat_cmd_idle_wake },
+ 	{ "keyboard_grouping", seat_cmd_keyboard_grouping },
++	{ "lock_exempt", seat_cmd_lock_exempt },
+ 	{ "pointer_constraint", seat_cmd_pointer_constraint },
+ 	{ "shortcuts_inhibitor", seat_cmd_shortcuts_inhibitor },
+ 	{ "xcursor_theme", seat_cmd_xcursor_theme },
+diff --git a/sway/commands/seat/lock_exempt.c b/sway/commands/seat/lock_exempt.c
+new file mode 100644
+index 0000000..18675b0
+--- /dev/null
++++ b/sway/commands/seat/lock_exempt.c
+@@ -0,0 +1,26 @@
++#include <string.h>
++#include "sway/commands.h"
++#include "sway/config.h"
++#include "util.h"
++
++// seat <name> lock_exempt yes|no: while the session is locked, this seat keeps its
++// focus and its input reaches the windows behind the lock screen, never the lock
++// screen itself. It applies only to a seat a client created through ext-transient-seat
++// (an agent's virtual seat, which no person types on), configured by its exact name:
++// never to the person's seats, never through "seat *".
++struct cmd_results *seat_cmd_lock_exempt(int argc, char **argv) {
++	struct cmd_results *error = NULL;
++	if ((error = checkarg(argc, "lock_exempt", EXPECTED_EQUAL_TO, 1))) {
++		return error;
++	}
++	struct seat_config *seat_config = config->handler_context.seat_config;
++	if (!seat_config) {
++		return cmd_results_new(CMD_FAILURE, "No seat defined");
++	}
++	if (strcmp(seat_config->name, "*") == 0) {
++		return cmd_results_new(CMD_INVALID,
++			"lock_exempt applies to one transient seat by name, not to *");
++	}
++	seat_config->lock_exempt = parse_boolean(argv[0], false);
++	return cmd_results_new(CMD_SUCCESS, NULL);
++}
+diff --git a/sway/config/seat.c b/sway/config/seat.c
+index f232618..0209997 100644
+--- a/sway/config/seat.c
++++ b/sway/config/seat.c
+@@ -20,6 +20,7 @@ struct seat_config *new_seat_config(const char* name) {
+ 	seat->idle_inhibit_sources = seat->idle_wake_sources = UINT32_MAX;
+ 
+ 	seat->fallback = -1;
++	seat->lock_exempt = -1;
+ 	seat->attachments = create_list();
+ 	if (!sway_assert(seat->attachments,
+ 				"could not allocate seat attachments list")) {
+@@ -179,6 +180,10 @@ void merge_seat_config(struct seat_config *dest, struct seat_config *source) {
+ 	if (source->idle_wake_sources != UINT32_MAX) {
+ 		dest->idle_wake_sources = source->idle_wake_sources;
+ 	}
++
++	if (source->lock_exempt != -1) {
++		dest->lock_exempt = source->lock_exempt;
++	}
+ }
+ 
+ struct seat_config *copy_seat_config(struct seat_config *seat) {
+diff --git a/sway/input/cursor.c b/sway/input/cursor.c
+index fc0f11f..25d9b34 100644
+--- a/sway/input/cursor.c
++++ b/sway/input/cursor.c
+@@ -50,6 +50,10 @@ struct sway_node *node_at_coords(
+ 		if (non_interactive) {
+ 			continue;
+ 		}
++		// An exempt seat's pointer looks through the lock screen.
++		if (layer == root->layers.session_lock && seat_is_lock_exempt(seat)) {
++			continue;
++		}
+ 
+ 		scene_node = wlr_scene_node_at(&layer->node, lx, ly, sx, sy);
+ 		if (scene_node) {
+diff --git a/sway/input/input-manager.c b/sway/input/input-manager.c
+index ffcf8fc..b4ba3f8 100644
+--- a/sway/input/input-manager.c
++++ b/sway/input/input-manager.c
+@@ -440,6 +440,7 @@ static void handle_transient_seat_manager_create_seat(
+ 	snprintf(name, sizeof(name), "transient-%"PRIx64, i++);
+ 	struct sway_seat *seat = seat_create(name);
+ 	if (seat && seat->wlr_seat) {
++		seat->transient = true;
+ 		wlr_transient_seat_v1_ready(transient_seat, seat->wlr_seat);
+ 	} else {
+ 		wlr_transient_seat_v1_deny(transient_seat);
+@@ -659,6 +660,20 @@ void input_manager_apply_seat_config(struct seat_config *seat_config) {
+ 	// attached, add it to the fallback seats.
+ 	struct sway_input_device *input_device = NULL;
+ 	wl_list_for_each(input_device, &server.input->devices, link) {
++		// A device a client created for its transient seat stays there: no seat
++		// config attaches it, so it would otherwise go to the fallback seat whenever
++		// a seat command runs, and the transient seat would be left without input.
++		bool on_transient = false;
++		struct sway_seat *holder = NULL;
++		wl_list_for_each(holder, &server.input->seats, link) {
++			if (holder->transient && seat_has_device(holder, input_device)) {
++				on_transient = true;
++				break;
++			}
++		}
++		if (on_transient) {
++			continue;
++		}
+ 		list_t *seat_list = create_list();
+ 		struct sway_seat *seat = NULL;
+ 		wl_list_for_each(seat, &server.input->seats, link) {
+diff --git a/sway/input/keyboard.c b/sway/input/keyboard.c
+index d182373..014307f 100644
+--- a/sway/input/keyboard.c
++++ b/sway/input/keyboard.c
+@@ -434,6 +434,14 @@ static void handle_key_event(struct sway_keyboard *keyboard,
+ 		struct wlr_keyboard_key_event *event) {
+ 	struct sway_seat *seat = keyboard->seat_device->sway_seat;
+ 	struct wlr_seat *wlr_seat = seat->wlr_seat;
++	// A seat exempt from the session lock never types on the lock screen, whatever
++	// its focus.
++	struct wlr_surface *key_focus = wlr_seat->keyboard_state.focused_surface;
++	if (server.session_lock.lock && seat_is_lock_exempt(seat) && key_focus &&
++			sway_session_lock_has_surface(server.session_lock.lock,
++				wlr_surface_get_root_surface(key_focus))) {
++		return;
++	}
+ 	struct wlr_input_device *wlr_device =
+ 		keyboard->seat_device->input_device->wlr_device;
+ 	char *device_identifier = input_device_get_identifier(wlr_device);
+diff --git a/sway/input/seat.c b/sway/input/seat.c
+index 0434d63..a3ecd63 100644
+--- a/sway/input/seat.c
++++ b/sway/input/seat.c
+@@ -1061,10 +1061,26 @@ void seat_configure_xcursor(struct sway_seat *seat) {
+ 	}
+ }
+ 
++bool seat_has_device(struct sway_seat *seat,
++		struct sway_input_device *input_device) {
++	return seat_get_device(seat, input_device) != NULL;
++}
++
++bool seat_is_lock_exempt(struct sway_seat *seat) {
++	if (!seat->transient) {
++		return false;
++	}
++	struct seat_config *seat_config = seat_get_config(seat);
++	return seat_config && seat_config->lock_exempt == 1;
++}
++
+ bool seat_is_input_allowed(struct sway_seat *seat,
+ 		struct wlr_surface *surface) {
+ 	if (server.session_lock.lock) {
+-		return sway_session_lock_has_surface(server.session_lock.lock, surface);
++		// An exempt seat reaches everything but the lock screen.
++		bool lock_screen = sway_session_lock_has_surface(server.session_lock.lock,
++			wlr_surface_get_root_surface(surface));
++		return seat_is_lock_exempt(seat) ? !lock_screen : lock_screen;
+ 	}
+ 	return true;
+ }
+@@ -1265,7 +1281,7 @@ void seat_set_focus(struct sway_seat *seat, struct sway_node *node) {
+ 	} else {
+ 		seat_set_workspace_focus(seat, node);
+ 	}
+-	if (server.session_lock.lock) {
++	if (server.session_lock.lock && !seat_is_lock_exempt(seat)) {
+ 		seat_set_focus_surface(seat, server.session_lock.lock->focused, false);
+ 	}
+ }
+@@ -1491,6 +1507,23 @@ void seat_apply_config(struct sway_seat *seat,
+ 		cursor_handle_activity_from_device(seat->cursor,
+ 			seat_device->input_device->wlr_device);
+ 	}
++
++	// lock_exempt changed while the session is locked: an exempt seat gets its
++	// window back, a seat no longer exempt goes to the lock screen.
++	if (server.session_lock.lock) {
++		struct wlr_surface *focused = seat->wlr_seat->keyboard_state.focused_surface;
++		bool on_lock_screen = focused && sway_session_lock_has_surface(
++			server.session_lock.lock, wlr_surface_get_root_surface(focused));
++		if (seat_is_lock_exempt(seat) && (!focused || on_lock_screen)) {
++			struct sway_node *previous = seat_get_focus_inactive(seat, &root->node);
++			if (previous) {
++				seat_set_focus(seat, NULL);
++				seat_set_focus(seat, previous);
++			}
++		} else if (!seat_is_lock_exempt(seat) && !on_lock_screen) {
++			seat_set_focus_surface(seat, server.session_lock.lock->focused, false);
++		}
++	}
+ }
+ 
+ struct seat_config *seat_get_config(struct sway_seat *seat) {
+diff --git a/sway/lock.c b/sway/lock.c
+index e70b257..7988a8f 100644
+--- a/sway/lock.c
++++ b/sway/lock.c
+@@ -34,7 +34,9 @@ static void focus_surface(struct sway_session_lock *lock,
+ 
+ 	struct sway_seat *seat;
+ 	wl_list_for_each(seat, &server.input->seats, link) {
+-		seat_set_focus_surface(seat, focused, false);
++		if (!seat_is_lock_exempt(seat)) {
++			seat_set_focus_surface(seat, focused, false);
++		}
+ 	}
+ }
+ 
+@@ -219,6 +221,9 @@ static void handle_unlock(struct wl_listener *listener, void *data) {
+ 
+ 	struct sway_seat *seat;
+ 	wl_list_for_each(seat, &server.input->seats, link) {
++		if (seat_is_lock_exempt(seat)) {
++			continue;
++		}
+ 		// copied from seat_set_focus_layer -- deduplicate?
+ 		struct sway_node *previous = seat_get_focus_inactive(seat, &root->node);
+ 		if (previous) {
+@@ -283,7 +288,9 @@ static void handle_session_lock(struct wl_listener *listener, void *data) {
+ 
+ 	struct sway_seat *seat;
+ 	wl_list_for_each(seat, &server.input->seats, link) {
+-		seat_unfocus_unless_client(seat, client);
++		if (!seat_is_lock_exempt(seat)) {
++			seat_unfocus_unless_client(seat, client);
++		}
+ 	}
+ 
+ 	struct sway_output *output;
+diff --git a/sway/meson.build b/sway/meson.build
+index b8444ea..7531487 100644
+--- a/sway/meson.build
++++ b/sway/meson.build
+@@ -117,6 +117,7 @@ sway_sources = files(
+ 	'commands/seat/hide_cursor.c',
+ 	'commands/seat/idle.c',
+ 	'commands/seat/keyboard_grouping.c',
++	'commands/seat/lock_exempt.c',
+ 	'commands/seat/pointer_constraint.c',
+ 	'commands/seat/shortcuts_inhibitor.c',
+ 	'commands/seat/xcursor_theme.c',

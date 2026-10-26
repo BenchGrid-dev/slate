@@ -131,7 +131,13 @@ let
       ]
       ++ lib.optionals (!finalAttrs.isNixOS) [ "${sway112}/sway-config-no-nix-store-references.patch" ]
       ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ]
-      ++ [ ./patches/swayfx-titlebar-buttons.patch ./patches/swayfx-fit-new-windows.patch ];
+      ++ [
+        ./patches/swayfx-titlebar-buttons.patch
+        ./patches/swayfx-fit-new-windows.patch
+        # `seat <name> lock_exempt yes`: what lets the agent keep working behind the
+        # lock screen, when the person allows it (desktop.agentWhileLocked).
+        ./patches/swayfx-lock-exempt.patch
+      ];
   });
   swayfx06 = pkgs.sway.override { sway-unwrapped = swayfx06-unwrapped; };
 
@@ -233,7 +239,9 @@ let
   # Away from the computer: the lock after `lock_after` seconds without input on the
   # person's seat (seat0; the agent's activity does not count), the screens off after
   # `screen_off_after`, and the lock before the computer sleeps. Both from
-  # ~/.config/slate/idle.json (Settings, Power); 0 turns one off.
+  # ~/.config/slate/idle.json (Settings, Power); 0 turns one off. When the person let
+  # the agent keep the screen awake (lockWhileAgentWorks off, Settings, AI), both wait
+  # for the agent to stop using the screen (slate-idle-wait); sleeping still locks.
   slateIdle = pkgs.writeShellScriptBin "slate-idle" ''
     conf="$HOME/.config/slate/idle.json"
     lock=600 off=900
@@ -241,10 +249,42 @@ let
       lock=$(${pkgs.jq}/bin/jq -r '.lock_after // 600' "$conf")
       off=$(${pkgs.jq}/bin/jq -r '.screen_off_after // 900' "$conf")
     fi
+    wait="" cancel=""
+    if [ "$(${slateosSettings}/bin/slateos-settings get lock-while-agent-works)" = no ]; then
+      wait="${slateIdleWait}/bin/slate-idle-wait " cancel="${slateIdleWait}/bin/slate-idle-wait --cancel; "
+    fi
     set -- -w -S seat0
-    [ "$lock" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$lock" 'slate-lock --idle'
-    [ "$off" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$off" 'slate-screens off' resume 'slate-screens on'
+    [ "$lock" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$lock" "''${wait}slate-lock --idle" resume "''${cancel}true"
+    [ "$off" -gt 0 ] 2>/dev/null && set -- "$@" timeout "$off" "''${wait}slate-screens off" resume "''${cancel}slate-screens on"
     exec ${pkgs.swayidle}/bin/swayidle "$@" before-sleep slate-lock after-resume 'slate-screens on' lock slate-lock
+  '';
+  # slate-idle-wait COMMAND...: run the idle timer's COMMAND once the agent has not
+  # used a desktop tool for a minute (slate-desktop notes the time it last did);
+  # `--cancel`, when the person is back, drops whatever waits. The waiting happens in
+  # the background: swayidle (-w) handles nothing else until a command returns.
+  slateIdleWait = pkgs.writeShellScriptBin "slate-idle-wait" ''
+    dir="$XDG_RUNTIME_DIR/slate/idle-wait"
+    mark="$XDG_RUNTIME_DIR/slate/agent-active"
+    if [ "$1" = --cancel ]; then
+      for f in "$dir"/*; do
+        [ -e "$f" ] || continue
+        kill "''${f##*/}" 2>/dev/null
+        rm -f "$f"
+      done
+      exit 0
+    fi
+    mkdir -p "$dir"
+    (
+      : > "$dir/$BASHPID"
+      while :; do
+        last=$(cat "$mark" 2>/dev/null)
+        case "$last" in ""|*[!0-9]*) last=0 ;; esac
+        [ $(( $(date +%s) - last )) -ge 60 ] && break
+        sleep 5
+      done
+      rm -f "$dir/$BASHPID"
+      exec "$@"
+    ) </dev/null >/dev/null 2>&1 &
   '';
   # The person's screens on or off; the agent's background screen stays on (its apps
   # keep drawing).
@@ -491,6 +531,34 @@ in
       '';
     };
 
+    desktop.agentWhileLocked = lib.mkOption {
+      type = lib.types.nullOr (lib.types.enum [ "pause" "elements" "continue" ]);
+      default = null;
+      example = "elements";
+      description = ''
+        What the agent may do in windows while the screen is locked. "pause": look at
+        them, not use them (the default). "elements": operate them through accessibility
+        (press buttons, fill in fields) and open, close and move them; not the keyboard
+        and pointer. "continue": the keyboard and pointer too, in the windows behind the
+        lock screen, never on it (needs desktop.effects: a SwayFX patch exempts the
+        agent's seat from the lock). Null: the person chooses in Settings, AI, behind
+        their password (`agentWhileLocked` in settings.json, read while the session
+        runs).
+      '';
+    };
+
+    desktop.lockWhileAgentWorks = lib.mkOption {
+      type = lib.types.nullOr lib.types.bool;
+      default = null;
+      description = ''
+        Whether the screen locks and turns off when the person is away while the agent
+        uses it (true, the default). False: both wait until the agent has not used the
+        screen for a minute; anyone at the computer can use it meanwhile. Locking before
+        sleep and Super+L are not affected. Null: the person chooses in Settings, AI
+        (`lockWhileAgentWorks` in settings.json).
+      '';
+    };
+
     desktop.autologinUser = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -534,6 +602,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = cfg.desktop.agentWhileLocked != "continue" || cfg.desktop.effects;
+      message = "services.slate.desktop.agentWhileLocked = \"continue\" needs desktop.effects (SwayFX, which exempts the agent's seat from the lock).";
+    }];
+
     # The system presents itself as SlateOS. It stays NixOS underneath: os-release keeps
     # ID_LIKE=nixos, and nixos-rebuild and friends are unchanged.
     system.nixos.distroName = "SlateOS";
@@ -555,7 +628,7 @@ in
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
         slateSettings slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
-        slateLock slateSessionMenu swayosd slateIdle slateScreens slateBattery slateosSettings
+        slateLock slateSessionMenu swayosd slateIdle slateIdleWait slateScreens slateBattery slateosSettings
         # Advanced network settings (VPN, 802.1X, static addresses), from Settings, Network.
         networkmanagerapplet
         # An app store for Flathub.
@@ -745,6 +818,13 @@ in
       "slate/system-settings.json".text = builtins.toJSON {
         file = cfg.settingsFile;
         inputMethods = { available = builtins.attrNames inputMethodAddons; enabled = inputMethods; };
+        # Null: settings.json decides at run time (slate-desktop, slate-idle).
+        agent = {
+          whileLocked = cfg.desktop.agentWhileLocked;
+          whileLockedChoices = [ "pause" "elements" ]
+            ++ lib.optional cfg.desktop.effects "continue";
+          lockWhileWorking = cfg.desktop.lockWhileAgentWorks;
+        };
       };
     };
     services.greetd = lib.mkIf cfg.desktop.enable {

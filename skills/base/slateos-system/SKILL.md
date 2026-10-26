@@ -36,6 +36,8 @@ sudo slateos-settings set input-methods none
 
 Tier: confirm (a rebuild that downloads the input method, a minute or more). After it, the person switches with Ctrl+Space; apps opened before may need reopening. Settings, Keyboard does the same for the person.
 
+Two more choices govern you, and they are the person's alone: what you may do in windows while the screen is locked (`agent-while-locked`: `pause`, `elements`, `continue`) and whether the screen locks while you work (`lock-while-agent-works`: `yes`, `no`). `slateos-settings get agent-while-locked` reads one (tier: observe). Never change them on your own initiative, and never suggest loosening them to finish a task; when the person asks, point them to Settings, AI, which explains what each choice allows, or run `sudo slateos-settings set agent-while-locked pause` and the like for them (they type their password).
+
 Desktop applications (chat, office, browsers) come from Flathub for the person instead: see the apps-flatpak skill.
 
 ## Root

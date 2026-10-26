@@ -7,6 +7,7 @@
 mod a11y;
 mod daemon;
 mod keymap;
+mod lock;
 mod mcp;
 mod sway;
 mod wayland;

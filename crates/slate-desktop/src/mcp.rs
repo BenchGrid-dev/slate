@@ -2,6 +2,7 @@
 //! plus the shared window/launch helpers the CLI uses.
 
 use crate::a11y::A11y;
+use crate::lock;
 use crate::sway;
 use crate::wayland::{Desktop, Seat};
 use anyhow::{anyhow, Result};
@@ -423,6 +424,11 @@ const POINTER_REST: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Park the agent pointer once it has rested on the person's screen (see POINTER_REST).
 pub fn park_idle_agent_pointer(d: &mut Desktop) {
+    // Not under a lock it is not exempt from: the motion would reach the lock screen,
+    // and in its grace period motion unlocks.
+    if lock::locked() && !lock::exempt() {
+        return;
+    }
     if d.agent_pointer_rested(POINTER_REST) {
         park_agent_pointer(d);
     }
@@ -909,21 +915,6 @@ fn ensure_focus(d: &mut Desktop, seat: Seat, win: &Window) -> Result<()> {
     }
 }
 
-/// Whether a screen locker of this user is running (the compositor does not say).
-fn screen_locked() -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let uid = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
-    let Ok(procs) = std::fs::read_dir("/proc") else {
-        return false;
-    };
-    procs.flatten().any(|p| {
-        let path = p.path();
-        let comm = std::fs::read_to_string(path.join("comm")).unwrap_or_default();
-        matches!(comm.trim(), "swaylock" | ".swaylock-wrapp")
-            && std::fs::metadata(&path).map(|m| m.uid()).ok() == uid
-    })
-}
-
 fn seat_of(args: &Value) -> Seat {
     Seat::parse(args.get("seat").and_then(Value::as_str).unwrap_or("agent"))
 }
@@ -969,7 +960,7 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
     match name {
         "desktop_status" => {
             let bg = background_count(d);
-            return json!({"content": [{"type": "text", "text": json!({"controlling": takeover_active(), "background_windows": bg, "background_screen": background_output().is_some()}).to_string()}]});
+            return json!({"content": [{"type": "text", "text": json!({"controlling": takeover_active(), "background_windows": bg, "background_screen": background_output().is_some(), "lock": lock::status()}).to_string()}]});
         }
         "desktop_takeover_cancel" => {
             takeover_cancel();
@@ -981,16 +972,15 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
         name,
         "desktop_click" | "desktop_type" | "desktop_key" | "desktop_scroll" | "desktop_move"
     );
-    // A locked screen takes every seat's keyboard and pointer: keys would go to the lock
-    // screen (failed unlock attempts) and clicks onto it.
-    if input && screen_locked() {
-        return error(
-            "the screen is locked: keyboard and pointer input cannot reach windows until the \
-             person unlocks it. Reading (desktop_read, desktop_elements, desktop_screenshot of a \
-             window) and element actions (desktop_element_click, desktop_element_set_text) still \
-             work.",
-        );
+    lock::note_activity();
+    // While the screen is locked, the person's choice (lock.rs) decides; a seat the lock
+    // is not lifted for would send keys to the lock screen (failed unlock attempts).
+    let locked = lock::locked();
+    let (policy, exempt) = (lock::policy(), lock::exempt());
+    if let Some(why) = lock::refusal(name, seat_of(args) == Seat::User, locked, policy, exempt) {
+        return error(why);
     }
+    let pointer_ok = lock::input_reaches_windows(locked, policy, exempt);
     if seat_of(args) == Seat::User && input {
         if let Err(e) = takeover_begin() {
             return error(format!("{e:#}"));
@@ -1358,6 +1348,9 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     Some(action) => text(format!("{action} on {what} through the accessibility tree. Check the screenshot below.")),
                     None => {
                         // No action: a pointer click at the element's centre, in its window.
+                        if !pointer_ok {
+                            anyhow::bail!("{what} has no accessibility action, and the pointer cannot reach windows while the screen is locked");
+                        }
                         let (ex, ey, ew, eh) = with_a11y(|a| a.element_extents(id))?;
                         let win = window_of_element(d, id)?;
                         if seat == Seat::User { takeover_begin()?; }
@@ -1381,6 +1374,9 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     ))
                 } else {
                     // Not editable over the bus: focus it and type.
+                    if !pointer_ok {
+                        anyhow::bail!("{what} is not editable over the accessibility bus, and typing cannot reach windows while the screen is locked");
+                    }
                     let win = window_of_element(d, id)?;
                     ensure_focus(d, seat, &win)?;
                     if !with_a11y(|a| a.grab_focus(id))? {

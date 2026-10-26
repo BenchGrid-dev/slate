@@ -6,9 +6,10 @@
 //! The MCP server and the CLI send tool calls here as JSON lines:
 //! `{"name": "...", "args": {...}}` -> the MCP result object.
 
+use crate::lock;
 use crate::mcp;
 use crate::sway;
-use crate::wayland::Desktop;
+use crate::wayland::{Desktop, Seat};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -52,6 +53,15 @@ pub fn run() -> Result<()> {
         "slate-desktop daemon: agent seat ready, listening on {}",
         path.display()
     );
+    // The compositor's name for the agent seat, for `seat <name> lock_exempt`.
+    let seat_name = if sway::available() {
+        desktop.seat_display_name(Seat::Agent)
+    } else {
+        None
+    };
+    if let Some(name) = &seat_name {
+        lock::apply(name);
+    }
     let desktop = Arc::new(Mutex::new(desktop));
     let parking = desktop.clone();
     std::thread::spawn(move || {
@@ -68,6 +78,13 @@ pub fn run() -> Result<()> {
             // next to the background screen.
             if n % 10 == 0 && sway::available() {
                 let _ = sway::fix_layout();
+            }
+            // Every 2 s: the person may have changed what the agent may do while the
+            // screen is locked (Settings, AI).
+            if n % 4 == 0 {
+                if let Some(name) = &seat_name {
+                    lock::apply(name);
+                }
             }
         }
     });

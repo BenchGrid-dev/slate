@@ -51,7 +51,7 @@ Menus, dialogs and new windows appear as new elements: call `desktop_elements` a
 
 Tier: reversible. Closing a window may lose unsaved work: say so before closing an editor or browser with unsaved changes.
 
-When the screen is locked (the person is away, or pressed Super+L), keyboard and pointer tools return an error saying so: reading (`desktop_read`, `desktop_elements`, window screenshots) and element actions (`desktop_element_click`, `desktop_element_set_text`) still work. Wait for the person, or finish with elements; never type into the lock screen.
+When the screen is locked (the person is away, or pressed Super+L), what you may do in windows is the person's choice (Settings, AI; `desktop_status` reports it under `lock`): by default you may look (`desktop_read`, `desktop_elements`, window screenshots) but not use them; they may also allow element actions and opening, closing and moving windows, or everything. A tool that is not allowed returns an error that says so. Then finish what does not need the screen, and tell the person what waits for them when they are back. Never try to get around the lock, and never change these choices yourself.
 
 Your own seat types exactly what you send, whatever input method (Chinese Pinyin, Japanese) the person uses. Text typed with `seat: "user"` goes through the person's input method and may come out converted: prefer your own seat, or `desktop_element_set_text`.
 
