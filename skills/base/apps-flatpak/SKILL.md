@@ -29,7 +29,7 @@ Tier: observe. Some proprietary apps exist only for x86_64 (Chrome, WPS Office, 
 flatpak install --user -y --noninteractive flathub <ID>      # e.g. com.tencent.WeChat
 ```
 
-Tier: confirm. Say what it is and how big the download is (the first app of a kind also downloads its runtime, often several hundred MB). The app appears in the launcher and can be pinned to the dock; start it with `desktop_launch` and `flatpak run <ID>` as the command. The person can also browse Flathub in the Software app (Bazaar) on the dock.
+Tier: confirm. Say what it is and how big the download is (the first app of a kind also downloads its runtime, often several hundred MB). The app appears in the launcher and can be pinned to the dock; start it with `desktop_launch` and `flatpak run <ID>` as the command. A first start can take a while: when `desktop_launch` says the app is still starting, wait and check `desktop_windows` rather than starting it again or from your shell (what you start from your shell opens on your background screen); when it says the app exited, its output says why. The person can also browse Flathub in the Software app (Bazaar) on the dock.
 
 ## Use a Flatpak app
 

@@ -120,9 +120,65 @@ pub(crate) fn summarize_input(name: &str, input: &serde_json::Value) -> String {
         "Glob" | "Grep" => get("pattern").unwrap_or_default(),
         "WebFetch" | "WebSearch" => get("url").or_else(|| get("query")).unwrap_or_default(),
         "Agent" | "Task" => get("description").unwrap_or_default(),
-        _ => {
-            let s = input.to_string();
-            crate::render::truncate(&s, 80)
-        }
+        "Skill" => get("skill").unwrap_or_default(),
+        _ => match input.as_object() {
+            // MCP tools and the rest: `command: flatpak run X, where: here`.
+            Some(fields) => {
+                let pairs: Vec<String> = fields
+                    .iter()
+                    .map(|(k, v)| {
+                        let v = match v {
+                            serde_json::Value::String(s) => short_id(s).to_string(),
+                            other => other.to_string(),
+                        };
+                        format!("{k}: {v}")
+                    })
+                    .collect();
+                crate::render::truncate(&pairs.join(", "), 100)
+            }
+            None => crate::render::truncate(&input.to_string(), 80),
+        },
+    }
+}
+
+/// Window and element ids are 32 hex digits; the first 8 tell them apart on screen.
+fn short_id(s: &str) -> &str {
+    if s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        &s[..8]
+    } else {
+        s
+    }
+}
+
+/// Tools that only load other tools' definitions: not worth a line.
+pub(crate) fn is_plumbing(name: &str) -> bool {
+    name == "ToolSearch"
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn mcp_inputs_read_as_fields() {
+        assert_eq!(
+            summarize_input(
+                "mcp__desktop__desktop_launch",
+                &json!({"command": "flatpak run com.tencent.WeChat", "where": "here"})
+            ),
+            "command: flatpak run com.tencent.WeChat, where: here"
+        );
+        assert_eq!(
+            summarize_input(
+                "mcp__desktop__desktop_click",
+                &json!({"window": "ba7702c5d73b974e6a1c5668dc33f487", "x": 10, "y": 20})
+            ),
+            "window: ba7702c5, x: 10, y: 20"
+        );
+        assert_eq!(
+            summarize_input("Skill", &json!({"skill": "slate-apps-flatpak"})),
+            "slate-apps-flatpak"
+        );
     }
 }

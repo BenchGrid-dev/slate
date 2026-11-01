@@ -851,7 +851,7 @@ impl App {
                         println!(
                             "  {} {} {}",
                             red("✗"),
-                            cyan(&name),
+                            cyan(&render::tool_label(&name)),
                             dim(&render::truncate(detail.lines().next().unwrap_or(""), 100))
                         );
                     } else if verbose && !detail.trim().is_empty() {

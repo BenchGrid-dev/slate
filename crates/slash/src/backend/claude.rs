@@ -49,10 +49,12 @@ impl ClaudeCode {
                         "PostToolUse": [{"hooks": [{"type": "command", "command": format!("{slate} hook post-tool-use")}]}]
                     }
                 });
-                let mut servers = serde_json::json!({"slate": {"command": slate, "args": ["mcp"]}});
+                // `alwaysLoad`: Claude Code would otherwise defer these tools, and the
+                // first use of each would cost a round trip to load its definition
+                // (about 3k tokens for both servers, cached).
+                let mut servers = serde_json::json!({"slate": {"command": slate, "args": ["mcp"], "alwaysLoad": true}});
                 if let Some(d) = req.desktop_bin {
-                    servers["desktop"] =
-                        serde_json::json!({"command": d.display().to_string(), "args": ["serve"]});
+                    servers["desktop"] = serde_json::json!({"command": d.display().to_string(), "args": ["serve"], "alwaysLoad": true});
                 }
                 let mcp = serde_json::json!({ "mcpServers": servers });
                 cmd.env(slate_proto::ENV_TASK, task_id)
@@ -211,6 +213,9 @@ pub fn parse_line(line: &str, tools: &mut std::collections::HashMap<String, Stri
                             if let Some(id) = b.get("id").and_then(Value::as_str) {
                                 tools.insert(id.to_string(), name.clone());
                             }
+                            if super::is_plumbing(&name) {
+                                continue;
+                            }
                             out.push(Event::ToolStart {
                                 detail: summarize_input(&name, &input),
                                 name,
@@ -229,6 +234,9 @@ pub fn parse_line(line: &str, tools: &mut std::collections::HashMap<String, Stri
                     if b.get("type").and_then(Value::as_str) == Some("tool_result") {
                         let id = b.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                         let name = tools.remove(id).unwrap_or_else(|| "tool".into());
+                        if super::is_plumbing(&name) {
+                            continue;
+                        }
                         let is_error = b.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let detail = match b.get("content") {
                             Some(Value::String(s)) => s.clone(),

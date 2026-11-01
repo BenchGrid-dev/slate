@@ -39,9 +39,24 @@ pub fn tool_line(name: &str, detail: &str) -> String {
     format!(
         "  {} {}{}",
         dim("▸"),
-        cyan(name),
+        cyan(&tool_label(name)),
         dim(&format!(": {detail}"))
     )
+}
+
+/// `mcp__desktop__desktop_click` -> `desktop_click`; other MCP tools -> `server: tool`
+/// (as the desktop prompt shows them).
+pub fn tool_label(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix("mcp__") {
+        if let Some((server, tool)) = rest.split_once("__") {
+            return if tool.starts_with(server) {
+                tool.to_string()
+            } else {
+                format!("{server}: {tool}")
+            };
+        }
+    }
+    name.to_string()
 }
 
 pub fn truncate(s: &str, max: usize) -> String {
@@ -300,5 +315,17 @@ mod tests {
     #[test]
     fn a_note_wider_than_the_terminal_gets_a_line_of_its_own() {
         assert_eq!(wrap_notes(13, &NOTES, 20), NOTES);
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::tool_label;
+
+    #[test]
+    fn mcp_tools_get_short_names() {
+        assert_eq!(tool_label("mcp__desktop__desktop_launch"), "desktop_launch");
+        assert_eq!(tool_label("mcp__slate__remember"), "slate: remember");
+        assert_eq!(tool_label("Bash"), "Bash");
     }
 }

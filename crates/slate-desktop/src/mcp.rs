@@ -242,6 +242,8 @@ fn app_matches(command: &str, app_id: &str) -> bool {
     }
     a == c
         || a.ends_with(&format!(".{c}"))
+        // A Flatpak app ID and its window's own name (com.tencent.WeChat, wechat).
+        || c.ends_with(&format!(".{a}"))
         || a.starts_with(&format!("{c}-"))
         || c.starts_with(&format!("{a}-"))
         || (matches!(c, "libreoffice" | "soffice")
@@ -501,11 +503,18 @@ fn resolve(d: &mut Desktop, reference: &str) -> Result<Window> {
 /// (`app-slate-<name>-<n>.scope` in `app.slice`), the way a desktop session starts
 /// applications: left in the daemon's cgroup, every window the agent ever opened,
 /// including the ones it handed to the user, would be killed whenever
-/// slate-desktop.service stops or restarts (an upgrade restarts it). Without a
-/// user systemd, the program is started directly.
-/// Start `cmd` in its own scope; `display`, a Wayland socket other than the session's
-/// (the agent's, whose clients see only its seat).
-pub fn launch(cmd: &str, args: &[String], display: Option<&std::path::Path>) -> Result<u32> {
+/// slate-desktop.service stops or restarts (an upgrade restarts it). Its output goes
+/// to the journal under `ident` (`systemd-cat`), where `launch_output` finds it if it
+/// fails to start. Without a user systemd, the program is started directly, its
+/// output discarded.
+/// `display`: a Wayland socket other than the session's (the agent's, whose clients
+/// see only its seat).
+pub fn launch(
+    cmd: &str,
+    args: &[String],
+    display: Option<&std::path::Path>,
+    ident: &str,
+) -> Result<u32> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(0);
     let scoped = std::env::var_os("XDG_RUNTIME_DIR")
@@ -526,7 +535,7 @@ pub fn launch(cmd: &str, args: &[String], display: Option<&std::path::Path>) -> 
             N.fetch_add(1, Ordering::Relaxed)
         );
         // `--scope` registers systemd-run itself in the scope and then execs the
-        // program, so the pid below is the program's.
+        // program (systemd-cat execs it in turn), so the pid below is the program's.
         let mut c = std::process::Command::new("systemd-run");
         c.args([
             "--user",
@@ -536,8 +545,11 @@ pub fn launch(cmd: &str, args: &[String], display: Option<&std::path::Path>) -> 
             "--slice=app.slice",
         ])
         .arg(format!("--unit={unit}"))
-        .arg("--")
-        .arg(cmd);
+        .arg("--");
+        if which("systemd-cat") {
+            c.args(["systemd-cat", "-t", ident, "--"]);
+        }
+        c.arg(cmd);
         c
     } else {
         std::process::Command::new(cmd)
@@ -552,11 +564,61 @@ pub fn launch(cmd: &str, args: &[String], display: Option<&std::path::Path>) -> 
         .stderr(std::process::Stdio::null())
         .spawn()?;
     let pid = child.id();
-    // Reap it when it exits, or every closed application stays a zombie.
+    // Reap it when it exits, or every closed application stays a zombie; note how it
+    // ended for the launch that waits on it.
     std::thread::spawn(move || {
-        let _ = child.wait();
+        let code = child.wait().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+        let mut e = EXITED.lock().unwrap_or_else(|e| e.into_inner());
+        if e.len() > 64 {
+            e.clear();
+        }
+        e.insert(pid, code);
     });
     Ok(pid)
+}
+
+/// Exit codes of launched programs that ended, by pid (signals as -1).
+static EXITED: std::sync::Mutex<std::collections::BTreeMap<u32, i32>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn exit_code(pid: u32) -> Option<i32> {
+    EXITED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&pid)
+        .copied()
+}
+
+/// The name an application's output is filed under in the journal, and what its
+/// windows' app_id is compared with: a Flatpak app's ID, otherwise the program.
+fn launch_name(cmd: &str, args: &[String]) -> String {
+    let base = cmd.rsplit('/').next().unwrap_or(cmd);
+    if base == "flatpak" {
+        if let Some(id) = flatpak_app(args) {
+            return id.to_string();
+        }
+    }
+    base.to_string()
+}
+
+/// The app ID in `flatpak run [options] ID [args]`.
+fn flatpak_app(args: &[String]) -> Option<&str> {
+    args.iter()
+        .skip_while(|a| *a != "run")
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
+        .map(String::as_str)
+}
+
+/// The last lines a launched program wrote, from the journal (`launch` filed them
+/// under `ident`), since `since` (unix seconds).
+fn launch_output(ident: &str, since: u64) -> String {
+    let out = std::process::Command::new("journalctl")
+        .args(["--user", "-q", "-o", "cat", "-n", "8", "-t", ident])
+        .arg(format!("--since=@{since}"))
+        .output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Whether `cmd` runs a Chromium-based app (Chromium, Chrome, Electron, CEF). Those
@@ -582,12 +644,7 @@ fn chromium_based(cmd: &str, args: &[String]) -> bool {
     }
     let name = cmd.rsplit('/').next().unwrap_or(cmd);
     if name == "flatpak" {
-        let Some(id) = args
-            .iter()
-            .skip_while(|a| *a != "run")
-            .skip(1)
-            .find(|a| !a.starts_with('-'))
-        else {
+        let Some(id) = flatpak_app(args) else {
             return false;
         };
         let Ok(out) = std::process::Command::new("flatpak")
@@ -1525,13 +1582,16 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     .as_deref()
                     .map(|t| t.starts_with("workspace"))
                     .unwrap_or(false);
+                // What its windows' app_id is compared with, and its journal name.
+                let app = launch_name(cmd, &a);
                 if to_background {
+                    // Long enough for a slow first start; one window per launch.
                     PENDING
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .push(PendingLaunch {
-                            command: cmd.to_string(),
-                            until: std::time::Instant::now() + std::time::Duration::from_secs(10),
+                            command: app.clone(),
+                            until: std::time::Instant::now() + std::time::Duration::from_secs(30),
                             user_focus: seat0_focus(),
                         });
                 }
@@ -1542,7 +1602,11 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 } else {
                     d.agent_display().map(std::path::Path::to_path_buf)
                 };
-                let pid = launch(cmd, &a, display.as_deref())?;
+                let since = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|t| t.as_secs().saturating_sub(1))
+                    .unwrap_or(0);
+                let pid = launch(cmd, &a, display.as_deref(), &app)?;
                 if wanted == "here" {
                     allow_on_screen(pid);
                 }
@@ -1550,9 +1614,13 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 if let Some(t) = &target {
                     let _ = sway::run_command(&format!("assign [pid={pid}] {t}"));
                 }
-                // Wait for the window (up to 8 s), place it if the rule missed, report it.
+                // Wait for the window, place it if the rule missed, report it. A
+                // program still running gets 15 s (a first start can be slow); one that
+                // exited cleanly 8 s (it may have handed off to a running instance); one
+                // that failed is reported at once.
                 let mut placed: Option<Window> = None;
-                for _ in 0..32 {
+                let mut failed: Option<i32> = None;
+                for tick in 1..=60 {
                     std::thread::sleep(std::time::Duration::from_millis(250));
                     if let Ok(ws) = windows(d) {
                         if let Some(w) = ws.into_iter().find(|w| !before.contains(&w.id)) {
@@ -1560,13 +1628,23 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                             break;
                         }
                     }
+                    match exit_code(pid) {
+                        Some(0) if tick >= 32 => break,
+                        Some(0) | None => {}
+                        Some(code) => {
+                            failed = Some(code);
+                            break;
+                        }
+                    }
                 }
-                if to_background {
+                let running = exit_code(pid).is_none();
+                if to_background && (placed.is_some() || !running) {
                     // Done waiting: a later window of this application is the user's.
+                    // (Still starting, the launch stays pending until it expires.)
                     PENDING
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .retain(|x| x.command != cmd);
+                        .retain(|x| x.command != app);
                 }
                 match placed {
                     Some(mut w) => {
@@ -1586,14 +1664,26 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                             ""
                         };
                         text(format!(
-                            "started {cmd} (pid {pid}): window {} ({}) is {}{}.{own_seat}",
+                            "started {app} (pid {pid}): window {} ({}) is {}{}.{own_seat}",
                             w.id,
                             w.title,
                             if w.location == "background" { "in the background (the user does not see it; desktop_show brings it to their screen)" } else { "on the user's screen" },
                             if bg.is_none() && wanted != "here" { "; this desktop has no background screen" } else { "" }
                         ))
                     }
-                    None => text(format!("started {cmd} (pid {pid}); no window appeared within 8 s (a background service, or it handed off to a running instance). Use desktop_windows.")),
+                    None if failed.is_some() => {
+                        let output = launch_output(&app, since);
+                        text(format!(
+                            "{app} exited with status {} before it showed a window. {}",
+                            failed.unwrap_or(-1),
+                            if output.is_empty() { "It wrote nothing.".to_string() } else { format!("Its last output:\n{output}") }
+                        ))
+                    }
+                    None if running => text(format!(
+                        "started {app} (pid {pid}); it is still starting, with no window after 15 s (a first start can take longer). Its window will open {} when it is ready: check with desktop_windows in a few seconds rather than starting it again.",
+                        if to_background { "in the background" } else { "on the user's screen" }
+                    )),
+                    None => text(format!("started {app} (pid {pid}); no window appeared within 8 s (a background service, or it handed off to a running instance). Use desktop_windows.")),
                 }
             }
             "desktop_show" | "desktop_hide" => {
@@ -1802,6 +1892,27 @@ mod tests {
         assert!(!app_matches("foot", "firefox"));
         assert!(!app_matches("thunar", "org.xfce.mousepad"));
         assert!(!app_matches("", "firefox"));
+        // Flatpak launches are named by the app ID.
+        assert!(app_matches("com.tencent.WeChat", "wechat"));
+        assert!(app_matches("md.obsidian.Obsidian", "obsidian"));
+        assert!(!app_matches("com.tencent.WeChat", "firefox"));
+    }
+
+    #[test]
+    fn launches_are_named_by_app() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            launch_name(
+                "flatpak",
+                &s(&["run", "--branch=stable", "com.tencent.WeChat"])
+            ),
+            "com.tencent.WeChat"
+        );
+        assert_eq!(
+            launch_name("/run/current-system/sw/bin/firefox", &[]),
+            "firefox"
+        );
+        assert_eq!(launch_name("flatpak", &s(&["list"])), "flatpak");
     }
 
     #[test]
