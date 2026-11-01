@@ -211,6 +211,30 @@ pub fn tree_full() -> Result<(
         &mut outputs,
         &mut workspaces,
     );
+    // The tree's workspace nodes do not say whether they are shown (GET_WORKSPACES
+    // does); each output node names the one it shows.
+    let shown: Vec<(String, String)> = root
+        .get("nodes")
+        .and_then(Value::as_array)
+        .map(|outs| {
+            outs.iter()
+                .filter_map(|o| {
+                    Some((
+                        o.get("name")?.as_str()?.to_string(),
+                        o.get("current_workspace")?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for ws in &mut workspaces {
+        if shown
+            .iter()
+            .any(|(o, w)| Some(o.as_str()) == ws.output.as_deref() && *w == ws.name)
+        {
+            ws.visible = true;
+        }
+    }
     Ok((windows, outputs, workspaces))
 }
 

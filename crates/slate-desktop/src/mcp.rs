@@ -123,15 +123,31 @@ pub struct Window {
     /// person's mouse and keyboard do not reach it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub agent_seat_only: bool,
+    /// The person's workspace the window is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// On the person's screen, but on a workspace they are not looking at.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub on_hidden_workspace: bool,
 }
 
 pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
     let tls = d.toplevels()?;
-    let geo = if sway::available() {
-        sway::tree().ok()
+    let full = if sway::available() {
+        sway::tree_full().ok()
     } else {
         None
     };
+    let shown: Vec<String> = full
+        .as_ref()
+        .map(|(_, _, ws)| {
+            ws.iter()
+                .filter(|w| w.visible)
+                .map(|w| w.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let geo = full.map(|(w, o, _)| (w, o));
     Ok(tls
         .into_iter()
         .map(|t| {
@@ -182,6 +198,24 @@ pub fn windows(d: &mut Desktop) -> Result<Vec<Window>> {
                 width: g.map(|g| g.content.width),
                 height: g.map(|g| g.content.height),
                 agent_seat_only: g.map(|g| g.agent_only).unwrap_or(false),
+                workspace: g
+                    .filter(|g| {
+                        g.output
+                            .as_deref()
+                            .map(|o| !is_background_output(o) && o != SCRATCHPAD_OUTPUT)
+                            .unwrap_or(false)
+                    })
+                    .and_then(|g| g.workspace.clone()),
+                on_hidden_workspace: g
+                    .filter(|g| {
+                        g.output
+                            .as_deref()
+                            .map(|o| !is_background_output(o) && o != SCRATCHPAD_OUTPUT)
+                            .unwrap_or(false)
+                    })
+                    .and_then(|g| g.workspace.as_ref())
+                    .map(|w| !shown.contains(w))
+                    .unwrap_or(false),
             }
         })
         .collect())
@@ -540,7 +574,10 @@ fn window_of_element(d: &mut Desktop, id: &str) -> Result<Window> {
 
 /// Resolve a window reference: identifier, app_id, or title substring.
 fn resolve(d: &mut Desktop, reference: &str) -> Result<Window> {
-    let wins = windows(d)?;
+    let mut wins = windows(d)?;
+    // Of several matches by name, the one the person can see: windows on their other
+    // workspaces and minimized ones last.
+    wins.sort_by_key(|w| w.on_hidden_workspace || w.location == "minimized");
     let r = reference.to_ascii_lowercase();
     wins.iter()
         .find(|w| w.id == reference)
@@ -847,7 +884,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "desktop_windows",
-            "description": "List open windows: id, app_id, title, focus, location (\"screen\" = visible to the user, \"background\" = on the agent's own unseen screen, \"minimized\" = put away by the user; desktop_focus or desktop_show brings it back), and content position/size in layout pixels.",
+            "description": "List open windows: id, app_id, title, focus, location (\"screen\" = on the user's display, \"background\" = on the agent's own unseen screen, \"minimized\" = put away by the user; desktop_focus or desktop_show brings it back), content position/size in layout pixels, and for windows on the user's display their workspace. on_hidden_workspace: on one of the user's other workspaces, which they are not looking at; \"this window\" or \"the terminal\" usually means one they can see, and moving or arranging a hidden one brings it over.",
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
@@ -909,7 +946,7 @@ fn tools() -> Value {
         },
         {
             "name": "desktop_arrange",
-            "description": "Lay windows out over the usable screen: side_by_side (left to right), top_bottom, grid, or maximize (one window fills the screen). `windows` is an ordered list of ids, app_ids or title substrings; omit it to arrange all windows on the current workspace.",
+            "description": "Lay windows out over the usable screen: side_by_side (left to right), top_bottom, grid, or maximize (one window fills the screen). `windows` is an ordered list of ids, app_ids or title substrings; omit it to arrange the windows on the workspace the user is looking at. Prefer ids: an app_id or title can match a window on another workspace (on_hidden_workspace in desktop_windows), which this then brings over.",
             "inputSchema": {"type": "object", "properties": {
                 "layout": {"type": "string", "enum": ["side_by_side", "top_bottom", "grid", "maximize"]},
                 "windows": {"type": "array", "items": {"type": "string"}}
@@ -1453,11 +1490,30 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                         }
                         v
                     }
-                    _ => all.into_iter().filter(|w| w.con_id.is_some()).collect(),
+                    // What the person is looking at: not windows on their other
+                    // workspaces (sway would bring them over), nor the background.
+                    _ => all
+                        .into_iter()
+                        .filter(|w| {
+                            w.con_id.is_some() && w.location == "screen" && !w.on_hidden_workspace
+                        })
+                        .collect(),
                 };
                 if chosen.is_empty() {
                     anyhow::bail!("no windows to arrange");
                 }
+                let brought: Vec<String> = chosen
+                    .iter()
+                    .filter(|w| w.on_hidden_workspace)
+                    .map(|w| {
+                        format!(
+                            "{} ({}) from workspace {}",
+                            w.id,
+                            w.title,
+                            w.workspace.as_deref().unwrap_or("?")
+                        )
+                    })
+                    .collect();
                 let area = sway::usable_area()?;
                 let gap = 8i64;
                 let n = chosen.len() as i64;
@@ -1492,7 +1548,15 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     sway::command_for_con(con, &format!("move position {mx} px {my} px"))?;
                     placed.push(format!("{} -> {x},{y} {cell_w}x{cell_h}", w.app_id));
                 }
-                text(format!("{layout}: {}", placed.join("; ")))
+                let brought = if brought.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ". Brought to the workspace the user is looking at: {}",
+                        brought.join("; ")
+                    )
+                };
+                text(format!("{layout}: {}{brought}", placed.join("; ")))
             }
             "desktop_seats" => {
                 let mut lines = vec![];
