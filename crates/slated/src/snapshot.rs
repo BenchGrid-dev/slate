@@ -126,6 +126,14 @@ impl Snapshotter {
         Ok(())
     }
 
+    /// Whether undo could restore `path` (absolute, normalized): inside the root and
+    /// not among what undo never touches.
+    pub fn covers(&self, path: &Path) -> bool {
+        path.strip_prefix(&self.root)
+            .map(|rel| !is_protected(rel))
+            .unwrap_or(false)
+    }
+
     /// Diff the snapshot against the live tree inside `scope` (absolute dirs).
     pub fn plan(&self, snap: &SnapshotInfo, scope: &[PathBuf]) -> Result<UndoPlan> {
         let mut plan = UndoPlan::default();

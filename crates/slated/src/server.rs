@@ -13,7 +13,7 @@ use slate_proto::{
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -86,6 +86,49 @@ impl State {
         }
     }
 
+    /// The policy's verdict, stricter where it counts on undo: a shell command that
+    /// deletes files undo could not bring back (outside the snapshot root, in what
+    /// undo never touches, or with no snapshots at all) asks first.
+    fn verdict(
+        &self,
+        tool_name: &str,
+        input: &serde_json::Value,
+        cwd: Option<&Path>,
+    ) -> policy::Verdict {
+        let verdict = policy::classify(tool_name, input);
+        if verdict.tier != Tier::Reversible || tool_name != "Bash" {
+            return verdict;
+        }
+        let Some(cmd) = input.get("command").and_then(|v| v.as_str()) else {
+            return verdict;
+        };
+        let targets = policy::deletion_targets(cmd);
+        if targets.is_empty() {
+            return verdict;
+        }
+        let Some(snap) = &self.snapshots else {
+            return policy::Verdict {
+                tier: Tier::Confirm,
+                reason: "deletes files, and there are no snapshots to undo it".into(),
+            };
+        };
+        for t in &targets {
+            let covered = resolve_target(t, cwd)
+                .map(|p| snap.covers(&p))
+                .unwrap_or(false);
+            if !covered {
+                return policy::Verdict {
+                    tier: Tier::Confirm,
+                    reason: format!(
+                        "deletes {t}, which undo could not bring back (snapshots cover {})",
+                        snap.root.display()
+                    ),
+                };
+            }
+        }
+        verdict
+    }
+
     fn ensure_snapshot(&mut self, task_id: &str) -> Option<String> {
         let existing = self.tasks.get(task_id).and_then(|t| t.snapshot.clone());
         if let Some(p) = existing {
@@ -147,6 +190,41 @@ impl State {
                 .is_ok()
         });
     }
+}
+
+/// Where a path written in a shell command points: `~` expanded, relative to `cwd`,
+/// `..` resolved, cut before the first glob. None when it depends on the shell
+/// (`$VAR`, `$(…)`, another user's `~name`).
+fn resolve_target(t: &str, cwd: Option<&Path>) -> Option<PathBuf> {
+    if t.contains('$') || t.contains('`') {
+        return None;
+    }
+    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    let p = if t == "~" {
+        home()?
+    } else if let Some(rest) = t.strip_prefix("~/") {
+        home()?.join(rest)
+    } else if t.starts_with('~') {
+        return None;
+    } else {
+        PathBuf::from(t)
+    };
+    let p = if p.is_absolute() { p } else { cwd?.join(p) };
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        let s = c.as_os_str().to_string_lossy();
+        if s.contains(['*', '?', '[']) {
+            break;
+        }
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    Some(out)
 }
 
 fn touched_paths(
@@ -401,7 +479,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             cwd,
         } => {
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-            let verdict = policy::classify(&tool_name, &tool_input);
+            let verdict = st.verdict(&tool_name, &tool_input, cwd.as_deref());
             let remembered = task_id
                 .as_ref()
                 .and_then(|id| st.tasks.get(id))
@@ -487,7 +565,14 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             tool_name,
             tool_input,
         } => {
-            let verdict = policy::classify(&tool_name, &tool_input);
+            let verdict = {
+                let st = state.lock().unwrap_or_else(|e| e.into_inner());
+                let cwd = task_id
+                    .as_ref()
+                    .and_then(|id| st.tasks.get(id))
+                    .map(|t| t.cwd.clone());
+                st.verdict(&tool_name, &tool_input, cwd.as_deref())
+            };
             let summary = summarize_tool(&tool_name, &tool_input);
             let auto = task_id
                 .as_ref()
@@ -776,5 +861,83 @@ fn run_undo(state: &Shared, task_id: Option<String>, preview: bool) -> Reply {
         restored,
         deleted,
         note: format!("applied{notes}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn state(root: Option<&Path>) -> (State, tempfile::TempDir) {
+        // The policy is process-wide: the one the policy tests install.
+        crate::policy::tests::install_test_policy();
+        let dir = tempfile::tempdir().unwrap();
+        let snapshots = root.map(|r| Snapshotter {
+            root: r.to_path_buf(),
+            dir: dir.path().join("snapshots"),
+        });
+        let st = State::new(
+            Audit::open(dir.path()).unwrap(),
+            TaskStore::open(dir.path()).unwrap(),
+            MemoryStore::open(dir.path()).unwrap(),
+            snapshots,
+        );
+        (st, dir)
+    }
+
+    fn tier(st: &State, cmd: &str, cwd: &str) -> Tier {
+        st.verdict("Bash", &json!({ "command": cmd }), Some(Path::new(cwd)))
+            .tier
+    }
+
+    #[test]
+    fn deleting_what_undo_cannot_restore_asks_first() {
+        let (st, _d) = state(Some(Path::new("/home/u/work")));
+        assert_eq!(
+            tier(&st, "rm notes/old.txt", "/home/u/work"),
+            Tier::Reversible
+        );
+        assert_eq!(
+            tier(&st, "rm -rf build/*.o", "/home/u/work/proj"),
+            Tier::Reversible
+        );
+        assert_eq!(
+            tier(&st, "rm /home/u/Downloads/a.pdf", "/home/u/work"),
+            Tier::Confirm
+        );
+        assert_eq!(
+            tier(&st, "rm ../../Downloads/a.pdf", "/home/u/work/x"),
+            Tier::Confirm
+        );
+        assert_eq!(tier(&st, "rm \"$OUT\"/a", "/home/u/work"), Tier::Confirm);
+        // Undo never restores what it is told to leave alone.
+        let (st, _d) = state(Some(Path::new("/home/u")));
+        assert_eq!(tier(&st, "rm -rf .cache/thing", "/home/u"), Tier::Confirm);
+        assert_eq!(tier(&st, "rm Downloads/a.pdf", "/home/u"), Tier::Reversible);
+        // Other writes keep their tier.
+        assert_eq!(tier(&st, "echo hi > /tmp/x", "/home/u"), Tier::Reversible);
+    }
+
+    #[test]
+    fn without_snapshots_every_deletion_asks() {
+        let (st, _d) = state(None);
+        assert_eq!(tier(&st, "rm a.txt", "/home/u"), Tier::Confirm);
+        assert_eq!(tier(&st, "mkdir build", "/home/u"), Tier::Reversible);
+    }
+
+    #[test]
+    fn targets_resolve_like_the_shell() {
+        let cwd = Path::new("/w/p");
+        assert_eq!(
+            resolve_target("a/../b", Some(cwd)),
+            Some(PathBuf::from("/w/p/b"))
+        );
+        assert_eq!(
+            resolve_target("/x/*.o", Some(cwd)),
+            Some(PathBuf::from("/x"))
+        );
+        assert_eq!(resolve_target("$HOME/x", Some(cwd)), None);
+        assert_eq!(resolve_target("~bob/x", Some(cwd)), None);
     }
 }

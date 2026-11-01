@@ -203,12 +203,25 @@ fn activity_path() -> std::path::PathBuf {
     slate_proto::desktop_socket_path().with_file_name("agent-active")
 }
 
-pub fn note_activity() {
-    let now = std::time::SystemTime::now()
+static LAST_ACTIVITY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
+
+pub fn note_activity() {
+    let now = now_secs();
+    LAST_ACTIVITY.store(now, Ordering::Relaxed);
     let _ = std::fs::write(activity_path(), format!("{now}\n"));
+}
+
+/// Whether the agent used a desktop tool in the last `secs` seconds (in this process).
+pub fn active_within(secs: u64) -> bool {
+    let last = LAST_ACTIVITY.load(Ordering::Relaxed);
+    last != 0 && now_secs().saturating_sub(last) <= secs
 }
 
 /// For `desktop_status`.

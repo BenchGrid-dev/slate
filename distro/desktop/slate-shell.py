@@ -119,17 +119,22 @@ def transparency_reduced():
 
 
 def markup(text):
-    """Pango markup for the little markdown agents produce: `code`, **bold**, headings."""
+    """Pango markup for the little markdown agents produce: `code`, **bold**, *italic*,
+    headings and bullet lists."""
     out = []
     for line in GLib.markup_escape_text(text).split("\n"):
         stripped = line.lstrip("#").strip() if line.startswith("#") else line
+        bullet = re.match(r"^(\s*)[-*] (.*)$", line)
         if line.startswith("#"):
             out.append(f"<b>{stripped}</b>")
+        elif bullet:
+            out.append(f"{bullet.group(1)}•  {bullet.group(2)}")
         else:
             out.append(line)
     text = "\n".join(out)
     text = re.sub(r"`([^`\n]+)`", r"<tt>\1</tt>", text)
     text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<![*\w])\*([^*\s][^*\n]*?)\*(?![*\w])", r"<i>\1</i>", text)
     return text
 
 
@@ -360,8 +365,16 @@ class ShellWindow(Gtk.ApplicationWindow):
             self.hide()
         return False
 
-    def on_panel_press(self, *_):
+    def on_panel_press(self, _gesture, _n, x, y):
         self.press_on_panel = True
+        # A button (Allow, Deny) works without the keyboard. Claiming it reshapes the
+        # surface under the click, which then never reaches the button: the person had
+        # to click Allow twice.
+        w = self.panel.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while w is not None and w is not self.panel:
+            if isinstance(w, Gtk.Button):
+                return
+            w = w.get_parent()
         self.claim_focus()
 
     def on_surface_press(self, *_):

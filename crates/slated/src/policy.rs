@@ -685,6 +685,111 @@ fn split_segments(cmd: &str) -> Vec<String> {
         .collect()
 }
 
+/// Words of a shell segment, quotes removed (no expansion: `~` and `$X` stay).
+fn shell_words(seg: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut cur = String::new();
+    let mut started = false;
+    let (mut single, mut double) = (false, false);
+    let mut chars = seg.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !double => {
+                single = !single;
+                started = true;
+            }
+            '"' if !single => {
+                double = !double;
+                started = true;
+            }
+            '\\' if !single => {
+                if let Some(n) = chars.next() {
+                    cur.push(n);
+                }
+                started = true;
+            }
+            c if c.is_whitespace() && !single && !double => {
+                if started || !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+                started = false;
+            }
+            c => {
+                cur.push(c);
+                started = true;
+            }
+        }
+    }
+    if started || !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// What a shell command deletes, moves away or truncates, as written (`~/a`,
+/// `build/*.o`, `$DIR/x`): the operands of rm, rmdir, unlink, shred, mv and truncate,
+/// and where `find … -delete` starts. Empty when it deletes nothing. The caller
+/// decides whether undo could bring those back.
+pub fn deletion_targets(cmd: &str) -> Vec<String> {
+    let mut out = vec![];
+    for seg in split_segments(cmd) {
+        let words = shell_words(&seg);
+        let mut i = 0;
+        while let Some(w) = words.get(i) {
+            let is_assignment = w.contains('=') && !w.starts_with('-');
+            let is_wrapper = matches!(
+                w.as_str(),
+                "env" | "time" | "nice" | "command" | "builtin" | "exec"
+            );
+            if is_assignment || is_wrapper {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let Some(first) = words.get(i) else { continue };
+        let base = first
+            .rsplit('/')
+            .next()
+            .unwrap_or(first)
+            .to_ascii_lowercase();
+        let rest = &words[i + 1..];
+        // Redirections are not operands.
+        let operand = |w: &&String| !w.starts_with('-') && !w.contains('>') && !w.contains('<');
+        match base.as_str() {
+            "rm" | "rmdir" | "unlink" | "shred" | "mv" => {
+                out.extend(rest.iter().filter(operand).cloned());
+            }
+            "truncate" => {
+                let mut skip = false;
+                for w in rest {
+                    if skip {
+                        skip = false;
+                    } else if w == "-s" || w == "--size" || w == "-r" || w == "--reference" {
+                        skip = true;
+                    } else if operand(&w) {
+                        out.push(w.clone());
+                    }
+                }
+            }
+            "find" if rest.iter().any(|w| w == "-delete") => {
+                let starts: Vec<String> = rest
+                    .iter()
+                    .take_while(|w| !w.starts_with('-') && *w != "(" && *w != "!")
+                    .cloned()
+                    .collect();
+                if starts.is_empty() {
+                    out.push(".".into());
+                } else {
+                    out.extend(starts);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 fn segment_is_read_only(seg: &str) -> bool {
     // Strip leading env assignments and common wrappers.
     let mut words: Vec<&str> = seg.split_whitespace().collect();
@@ -750,7 +855,7 @@ fn segment_is_read_only(seg: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -758,7 +863,28 @@ mod tests {
         classify_shell(cmd).tier
     }
 
-    fn install_test_policy() {
+    #[test]
+    fn deletions_are_found_with_their_operands() {
+        assert_eq!(
+            deletion_targets("rm ~/Downloads/a.pdf \"/tmp/b c\" && ls -la ~/Downloads"),
+            vec!["~/Downloads/a.pdf", "/tmp/b c"]
+        );
+        assert_eq!(deletion_targets("rm -rf build 2>/dev/null"), vec!["build"]);
+        assert_eq!(
+            deletion_targets("mv notes.txt ~/old/"),
+            vec!["notes.txt", "~/old/"]
+        );
+        assert_eq!(deletion_targets("truncate -s 0 log.txt"), vec!["log.txt"]);
+        assert_eq!(
+            deletion_targets("find ~/tmp -name '*.o' -delete"),
+            vec!["~/tmp"]
+        );
+        assert_eq!(deletion_targets("FOO=1 command rm x"), vec!["x"]);
+        assert!(deletion_targets("ls -la; cat a | grep rm").is_empty());
+        assert!(deletion_targets("find . -name x").is_empty());
+    }
+
+    pub(crate) fn install_test_policy() {
         let p: PolicyFile = toml::from_str(
             r#"
 [tools]

@@ -356,7 +356,53 @@ pub fn spawned_by_agent(pid: u32) -> bool {
 /// the agent's engine started its process moments ago (from its shell) and nobody
 /// asked for it on the user's screen.
 pub fn place_new_window(con_id: i64, pid: Option<u32>, app_id: &str) {
-    if background_output().is_none() {
+    let to_background = || {
+        sway::command_for_con(
+            con_id,
+            &format!("move container to workspace {BACKGROUND_WORKSPACE}"),
+        )
+    };
+    // One window per launch: a second one is the user's. The launch is used up only
+    // once its window is placed: a program may show a window that is gone a moment
+    // later (LibreOffice's start-up window) before the one it is launched for.
+    let pending = {
+        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        p.retain(|x| x.until > now);
+        p.iter()
+            .find(|x| app_matches(&x.command, app_id))
+            .map(|x| (x.command.clone(), x.until, x.user_focus))
+    };
+    if let Some((command, until, user_focus)) = pending {
+        // At once, before asking sway anything: while it maps a large window it can
+        // take a second to answer a query, and until the window moves it has the
+        // person's keyboard. (A window the pid rule already placed does not move.)
+        match to_background() {
+            Ok(()) => {
+                let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(i) = p
+                    .iter()
+                    .position(|x| x.command == command && x.until == until)
+                {
+                    p.remove(i);
+                }
+                drop(p);
+                slate_proto::log!(
+                    "slate-desktop: {app_id}: opened for the agent's background launch of {command}; on the background screen"
+                );
+                // Mapping gave the window the user's focus; give it back.
+                if let Some(f) = user_focus {
+                    if seat0_focus() != Some(f) {
+                        let _ = sway::command_for_con(f, "focus");
+                    }
+                }
+            }
+            Err(e) => slate_proto::log!("slate-desktop: placing {app_id}: {e:#}"),
+        }
+        return;
+    }
+    let Some(pid) = pid else { return };
+    if allowed_on_screen(pid) || background_output().is_none() {
         return;
     }
     let on_background = || {
@@ -367,50 +413,60 @@ pub fn place_new_window(con_id: i64, pid: Option<u32>, app_id: &str) {
             .map(|o| is_background_output(&o))
             .unwrap_or(false)
     };
-    let pending = {
-        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
-        let now = std::time::Instant::now();
-        p.retain(|x| x.until > now);
-        // One window per launch: a second one is the user's.
-        p.iter()
-            .position(|x| app_matches(&x.command, app_id))
-            .map(|i| p.remove(i))
-    };
-    let why = if let Some(launch) = &pending {
-        if on_background() {
-            return; // the pid rule placed it
-        }
-        format!(
-            "opened for the agent's background launch of {}",
-            launch.command
-        )
-    } else {
-        let Some(pid) = pid else { return };
-        if allowed_on_screen(pid) || !spawned_by_agent(pid) {
-            return;
-        }
+    let why = if opened_from_agent_window(con_id, pid) {
+        format!("a window of the app the agent is using on its screen (pid {pid})")
+    } else if !spawned_by_agent(pid)
         // A window from an older process (a browser started a while ago) is the
         // user's, even if the agent started that process.
-        if process_age(pid).map(|age| age > 20.0).unwrap_or(true) || on_background() {
-            return;
-        }
+        || process_age(pid).map(|age| age > 20.0).unwrap_or(true)
+        || on_background()
+    {
+        return;
+    } else {
         format!("its process (pid {pid}) was started by the agent")
     };
-    match sway::command_for_con(
-        con_id,
-        &format!("move container to workspace {BACKGROUND_WORKSPACE}"),
-    ) {
+    match to_background() {
         Ok(()) => {
-            slate_proto::log!("slate-desktop: {app_id}: {why}; moved to the background screen");
-            // Mapping gave the window the user's focus; give it back.
-            if let Some(f) = pending.and_then(|p| p.user_focus) {
-                if seat0_focus() != Some(f) {
-                    let _ = sway::command_for_con(f, "focus");
-                }
-            }
+            slate_proto::log!("slate-desktop: {app_id}: {why}; moved to the background screen")
         }
         Err(e) => slate_proto::log!("slate-desktop: placing {app_id}: {e:#}"),
     }
+}
+
+/// A dialog or another window of an application that is only on the agent's
+/// background screen, opened while the agent works in it ("Save Document?" after it
+/// closes a document): the window belongs with the others. Not when the person has a
+/// window of that process on their screen too: it may be theirs, and a window they
+/// look for should not be hidden.
+fn opened_from_agent_window(con_id: i64, pid: u32) -> bool {
+    if !crate::lock::active_within(3) {
+        return false;
+    }
+    let Ok((wins, _)) = sway::tree() else {
+        return false;
+    };
+    let same: Vec<_> = wins
+        .iter()
+        .filter(|w| w.pid == Some(pid) && w.con_id != con_id)
+        .collect();
+    let all_background = !same.is_empty()
+        && same.iter().all(|w| {
+            w.output
+                .as_deref()
+                .map(is_background_output)
+                .unwrap_or(false)
+        });
+    if !all_background {
+        return false;
+    }
+    // The agent's seat is in that application.
+    let Ok(focus) = sway::seat_focus() else {
+        return false;
+    };
+    focus
+        .iter()
+        .filter(|(seat, _)| seat.as_str() != "seat0")
+        .any(|(_, f)| same.iter().any(|w| w.con_id == *f))
 }
 
 pub fn is_background_output(name: &str) -> bool {
@@ -575,6 +631,61 @@ pub fn launch(
         e.insert(pid, code);
     });
     Ok(pid)
+}
+
+/// For `window`, give each process `pid` starts the placement rule `target` too, as
+/// they appear (sway matches a window's own pid only).
+fn assign_descendants(pid: u32, target: String, window: std::time::Duration) {
+    std::thread::spawn(move || {
+        let until = std::time::Instant::now() + window;
+        let mut known = std::collections::HashSet::from([pid]);
+        while std::time::Instant::now() < until {
+            for p in descendants(pid) {
+                if known.insert(p) {
+                    let _ = sway::run_command(&format!("assign [pid={p}] {target}"));
+                }
+            }
+            if exit_code(pid).is_some() && known.len() == 1 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    });
+}
+
+/// Processes whose chain of parents reaches `root`.
+fn descendants(root: u32) -> Vec<u32> {
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return vec![];
+    };
+    let parents: std::collections::HashMap<u32, u32> = rd
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|p| {
+            let stat = std::fs::read_to_string(format!("/proc/{p}/stat")).ok()?;
+            // Fields after the command name (which may hold spaces): state, ppid, ...
+            let ppid = stat
+                .get(stat.rfind(')')? + 2..)?
+                .split_whitespace()
+                .nth(1)?;
+            Some((p, ppid.parse().ok()?))
+        })
+        .collect();
+    parents
+        .keys()
+        .copied()
+        .filter(|&p| {
+            let mut q = p;
+            for _ in 0..32 {
+                match parents.get(&q) {
+                    Some(&pp) if pp == root => return true,
+                    Some(&pp) if pp > 1 => q = pp,
+                    _ => return false,
+                }
+            }
+            false
+        })
+        .collect()
 }
 
 /// Exit codes of launched programs that ended, by pid (signals as -1).
@@ -1404,8 +1515,30 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                     )
                 })?;
                 if name == "desktop_close" {
+                    let before: std::collections::HashSet<String> =
+                        windows(d)?.into_iter().map(|w| w.id).collect();
                     sway::command_for_con(con, "kill")?;
-                    return Ok(text(format!("closed {} ({})", win.id, win.title)));
+                    // An application asked to close may ask something first ("Save
+                    // changes?"); say so rather than report it closed.
+                    for _ in 0..8 {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        let now = windows(d)?;
+                        if !now.iter().any(|w| w.id == win.id) {
+                            return Ok(text(format!("closed {} ({})", win.id, win.title)));
+                        }
+                        if let Some(q) = now.iter().find(|w| {
+                            !before.contains(&w.id) && w.pid.is_some() && w.pid == win.pid
+                        }) {
+                            return Ok(text(format!(
+                                "{} ({}) did not close yet: it asks {:?} in window {} ({}). Answer it (desktop_elements, desktop_element_click), or tell the user if the choice is theirs (unsaved work).",
+                                win.id, win.title, q.title, q.id, q.location
+                            )));
+                        }
+                    }
+                    return Ok(text(format!(
+                        "asked {} ({}) to close; it is still open after 2 s (it may be asking something: see desktop_windows).",
+                        win.id, win.title
+                    )));
                 }
                 // Focusing a background window would drag the user's focus onto the
                 // background screen; bring the window to them instead.
@@ -1610,9 +1743,13 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
                 if wanted == "here" {
                     allow_on_screen(pid);
                 }
-                // A rule keyed on the pid catches the window before it is shown.
+                // A rule keyed on the pid catches the window before it is shown; the
+                // same for the processes it starts (a wrapper script, LibreOffice's
+                // soffice.bin), whose windows would otherwise map on the person's
+                // screen with their keyboard focus until moved.
                 if let Some(t) = &target {
                     let _ = sway::run_command(&format!("assign [pid={pid}] {t}"));
+                    assign_descendants(pid, t.clone(), std::time::Duration::from_secs(15));
                 }
                 // Wait for the window, place it if the rule missed, report it. A
                 // program still running gets 15 s (a first start can be slow); one that
@@ -1896,6 +2033,19 @@ mod tests {
         assert!(app_matches("com.tencent.WeChat", "wechat"));
         assert!(app_matches("md.obsidian.Obsidian", "obsidian"));
         assert!(!app_matches("com.tencent.WeChat", "firefox"));
+    }
+
+    #[test]
+    fn a_child_process_is_a_descendant() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let me = std::process::id();
+        let found = descendants(me).contains(&child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(found || !std::path::Path::new("/proc/self/stat").exists());
     }
 
     #[test]

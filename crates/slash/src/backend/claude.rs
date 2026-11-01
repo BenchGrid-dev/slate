@@ -266,7 +266,7 @@ pub fn parse_line(line: &str, tools: &mut std::collections::HashMap<String, Stri
                 stats.push(format!("{:.1}s", ms as f64 / 1000.0));
             }
             if let Some(n) = v.get("num_turns").and_then(Value::as_u64) {
-                stats.push(format!("{n} turns"));
+                stats.push(format!("{n} turn{}", if n == 1 { "" } else { "s" }));
             }
             if is_error && !subtype.is_empty() {
                 stats.push(subtype.to_string());
