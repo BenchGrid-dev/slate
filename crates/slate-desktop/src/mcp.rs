@@ -573,14 +573,67 @@ fn window_of_element(d: &mut Desktop, id: &str) -> Result<Window> {
 }
 
 /// Resolve a window reference: identifier, app_id, or title substring.
+/// What the person sees, for the Slate prompt to send along with a request: the window
+/// they were looking at (sway container `con`, or the focused one), the windows on the
+/// workspaces they can see and on the agent's screen, each with the shortest id prefix
+/// (8 digits at least) that tells it apart. Not counted as agent activity.
+fn glance(d: &mut Desktop, args: &Value) -> Result<Value> {
+    if lock::locked() {
+        return Ok(json!({"locked": true}));
+    }
+    let con = args.get("con").and_then(Value::as_i64);
+    let wins = windows(d)?;
+    let short = |id: &str| -> String {
+        let mut n = 8.min(id.len());
+        while n < id.len() && wins.iter().filter(|w| w.id.starts_with(&id[..n])).count() > 1 {
+            n += 1;
+        }
+        id[..n].to_string()
+    };
+    let looking = wins
+        .iter()
+        .find(|w| con.is_some() && w.con_id == con)
+        .or_else(|| wins.iter().find(|w| w.focused));
+    let entry = |w: &Window| {
+        json!({
+            "id": short(&w.id),
+            "app_id": w.app_id,
+            "title": w.title,
+            "location": w.location,
+        })
+    };
+    let listed: Vec<Value> = wins
+        .iter()
+        .filter(|w| {
+            w.location == "background" || (w.location == "screen" && !w.on_hidden_workspace)
+        })
+        .map(entry)
+        .collect();
+    Ok(json!({
+        "looking_at": looking.map(entry),
+        "looking_at_id": looking.map(|w| w.id.clone()),
+        "windows": listed,
+    }))
+}
+
 fn resolve(d: &mut Desktop, reference: &str) -> Result<Window> {
     let mut wins = windows(d)?;
     // Of several matches by name, the one the person can see: windows on their other
     // workspaces and minimized ones last.
     wins.sort_by_key(|w| w.on_hidden_workspace || w.location == "minimized");
     let r = reference.to_ascii_lowercase();
+    // A unique prefix of an id (8 digits, as Slate shows them) names that window.
+    let by_prefix = || {
+        let hex = r.len() >= 6 && r.bytes().all(|b| b.is_ascii_hexdigit());
+        let mut m = wins.iter().filter(|w| hex && w.id.starts_with(&r));
+        match (m.next(), m.next()) {
+            (Some(w), None) => Some(w),
+            _ => None,
+        }
+    };
     wins.iter()
         .find(|w| w.id == reference)
+        .or_else(by_prefix)
         .or_else(|| wins.iter().find(|w| w.app_id.to_ascii_lowercase() == r))
         .or_else(|| {
             wins.iter()
@@ -1264,6 +1317,13 @@ pub fn call(d: &mut Desktop, name: &str, args: &Value) -> Value {
         "desktop_takeover_cancel" => {
             takeover_cancel();
             return text("takeover cancelled: user-seat input is refused for a minute");
+        }
+        // Slate's own, not an agent tool: what the person sees when they open the prompt.
+        "slate_glance" => {
+            return match glance(d, args) {
+                Ok(v) => text(v.to_string()),
+                Err(e) => error(format!("{e:#}")),
+            };
         }
         _ => {}
     }

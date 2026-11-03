@@ -51,6 +51,7 @@ usage:
       and --window W (focus that window first; click/move coordinates become window-relative)
   slate-desktop elements WINDOW [QUERY]   interactive elements from the accessibility tree
   slate-desktop read WINDOW               readable text from the accessibility tree
+  slate-desktop glance [CON]              what the person sees, as JSON (for the Slate prompt)
   slate-desktop element-click ID [ACTION] activate an element (action, or pointer fallback)
   slate-desktop element-set-text ID TEXT  set an editable element's text
   slate-desktop launch [--here] CMD [ARGS...]  start a program (background screen unless --here)
@@ -78,6 +79,14 @@ fn main() -> Result<()> {
         "probe" => mcp::probe(),
         "windows" => {
             let r = mcp::cli_call("desktop_windows", json!({}))?;
+            println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
+            Ok(())
+        }
+        // For the Slate prompt: what the person sees (JSON); CON is the sway container
+        // they were looking at.
+        "glance" => {
+            let con = args.get(1).and_then(|c| c.parse::<i64>().ok());
+            let r = mcp::cli_call("slate_glance", json!({ "con": con }))?;
             println!("{}", r["content"][0]["text"].as_str().unwrap_or(""));
             Ok(())
         }

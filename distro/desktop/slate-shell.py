@@ -299,6 +299,13 @@ class ShellWindow(Gtk.ApplicationWindow):
 
     def show_active(self):
         """Open for typing: takes the keyboard; a click anywhere else dismisses it."""
+        # Which window the person was looking at, while it still has their focus (the
+        # prompt takes it next): slash reads their screen while they type, and sends it
+        # along with the request.
+        try:
+            self.session.send({"op": "look", "con": seat0_focus()})
+        except Exception:  # noqa: BLE001
+            pass
         self.apply_theme_now()
         self.cancel_hide_timer()
         self.passive = False

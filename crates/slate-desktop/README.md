@@ -51,7 +51,7 @@ Two switches must be on, and the SlateOS desktop profile sets both: the bus must
 
 ## MCP tools
 
-`desktop_windows`, `desktop_elements`, `desktop_read`, `desktop_element_click`, `desktop_element_set_text`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_close`, `desktop_focus`, `desktop_window_set`, `desktop_arrange`, `desktop_launch` (with `where`), `desktop_show`, `desktop_hide`, `desktop_seats`, `desktop_status`, `desktop_takeover_cancel`. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. `desktop_type` and `desktop_key` take a `window`, focus it for the seat in use, verify the focus through the compositor and report which window received the input. Every action returns a screenshot of the result.
+`desktop_windows`, `desktop_elements`, `desktop_read`, `desktop_element_click`, `desktop_element_set_text`, `desktop_screenshot [window]`, `desktop_click`, `desktop_move`, `desktop_scroll`, `desktop_type`, `desktop_key`, `desktop_close`, `desktop_focus`, `desktop_window_set`, `desktop_arrange`, `desktop_launch` (with `where`), `desktop_show`, `desktop_hide`, `desktop_seats`, `desktop_status`, `desktop_takeover_cancel`. Windows are named by id (a unique prefix of 8 or more digits will do), app_id or title; of several matches by name, a window the person can see wins. Window-relative coordinates match window screenshots, so an agent can look, then click what it saw. `desktop_type` and `desktop_key` take a `window`, focus it for the seat in use, verify the focus through the compositor and report which window received the input. Every action returns a screenshot of the result.
 
 slash adds this server to the agent backend automatically when `WAYLAND_DISPLAY` is set and the binary sits next to `slash`.
 
@@ -79,6 +79,7 @@ slate-desktop windows
 slate-desktop shot [IDENT] out.png
 slate-desktop elements WINDOW [QUERY]
 slate-desktop read WINDOW
+slate-desktop glance [CON]        # what the person sees, as JSON (the Slate prompt's <screen> block)
 slate-desktop element-click ID [ACTION]
 slate-desktop element-set-text ID TEXT
 slate-desktop click X Y [left|right|middle]

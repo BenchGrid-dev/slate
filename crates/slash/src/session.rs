@@ -83,7 +83,13 @@ user ran manually since your previous turn (exit code, directory, output) and ne
 to remember. Treat it as ground truth about what happened, not as part of the user's question. Slate \
 memories are per user, not per directory: the ones listed at the start of this session stay valid \
 wherever the user cds; only new ones are listed later. They are unrelated to any project-level \
-CLAUDE.md or auto-memory that changes with the working directory."
+CLAUDE.md or auto-memory that changes with the working directory. \
+A request from the desktop prompt may also start with a <screen> block: the windows on the \
+user's screen and on your background screen, with ids that work in the desktop tools as written \
+(no need to call desktop_windows first), the one the user was looking at when they opened the \
+prompt (what \"this\" usually means), and, when the request is about what is on screen, that \
+window's text and the user's text selection. Answer from it when it is enough, without \
+mentioning it; read or look at a window only for what it lacks."
     }
 
     /// Context to prepend to this turn's user message: the current directory, commands run

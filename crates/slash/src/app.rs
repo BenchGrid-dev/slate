@@ -42,6 +42,12 @@ enum ClientMsg {
     },
     /// Interrupt the turn in progress (handled on the reader thread, at once).
     Cancel,
+    /// The prompt opened; `con` is the sway container the person was looking at.
+    /// slash looks at their screen while they type (handled on the reader thread).
+    Look {
+        #[serde(default)]
+        con: Option<i64>,
+    },
     Quit,
 }
 
@@ -58,6 +64,8 @@ pub struct App {
     daemon: Option<Daemon>,
     /// `/auto on`: Confirm-tier actions run without asking for the rest of the session.
     auto_approve: bool,
+    /// Serve mode: what the person sees, gathered when the prompt opens.
+    screen: crate::screen::Screen,
     slate_bin: PathBuf,
     /// `slate-desktop`, when we are on a Wayland desktop and the binary exists.
     desktop_bin: Option<PathBuf>,
@@ -90,6 +98,7 @@ impl App {
             json: false,
             pending_approvals: Default::default(),
             auto_approve,
+            screen: Default::default(),
             cfg,
             backend,
             shell,
@@ -143,6 +152,8 @@ impl App {
         }));
         let (tx, rx) = std::sync::mpsc::channel::<ClientMsg>();
         let pending = std::sync::Arc::clone(&self.pending_approvals);
+        let screen = self.screen.clone();
+        let desktop_bin = self.desktop_bin.clone();
         std::thread::spawn(move || {
             use std::io::BufRead;
             for line in std::io::stdin().lock().lines() {
@@ -168,6 +179,11 @@ impl App {
                     Ok(ClientMsg::Cancel) => {
                         // Interrupt the agent now; the main thread sees the turn end.
                         backend::cancel_current_turn();
+                    }
+                    Ok(ClientMsg::Look { con }) => {
+                        if let Some(d) = &desktop_bin {
+                            screen.look(d, con);
+                        }
                     }
                     Ok(msg) => {
                         if tx.send(msg).is_err() {
@@ -212,7 +228,7 @@ impl App {
                     }
                     self.emit(serde_json::json!({"event": "done", "ok": true, "summary": null, "stats": null}));
                 }
-                ClientMsg::Approve { .. } | ClientMsg::Cancel => {}
+                ClientMsg::Approve { .. } | ClientMsg::Cancel | ClientMsg::Look { .. } => {}
                 ClientMsg::Quit => return Ok(0),
             }
         }
@@ -712,10 +728,16 @@ impl App {
         let delta = self
             .session
             .delta_for_agent(&cwd_now, &memories, first_turn);
-        let full_prompt = if delta.is_empty() {
-            prompt.to_string()
+        // From the desktop prompt: what the person sees (screen.rs).
+        let screen = if self.json && self.desktop_bin.is_some() {
+            self.screen.block(prompt)
         } else {
-            format!("<slash-context>\n{delta}</slash-context>\n\n{prompt}")
+            String::new()
+        };
+        let full_prompt = if delta.is_empty() {
+            format!("{screen}{prompt}")
+        } else {
+            format!("<slash-context>\n{delta}</slash-context>\n\n{screen}{prompt}")
         };
         let prompt = full_prompt.as_str();
         let cwd = self.shell.cwd().to_path_buf();

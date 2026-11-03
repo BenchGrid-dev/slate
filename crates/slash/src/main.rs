@@ -10,6 +10,7 @@ mod config;
 mod daemon;
 mod render;
 mod router;
+mod screen;
 mod session;
 mod shell;
 

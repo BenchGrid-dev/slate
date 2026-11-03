@@ -6,7 +6,9 @@ The Slate shell. See the top-level README for what it is for.
 
 Works, and is the login shell on the SlateOS dev machine. Runs on Linux and macOS with Claude Code or Codex installed; on Linux it uses `slated` for approvals, audit, undo and memories, and `slate-desktop` for the GUI when a Wayland display is present. Without `slated` (macOS, or the daemon off), permissions are whatever `--permission-mode` you configure.
 
-`slash --serve` speaks a JSON-lines protocol on stdin/stdout (`prompt`, `approve`, `command`, `quit` in; `ready`, `turn_start`, `text_delta`, `text`, `thinking`, `tool_start`, `tool_end`, `approval_needed`, `approval_resolved`, `note`, `done`, `error` out). The desktop's Slate prompt is a client of it.
+`slash --serve` speaks a JSON-lines protocol on stdin/stdout (`prompt`, `approve`, `command`, `cancel`, `look`, `quit` in; `ready`, `turn_start`, `text_delta`, `text`, `thinking`, `tool_start`, `tool_end`, `approval_needed`, `approval_resolved`, `note`, `done`, `error` out). The desktop's Slate prompt is a client of it.
+
+The prompt sends `look` (with `con`, the sway container the person had focused) as it opens. While they type, slash asks slate-desktop what they see (`slate-desktop glance`, then `read` of that window), and the next `prompt` starts with a `<screen>` block: the windows on the person's visible workspaces and on the agent's background screen, with short ids that work in the desktop tools, and the one they were looking at. When the request is about what is on screen ("summarize this page", "what does this error mean", "翻译这段"; a word list in `src/screen.rs`), the block also holds that window's text (up to 8000 characters) and the text they have selected; otherwise screen content stays on the machine. Summarizing the page in Firefox took the agent three turns and 10 s without the block, one turn and 3.6 s with it.
 
 ## Run
 
