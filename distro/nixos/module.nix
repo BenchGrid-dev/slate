@@ -102,7 +102,11 @@ let
   # Ours add minimize, maximize and close buttons to the title bars of floating windows
   # and let windows be maximized (sway ignores maximize requests), and fit a window that
   # opens larger than the space between the menu bar and the dock into it.
-  scenefx05 = (pkgs.scenefx.override { wlroots_0_19 = pkgs.wlroots_0_20; }).overrideAttrs (old: {
+  # Newer nixpkgs (the flake's) already build both on wlroots 0.20 and no longer take a
+  # wlroots_0_19 argument, so pass it only where it is taken.
+  onWlroots20 = pkg: extra: pkg.override (builtins.intersectAttrs (lib.functionArgs pkg.override)
+    ({ wlroots_0_19 = pkgs.wlroots_0_20; } // extra));
+  scenefx05 = (onWlroots20 pkgs.scenefx { }).overrideAttrs (old: {
     version = "0.5";
     buildInputs = old.buildInputs ++ [ pkgs.lcms2 ];  # 0.5 colour-manages its renderer
     src = pkgs.fetchFromGitHub {
@@ -112,10 +116,7 @@ let
       hash = "sha256-vUjLG6eubEhJJVa9LPygIcVmNoHwYbSUTJcWEcbxnU4=";
     };
   });
-  swayfx06-unwrapped = (pkgs.swayfx-unwrapped.override {
-    wlroots_0_19 = pkgs.wlroots_0_20;
-    scenefx = scenefx05;
-  }).overrideAttrs (finalAttrs: _: {
+  swayfx06-unwrapped = (onWlroots20 pkgs.swayfx-unwrapped { scenefx = scenefx05; }).overrideAttrs (finalAttrs: _: {
     version = "0.6";
     src = pkgs.fetchFromGitHub {
       owner = "WillPower3309";

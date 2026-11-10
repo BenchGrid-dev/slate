@@ -18,3 +18,14 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
       - run: cargo test --workspace
+
+  # Evaluate (not build) the images against the flake's nixpkgs: the module is otherwise
+  # only exercised on a machine's own channel, and an argument nixpkgs dropped once broke
+  # the image for weeks unnoticed.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix eval --raw .#nixosConfigurations.iso-x86_64-linux.config.system.build.isoImage.drvPath
+      - run: nix eval --raw .#nixosConfigurations.iso-aarch64-linux.config.system.build.isoImage.drvPath
