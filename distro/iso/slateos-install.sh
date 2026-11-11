@@ -64,6 +64,9 @@ if [ "$encrypt" = 1 ]; then
 fi
 
 part() { if [[ "$disk" == *[0-9] ]]; then echo "${disk}p$1"; else echo "${disk}$1"; fi; }
+# What an earlier attempt left mounted or open would keep the disk busy.
+umount -R /mnt 2>/dev/null || true
+cryptsetup close slateos 2>/dev/null || true
 echo "== partitioning $disk"
 parted -s "$disk" mklabel gpt
 parted -s "$disk" mkpart ESP fat32 1MiB 513MiB
@@ -103,7 +106,8 @@ mkdir -p /mnt/etc/slateos
 # nixos-generate-config sees the LUKS container under the root and adds it to the
 # initrd (boot.initrd.luks.devices) in hardware-configuration.nix.
 nixos-generate-config --root /mnt --dir /mnt/etc/slateos >/dev/null
-cp -r "$src" /mnt/etc/slateos/slate
+# -H: on the live image the source is a symlink into the store; copy what it points to.
+cp -rH "$src" /mnt/etc/slateos/slate
 chmod -R u+w /mnt/etc/slateos/slate
 luks=""
 if [ "$encrypt" = 1 ]; then
@@ -124,7 +128,12 @@ if [ "$dry" = 1 ]; then
 fi
 
 echo "== installing (this copies the system from the live image; no network needed)"
-nixos-install --root /mnt --no-root-passwd -I "nixos-config=/mnt/etc/slateos/configuration.nix"
+# nixos-install finds the configuration through NIXOS_CONFIG: /mnt/etc/nixos points at
+# /etc/slateos, which on the live system is the image's own directory, and the -I option
+# no longer counts. From /, because it first looks for a default.nix in the directory it
+# runs in and the ones above.
+cd /
+NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd
 chown -R "$(stat -c %u /mnt/home/"$user" 2>/dev/null || echo 1000):100" "/mnt/home/$user" || true
 
 echo

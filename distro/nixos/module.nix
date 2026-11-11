@@ -826,7 +826,9 @@ in
       "slate/dock.json".source = dockDefaults;
       "slate/swayosd.css".source = ../desktop/swayosd/style.css;
       "slate/system-settings.json".text = builtins.toJSON {
-        file = cfg.settingsFile;
+        # toString: a path value would be copied into the store, and fail where the
+        # file does not exist yet (`./settings.json` on a new installation).
+        file = if cfg.settingsFile == null then null else toString cfg.settingsFile;
         inputMethods = { available = builtins.attrNames inputMethodAddons; enabled = inputMethods; };
         # Null: settings.json decides at run time (slate-desktop, slate-idle).
         agent = {
