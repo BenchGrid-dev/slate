@@ -107,7 +107,12 @@ pub fn run() -> Result<()> {
     std::thread::spawn(|| loop {
         if sway::available() {
             let r = sway::watch_windows(|change, con| {
-                if change == "new" {
+                // A new resolution or scale changes the region the person's absolute
+                // pointer (a VM's tablet) must map to: until it is mapped again, clicks
+                // land elsewhere, so do it now rather than on the next 5 s pass.
+                if change == "output" {
+                    let _ = sway::fix_layout();
+                } else if change == "new" {
                     let id = con.get("id").and_then(Value::as_i64);
                     let pid = con.get("pid").and_then(Value::as_u64).map(|p| p as u32);
                     let app = con.get("app_id").and_then(Value::as_str).unwrap_or("");

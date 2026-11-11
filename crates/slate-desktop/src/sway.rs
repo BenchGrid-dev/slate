@@ -108,12 +108,14 @@ fn ipc(msg_type: u32, payload: &str) -> Result<Value> {
     Ok(read_msg(&mut s)?.1)
 }
 
-/// Follow sway's window events until the connection drops. `on_event` gets the
-/// change ("new", "close", "focus", "move", ...) and the container node.
+/// Follow sway's window and output events until the connection drops. `on_event` gets
+/// a window's change ("new", "close", "focus", "move", ...) and its container node, or
+/// "output" and null when an output was added, removed or reconfigured.
 pub fn watch_windows(mut on_event: impl FnMut(&str, &Value)) -> Result<()> {
+    const OUTPUT_EVENT: u32 = 0x8000_0001;
     let path = socket_path().context("no sway IPC socket")?;
     let mut s = UnixStream::connect(&path)?;
-    send_msg(&mut s, 2, "[\"window\"]")?; // SUBSCRIBE
+    send_msg(&mut s, 2, "[\"window\", \"output\"]")?; // SUBSCRIBE
     let (_, reply) = read_msg(&mut s)?;
     if !reply
         .get("success")
@@ -123,7 +125,11 @@ pub fn watch_windows(mut on_event: impl FnMut(&str, &Value)) -> Result<()> {
         bail!("sway refused the window subscription: {reply}");
     }
     loop {
-        let (_, ev) = read_msg(&mut s)?;
+        let (kind, ev) = read_msg(&mut s)?;
+        if kind == OUTPUT_EVENT {
+            on_event("output", &Value::Null);
+            continue;
+        }
         let change = ev.get("change").and_then(Value::as_str).unwrap_or("");
         let con = ev.get("container").cloned().unwrap_or(Value::Null);
         on_event(change, &con);

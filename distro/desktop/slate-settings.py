@@ -69,7 +69,7 @@ class DisplayPage(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.win = win
         self.outputs = []
-        self.previous = None  # (name, mode_str, scale) to revert to
+        self.previous = None  # (name, mode_str, scale, custom) to revert to
 
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup(title="Display", description="Changes apply immediately. If the screen looks wrong, wait 15 seconds and it reverts.")
@@ -176,8 +176,13 @@ class DisplayPage(Gtk.Box):
             return
         scale = SCALES[self.scale_row.get_selected()]
         cur = o.get("current_mode") or {}
-        self.previous = (o["name"], f'{cur.get("width")}x{cur.get("height")}', str(o.get("scale", 1)))
-        listed = any(f'{m["width"]}x{m["height"]}' == mode for m in o.get("modes", []))
+        cur_mode = f'{cur.get("width")}x{cur.get("height")}'
+        listed_modes = {f'{m["width"]}x{m["height"]}' for m in o.get("modes", [])}
+        # The mode to go back to may itself be custom (UTM's 2560x1600): without
+        # --custom sway would fall back to the preferred mode at the old scale, a
+        # quarter of the working area, with every window too big for it.
+        self.previous = (o["name"], cur_mode, str(o.get("scale", 1)), cur_mode not in listed_modes)
+        listed = mode in listed_modes
         ok, msg = self.apply_cmd(o["name"], mode, scale, custom=not listed)
         if not ok:
             self.status.set_text(f"sway refused: {msg[:200]}")
@@ -190,19 +195,27 @@ class DisplayPage(Gtk.Box):
         dialog.add_response("keep", "Keep")
         dialog.set_response_appearance("keep", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("keep")
-        remaining = {"n": 15}
+        # Closing it (Esc, the close button) means revert, too.
+        dialog.set_close_response("revert")
+        state = {"n": 15, "done": False}
 
         def tick():
-            if not dialog.get_visible():
+            if state["done"]:
                 return False
-            remaining["n"] -= 1
-            dialog.set_body(f"{name}: {mode} at scale {scale}. Reverting in {remaining['n']} seconds unless you keep them.")
-            if remaining["n"] <= 0:
+            state["n"] -= 1
+            dialog.set_body(f"{name}: {mode} at scale {scale}. Reverting in {state['n']} seconds unless you keep them.")
+            if state["n"] <= 0:
+                # response() alone leaves the dialog open, and closing it responds
+                # again: answer once, then close.
                 dialog.response("revert")
+                dialog.close()
                 return False
             return True
 
         def on_response(_d, resp):
+            if state["done"]:
+                return
+            state["done"] = True
             if resp == "keep":
                 self.persist(name, mode, scale, custom)
                 self.status.set_text(f"Saved to {OUTPUT_CONF}")
@@ -217,8 +230,9 @@ class DisplayPage(Gtk.Box):
     def revert(self):
         if not self.previous:
             return
-        name, mode, scale = self.previous
-        self.apply_cmd(name, mode, scale)
+        name, mode, scale, custom = self.previous
+        self.previous = None
+        self.apply_cmd(name, mode, scale, custom=custom)
         self.status.set_text(f"Reverted to {mode} at scale {scale}")
 
     def persist(self, name, mode, scale, custom):
@@ -1821,4 +1835,8 @@ class App(Adw.Application):
 
 
 if __name__ == "__main__":
+    # Windows without the application set (dialogs) take their Wayland app id from the
+    # program name, which the Nix wrapper makes ".slate-settings-wrapped": the dock then
+    # showed them as an unknown app.
+    GLib.set_prgname("dev.benchgrid.slate.Settings")
     sys.exit(App().run(sys.argv))
