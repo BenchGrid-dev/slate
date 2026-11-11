@@ -15,11 +15,13 @@
         slate = pkgs.rustPlatform.buildRustPackage {
           pname = "slate";
           version = "0.1.1";
+          # Only what the Rust build reads: the desktop profile and image (distro/) change
+          # often and must not rebuild the runtime.
           src = pkgs.lib.cleanSourceWith {
             src = self;
             filter = path: type:
               let base = baseNameOf path; in
-              !(base == "target" || base == "docs" || base == "skills" || base == ".github" || base == "tests");
+              !(base == "target" || base == "docs" || base == "skills" || base == ".github" || base == "tests" || base == "distro");
           };
           cargoLock.lockFile = ./Cargo.lock;
           postInstall = "mkdir -p $out/share/slate && cp -r ${./skills/base} $out/share/slate/skills";
