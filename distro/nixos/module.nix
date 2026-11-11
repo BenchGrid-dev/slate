@@ -294,8 +294,14 @@ let
   # keep drawing).
   slateScreens = pkgs.writeShellScriptBin "slate-screens" ''
     case "$1" in on|off) ;; *) echo "usage: slate-screens on|off" >&2; exit 2 ;; esac
-    for o in $(swaymsg -t get_outputs | ${pkgs.jq}/bin/jq -r '.[] | select(.name | startswith("HEADLESS-") | not) | .name'); do
-      swaymsg -q output "$o" power "$1"
+    # Some displays miss the first power on after a power off (virtio-gpu, so every
+    # VM): it reports success and stays dark. Ask again until every screen is on.
+    for _ in 1 2 3 4 5; do
+      left=$(swaymsg -t get_outputs | ${pkgs.jq}/bin/jq -r --arg want "$1" \
+        '.[] | select(.active and (.name | startswith("HEADLESS-") | not) and .power != ($want == "on")) | .name')
+      [ -n "$left" ] || exit 0
+      for o in $left; do swaymsg -q output "$o" power "$1"; done
+      sleep 1
     done
   '';
   # Low battery notifications (the menu bar shows the level).

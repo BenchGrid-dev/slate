@@ -29,6 +29,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - The password dialog says who asks when Settings needs root, and the dock shows it with a padlock.
 - The session now holds `graphical-session.target` while it runs (`slateos-session.target`, stopped when sway exits), so units that start with a graphical session work, and the session's own services stop at logout.
 - Fix: changing the resolution or scale in Settings could leave the screen unusable. When the confirmation ran out (or was closed), Settings went back without `--custom` to a mode the display does not list (UTM's 2560x1600), so sway fell back to another mode at the old scale: a quarter of the working area, every window larger than the screen, the dialog out of reach. It now restores the exact mode, closes the dialog, and answers once. The person's absolute pointer (a virtual machine's) is also mapped to the new screen size at once instead of up to 5 s later, so clicks land where the pointer is. Dialogs of Settings no longer show in the dock as an unknown app.
+- Fix: in a virtual machine (virtio-gpu: UTM, QEMU) the screen stayed dark once it had turned off after 15 minutes away, whatever you pressed. The display misses the first power on after a power off and still reports success; `slate-screens` now asks again until every screen is on.
 
 ## 0.1.1 — 2026-10-19
 
