@@ -97,21 +97,24 @@ nix build .#iso                       # the image for the building machine's arc
 ls result/iso/                        # slateos-<label>-<arch>.iso
 ```
 
-Both `x86_64-linux` and `aarch64-linux` are defined (`nixosConfigurations.iso-<arch>`). The image boots into the SlateOS desktop as the live user `slate` (no password), with NetworkManager, the Slate runtime, the minimal application set and the installer. Nothing on disk is touched until you run the installer.
+Both `x86_64-linux` and `aarch64-linux` are defined (`nixosConfigurations.iso-<arch>`); the file is named after the Slate version (`slateos-0.1.1-aarch64-linux.iso`). The boot menu (SlateOS's own GRUB theme) starts **Try or Install SlateOS**, with the usual troubleshooting entries under Options. The image boots into the SlateOS desktop as the live user `slate` (no password, so the screen never locks: `desktop.screenLock = false`), with NetworkManager, the Slate runtime, the minimal application set and the installer. Nothing on disk is touched until you install.
 
-From a terminal in the live desktop:
+At login a window offers **Try SlateOS** or **Install SlateOS**; Install SlateOS also stays first in the dock. The installer (`slateos-installer`, GTK 4) asks for the disk (whole disks of at least 20 GB, not the one the image runs from; it is erased), the user name, password and computer name, the time zone, the application set (everyday apps, which need the internet, or the minimal set the image carries) and whether to encrypt the disk, shows a summary, asks once more before erasing, then runs `slateos-install` and follows its progress. Its last page restarts the computer; remove the image first (in UTM, clear the CD/DVD drive).
+
+From a terminal, the same installation:
 
 ```
 sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox --tz Europe/Berlin [--encrypt] [--apps minimal]
 ```
 
-It asks for the disk name again, for the user's password and, with `--encrypt`, for a disk passphrase, then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume, inside LUKS2 with `--encrypt`, with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the chosen application set (`full` unless `--apps minimal`), copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. An encrypted system asks for the passphrase at every boot, before the desktop logs in. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
+It asks for the disk name again, for the user's password and, with `--encrypt`, for a disk passphrase (`--yes`, `--password-hash` and `--passphrase-file` answer them for scripts, as the graphical installer does: the password reaches it as a hash only), then partitions the disk (GPT: a 512 MiB EFI system partition and a btrfs volume, inside LUKS2 with `--encrypt`, with the subvolumes `@`, `@nix`, `@home` and `@home/alice`, so the user's home is its own subvolume and undo works from the first boot), writes `/etc/slateos/configuration.nix` from `iso/template.nix` with the chosen application set (`full` unless `--apps minimal`), copies the Slate source next to it so the installed system evaluates the same package the image already carries, and runs `nixos-install`. An encrypted system asks for the passphrase at every boot, before the desktop logs in; that prompt needs a display the firmware can drive, which UTM's default virtio display is not, so do not encrypt there. The installed system boots into the desktop as that user; sign in to the agent from Settings → AI and press Super+s.
 
-Status: the aarch64 image builds (about 2.9 GB) and boots to the graphical target in QEMU (verified over the serial console: greetd starts, the getty greets as SlateOS). A complete encrypted install (`--encrypt --apps minimal`) has been run onto a disk image from the development system and booted in QEMU: the passphrase prompt, then the SlateOS desktop as the new user. Not yet: an install from the image itself, on x86_64, or on real hardware. Report what happens.
+The boot theme's images come from `iso/grub-theme.py` (committed, like the wallpapers); the background, the entry icons (nixpkgs' theme, recoloured) and the fonts (Inter) are added when the image is built.
+
+Tested so far: the aarch64 image, in QEMU on the development system (no hardware acceleration, 4 cores, 3.5 GB), installed through the graphical installer end to end (minimal applications, no encryption; about 40 minutes under emulation), and the installed disk boots into the desktop as its user. Encrypted installation has been run with `slateos-install` from the development system. The x86_64 image is evaluated by CI but has not been booted yet, and no image has been tried on real hardware.
 
 ## What the installer does not do yet
 
 - Dual boot.
-- A graphical installer; `slateos-install` is a command.
 - Agent sign-in on first boot (Settings → AI does it after login).
 - Ship the patched compositor once the seat-filtering and ghost-cursor patches exist (ADR 0007).

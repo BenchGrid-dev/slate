@@ -1,0 +1,56 @@
+# The SlateOS boot menu (the live image's GRUB). Images from ../grub-theme.py; the
+# background (splash.png), the entry icons (nixpkgs' theme, recoloured) and the fonts
+# (Inter, as grub-mkfont names it) are added when the image is built.
+
+title-text: ""
+desktop-image: "background.png"
+desktop-image-scale-method: "crop"
+desktop-color: "#0b0d18"
+message-font: "Inter Variable Regular 16"
+message-color: "#e6e9f5"
+terminal-font: "Unifont Regular 16"
+terminal-box: "terminal_*.png"
+
++ image {
+	top = 12%
+	left = 50%-180
+	width = 360
+	height = 100
+	file = "logo.png"
+}
+
++ boot_menu {
+	left = 50%-340
+	width = 680
+	top = 12%+100+40
+	height = 46%
+	item_font = "Inter Variable Regular 22"
+	item_color = "#d9deee"
+	selected_item_font = "Inter Variable Regular 22"
+	selected_item_color = "#ffffff"
+	selected_item_pixmap_style = "select_*.png"
+	menu_pixmap_style = "boot_menu_*.png"
+	# The highlight is item_height plus item_padding above and below; keep it inside
+	# the pitch (item_height + item_spacing) or it covers the next entry.
+	item_height = 40
+	item_padding = 4
+	item_spacing = 12
+	item_icon_space = 14
+	icon_width = 32
+	icon_height = 32
+	scrollbar = false
+}
+
++ progress_bar {
+	id = "__timeout__"
+	left = 50%-200
+	width = 400
+	top = 100%-12%
+	height = 28
+	font = "Inter Variable Regular 16"
+	text = "@TIMEOUT_NOTIFICATION_MIDDLE@"
+	text_color = "#e6e9f5"
+	fg_color = "#5a78e8"
+	bg_color = "#161927"
+	border_color = "#2b3150"
+}

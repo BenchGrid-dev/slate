@@ -227,6 +227,7 @@ let
   # size: swaylock-effects then sizes the time and the date from the ring, at any scale.
   # `--idle` (the idle timer): input in the first five seconds dismisses it unasked.
   slateLock = pkgs.writeShellScriptBin "slate-lock" ''
+    ${lib.optionalString (!cfg.desktop.screenLock) "exit 0  # services.slate.desktop.screenLock = false"}
     grace=""
     [ "$1" = --idle ] && grace="--grace 5"
     exec ${swaylockPatched}/bin/swaylock --daemonize $grace \
@@ -253,6 +254,7 @@ let
       lock=$(${pkgs.jq}/bin/jq -r '.lock_after // 600' "$conf")
       off=$(${pkgs.jq}/bin/jq -r '.screen_off_after // 900' "$conf")
     fi
+    ${lib.optionalString (!cfg.desktop.screenLock) "lock=0"}
     wait="" cancel=""
     if [ "$(${slateosSettings}/bin/slateos-settings get lock-while-agent-works)" = no ]; then
       wait="${slateIdleWait}/bin/slate-idle-wait " cancel="${slateIdleWait}/bin/slate-idle-wait --cancel; "
@@ -457,7 +459,7 @@ let
     meta.mainProgram = "slate-dock";
   };
   dockDefaults = pkgs.writeText "dock.json" (builtins.toJSON {
-    pinned = [ "slate:launcher" "thunar.desktop" "firefox.desktop" "foot.desktop" ]
+    pinned = cfg.desktop.dockFirst ++ [ "slate:launcher" "thunar.desktop" "firefox.desktop" "foot.desktop" ]
       ++ lib.optionals (cfg.desktop.apps == "full") [ "thunderbird.desktop" "writer.desktop" ]
       ++ [ "org.xfce.mousepad.desktop" "io.github.kolunmi.Bazaar.desktop" "slate-settings.desktop" "slate:slate" ];
   });
@@ -573,6 +575,22 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "With desktop.enable, log this user straight into sway instead of showing a greeter.";
+    };
+
+    desktop.screenLock = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Lock the screen when the person is away, before the computer sleeps and on
+        Super+L. The live image turns it off: its user has no password to unlock with.
+      '';
+    };
+
+    desktop.dockFirst = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "slateos-installer.desktop" ];
+      description = "Desktop entries pinned at the start of the dock by default (the live image pins its installer).";
     };
 
     settingsFile = lib.mkOption {
