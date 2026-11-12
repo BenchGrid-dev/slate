@@ -136,7 +136,9 @@ echo "== installing (this copies the system from the live image; no network need
 # no longer counts. From /, because it first looks for a default.nix in the directory it
 # runs in and the ones above.
 cd /
-NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd
+# No global flake registry: the configuration names its flake by path and everything is
+# locked, but Nix would still download the registry first, and stop without a network.
+NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd --option flake-registry ""
 if [ -n "$homefiles" ] && [ -d "$homefiles" ]; then
   # Modes are kept (the agent's key is readable by its owner alone); the owner is set below.
   cp -a "$homefiles"/. "/mnt/home/$user/"
