@@ -34,6 +34,8 @@ PASSWORD = "slateos-ci"
 # mkpasswd -m sha-512 slateos-ci
 PASSWORD_HASH = "$6$slateosci2026x$0X7tTXEQJ.90vQYTMuw/I5G3XMyoKC3ibm1QJVXMHncQfP0kDXuSwrQdlVCaqG7RurDtRw19hpb0tXk9iD.ff/"
 PASSPHRASE = "slateos-ci-disk"
+# An API connection to nowhere: enough to see that it arrives in the new home.
+PROVIDER = ['connection = "api"', "", "[api]", 'format = "openai"', 'base_url = "http://127.0.0.1:9/v1"', 'api_key = "sk-image-test"', 'model = "image-test-model"']
 EXIT = re.compile(r"@@EXIT:(\d+)@@")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[=>]")
 
@@ -263,7 +265,13 @@ def install(args):
         if status != 0 or not disk.startswith("/dev/"):
             raise Failure(f"the live system does not see the target disk:\n{out}")
         log(f"install: live system: {out.strip().splitlines()[0]}; target disk {disk}")
-        options = f"--disk {disk} --user {USER} --host slateos-test --tz UTC --apps minimal --yes --password-hash '{PASSWORD_HASH}'"
+        # The agent's connection, the way the graphical installer hands it over: files
+        # for the new home directory, the key readable by its owner alone.
+        vm.run("mkdir -p /tmp/agent-home/.config/slate && chmod -R 700 /tmp/agent-home && "
+               f"printf '%s\\n' {' '.join(repr(line) for line in PROVIDER)} > /tmp/agent-home/.config/slate/provider.toml && "
+               "chmod 600 /tmp/agent-home/.config/slate/provider.toml", 30)
+        options = (f"--disk {disk} --user {USER} --host slateos-test --tz UTC --apps minimal --yes --password-hash '{PASSWORD_HASH}' "
+                   "--home-files /tmp/agent-home")
         if args.encrypt:
             vm.run(f"printf %s '{PASSPHRASE}' > /tmp/passphrase", 30)
             options += " --passphrase-file /tmp/passphrase"
@@ -333,7 +341,8 @@ def boot(args):
         checks = (
             "systemctl --user is-active slate-desktop slate-dock slate-panel slated | tr '\\n' ' '; echo; "
             "echo sway=$(pgrep -cx sway); slateos-version; "
-            "echo root=$(findmnt -no FSTYPE /); echo disks=$(lsblk -rno TYPE | sort -u | tr '\\n' ,)"
+            "echo root=$(findmnt -no FSTYPE /); echo disks=$(lsblk -rno TYPE | sort -u | tr '\\n' ,); "
+            "echo provider=$(stat -c %a:%U ~/.config/slate/provider.toml):$(slate provider show | tr -d ' ')"
         )
         deadline = time.monotonic() + 300 * args.patience
         while True:
@@ -349,12 +358,14 @@ def boot(args):
                 missing.append("a btrfs root")
             if args.encrypt and not re.search(r"disks=\S*crypt", out):
                 missing.append("an encrypted disk")
+            if not re.search(rf'provider=600:{USER}:.*"connection":"api".*"model":"image-test-model"', out):
+                missing.append("the agent's connection in the new home (provider.toml, private, the user's)")
             if not missing:
                 break
             if time.monotonic() > deadline:
                 raise Failure("boot: the installed system lacks " + "; ".join(missing) + f". The checks printed:\n{out}")
             time.sleep(10 * args.patience)
-        results = [line.strip() for line in out.splitlines() if line.strip()][-5:]  # after the echoed command
+        results = [line.strip() for line in out.splitlines() if line.strip()][-6:]  # after the echoed command
         log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")

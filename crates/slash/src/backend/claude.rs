@@ -212,6 +212,16 @@ impl Backend for ClaudeCode {
                 .and_then(slate_gateway::Gateway::last_error)
                 .map(|e| format!("\n{e}"))
                 .unwrap_or_default();
+            // And a CLI that was never signed in should send the person to where
+            // that is done, not to a command of its own that slash does not have.
+            let all = format!("{err}{refused}").to_ascii_lowercase();
+            let refused = if self.gateway.is_none()
+                && (all.contains("/login") || all.contains("not logged in"))
+            {
+                format!("{refused}\nThe agent is not connected to a model yet. Connect it in Settings, AI (or run: slate-welcome --agent).")
+            } else {
+                refused
+            };
             bail!(
                 "{} exited with {}{}{}",
                 self.cfg.bin,
