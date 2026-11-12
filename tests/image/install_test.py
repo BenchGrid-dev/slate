@@ -11,7 +11,7 @@ encrypted, logs in as the new user on the console (their login shell is slash) a
 checks that the desktop runs. Logs and a screenshot of the desktop stay in --workdir.
 
 Needs qemu-system-<arch> and qemu-img on PATH and a UEFI firmware image (OVMF.fd for
-x86_64, QEMU_EFI.fd for aarch64). With /dev/kvm it takes about fifteen minutes, without
+x86_64, QEMU_EFI.fd for aarch64). With /dev/kvm it takes about seven minutes, without
 it (emulation) more than an hour. .github/workflows/image.yml runs it for minor releases.
 """
 import argparse
@@ -322,11 +322,12 @@ def boot(args):
         vm.expect(r"Password: ", 60, "the password prompt")
         vm.send(f"{PASSWORD}\n")
         time.sleep(8 * args.patience)
-        # The login shell is slash: `!` hands a line to the real shell.
+        # The login shell is slash: `!` hands a line to the real shell. slash shows the
+        # line as it is typed, so nothing a check looks for is spelled out in it.
         checks = (
             "systemctl --user is-active slate-desktop slate-dock slate-panel slated | tr '\\n' ' '; echo; "
-            "pgrep -x sway >/dev/null && echo sway-runs; slateos-version; "
-            "echo root-on-$(findmnt -no FSTYPE /); lsblk -rno TYPE | sort -u | tr '\\n' ' '"
+            "echo sway=$(pgrep -cx sway); slateos-version; "
+            "echo root=$(findmnt -no FSTYPE /); echo disks=$(lsblk -rno TYPE | sort -u | tr '\\n' ,)"
         )
         deadline = time.monotonic() + 300 * args.patience
         while True:
@@ -334,20 +335,21 @@ def boot(args):
             missing = []
             if "active active active active" not in out:
                 missing.append("the desktop's services (slate-desktop, slate-dock, slate-panel, slated)")
-            if "sway-runs" not in out:
+            if not re.search(r"sway=[1-9]", out):
                 missing.append("the compositor")
             if args.version and f"SlateOS {args.version}" not in out:
                 missing.append(f"SlateOS {args.version} in slateos-version")
-            if "root-on-btrfs" not in out:
+            if "root=btrfs" not in out:
                 missing.append("a btrfs root")
-            if args.encrypt and "crypt" not in out:
+            if args.encrypt and not re.search(r"disks=\S*crypt", out):
                 missing.append("an encrypted disk")
             if not missing:
                 break
             if time.monotonic() > deadline:
                 raise Failure("boot: the installed system lacks " + "; ".join(missing) + f". The checks printed:\n{out}")
             time.sleep(10 * args.patience)
-        log("boot: the desktop runs: " + " | ".join(line.strip() for line in out.strip().splitlines() if line.strip()))
+        results = [line.strip() for line in out.splitlines() if line.strip()][-5:]  # after the echoed command
+        log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")
         vm.stop()

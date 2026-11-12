@@ -111,7 +111,7 @@ It asks for the disk name again, for the user's password and, with `--encrypt`, 
 
 The boot theme's images come from `iso/grub-theme.py` (committed, like the wallpapers); the background, the entry icons (nixpkgs' theme, recoloured) and the fonts (Inter) are added when the image is built.
 
-Tested so far: the aarch64 image, in QEMU on the development system (no hardware acceleration, 4 cores, 3.5 GB), installed through the graphical installer end to end (minimal applications, no encryption; about 40 minutes under emulation), and the installed disk boots into the desktop as its user. Encrypted installation has been run with `slateos-install` from the development system. The x86_64 image is evaluated by CI but has not been booted yet, and no image has been tried on real hardware.
+Tested so far, in QEMU: the x86_64 image is built, installed and booted by CI before minor releases ([tests/image](../tests/image/README.md): `slateos-install` on a plain and on an encrypted disk, minimal applications, with KVM), and the installed system reaches the desktop. The aarch64 image is run the same way by hand on the development system, under emulation (an encrypted installation takes about 45 minutes there), and has been installed through the graphical installer end to end (0.2.0, minimal applications, no encryption). No image has been tried on real hardware, and the graphical installer has not been run on x86_64.
 
 ## What the installer does not do yet
 

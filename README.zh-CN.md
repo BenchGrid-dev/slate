@@ -33,7 +33,7 @@
 
 本仓库同时包含 Slate 运行时与 SlateOS 桌面配置。你可以先体验对话式 shell，也可以部署完整桌面。
 
-> **项目状态：** Pre-alpha · 当前版本 **0.2.0**。核心流程已在开发环境中端到端跑通，硬件与应用兼容性仍在扩展；live 镜像可通过图形安装器安装 SlateOS，已在 aarch64 的 QEMU 中测试。当前能力边界见[项目状态](#项目状态)。
+> **项目状态：** Pre-alpha · 当前版本 **0.2.0**。核心流程已在开发环境中端到端跑通，硬件与应用兼容性仍在扩展；live 镜像可通过图形安装器安装 SlateOS，已在虚拟机（x86_64 与 aarch64）中测试，尚未在真机上验证。当前能力边界见[项目状态](#项目状态)。
 
 ## 为什么是 SlateOS
 
@@ -199,7 +199,7 @@ Terminal                         Desktop prompt
 | Agent 交互 | Claude Code 与 Codex 适配；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
 | 桌面控制 | 独立 Agent 席位及其后台屏幕、无障碍树元素与动作（AT-SPI2）、按窗口截图、Unicode 输入、焦点验证、窗口排列及用户席位回退。 | 独立可见光标、合成器席位过滤和更多应用覆盖（Qt）。 |
 | 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 与 polkit 通过桌面对话框向用户索要密码）。 | Codex 审批集成、Agent 身份隔离。 |
-| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`。 | 真机镜像测试、首次启动的 agent 登录。 |
+| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`。 | 真机镜像测试、首次启动的 agent 登录、系统更新。 |
 
 **应用兼容性是当前工作的重点。** 在 Agent 席位先于应用创建的条件下，foot、Firefox、GTK3（Thunar）和 GTK4/libadwaita 应用已通过验证。Electron 与 Chromium 应用只绑定一个席位：由 Agent 在后台打开时绑定 Agent 席位，否则绑定用户席位，此时可使用元素动作或回退至用户席位。Flatpak 应用的表现取决于其工具包。没有无障碍树的应用（如微信）通过截图和指针操作。Qt 尚未测试。当前桌面集成面向 sway 及其所需的 Wayland 协议，不能直接替换为 GNOME、KDE 或 X11。
 

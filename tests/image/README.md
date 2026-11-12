@@ -19,6 +19,6 @@ nix shell nixpkgs#qemu_kvm -c python3 tests/image/install_test.py \
   [--encrypt]
 ```
 
-On aarch64 the firmware is `FV/QEMU_EFI.fd` of the same package. With `/dev/kvm` one run takes about fifteen minutes; without it QEMU emulates the processor, every wait is multiplied by eight (`--patience`) and a run takes more than an hour. The disk needs about 10 GB in `--workdir`; a full host disk pauses the guest, which the test reports instead of waiting.
+On aarch64 the firmware is `FV/QEMU_EFI.fd` of the same package. With `/dev/kvm` one run takes about seven minutes; without it QEMU emulates the processor, every wait is multiplied by eight (`--patience`) and a run takes more than an hour. The disk needs about 10 GB in `--workdir`; a full host disk pauses the guest, which the test reports instead of waiting.
 
 CI runs it on x86_64 for minor releases and on request (`.github/workflows/image.yml`, see [releasing](../../docs/releasing.md)). The aarch64 image is run by hand on the development system, under emulation.

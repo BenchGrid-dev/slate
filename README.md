@@ -33,7 +33,7 @@ The central idea is simple: **an agent should have its own place on your desktop
 
 The repository contains both the Slate runtime and the SlateOS desktop configuration. You can start with the conversational shell or deploy the integrated desktop.
 
-> **Project status:** Pre-alpha · current version **0.2.0**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; the live image installs SlateOS with a graphical installer, tested on aarch64 in QEMU. See [project status](#project-status) for current boundaries.
+> **Project status:** Pre-alpha · current version **0.2.0**. The core workflow runs end to end on the development system. Hardware and application compatibility are still being expanded; the live image installs SlateOS with a graphical installer, tested in virtual machines (x86_64 and aarch64), not yet on real hardware. See [project status](#project-status) for current boundaries.
 
 ## Why SlateOS
 
@@ -199,7 +199,7 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
 | Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo and polkit ask the person through a dialog). | Codex approval integration, agent identity isolation. |
-| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`. | Image testing on real hardware, first-run agent sign-in. |
+| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`. | Image testing on real hardware, first-run agent sign-in, software updates. |
 
 **Application compatibility matters.** The agent seat has been verified with foot, Firefox, GTK3 (Thunar), and GTK4/libadwaita applications when the seat exists before the application starts. Electron and Chromium applications bind a single seat: the agent's when it opens them in the background, yours otherwise, where element actions or the user-seat fallback remain. Flatpak applications behave as their toolkit does. Applications without an accessibility tree (WeChat) are driven through screenshots and the pointer. Qt is untested. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
 

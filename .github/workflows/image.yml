@@ -2,7 +2,7 @@ name: Image
 
 # Builds the x86_64 image, installs it in a virtual machine and boots what was installed
 # (tests/image/install_test.py), once on a plain disk and once on an encrypted one. It
-# takes about an hour, so it runs for minor releases only: on the commit
+# takes about 25 minutes, so it runs for minor releases only: on the commit
 # "chore(release): prepare X.Y.0", before that commit is tagged. Patch releases rely on
 # the evaluation in ci.yml. To run it for anything else: Actions, Image, Run workflow.
 on:
@@ -34,7 +34,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space
