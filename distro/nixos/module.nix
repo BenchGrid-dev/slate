@@ -162,13 +162,18 @@ let
       hash = "sha256-yvVqwgKEZt/JbT4cxyRA95oK1t/KcZ2AvI5/o7gYa0M=";
     };
     patches =
-      let sway112 = "${pkgs.path}/pkgs/by-name/sw/sway-unwrapped";
+      # Paths, not strings: a path is copied into the store by its content, while
+      # "''${pkgs.path}/…" names the whole nixpkgs tree it happens to sit in. The image
+      # is built from the flake's copy of nixpkgs and an installation from the
+      # installer's, so with strings the two wanted different compositors, and every
+      # installation compiled SwayFX again (and needed the internet for its source).
+      let sway112 = pkgs.path + "/pkgs/by-name/sw/sway-unwrapped";
       in [
-        "${sway112}/load-configuration-from-etc.patch"
-        (pkgs.replaceVars "${sway112}/fix-paths.patch" { inherit (pkgs) swaybg; })
+        (sway112 + "/load-configuration-from-etc.patch")
+        (pkgs.replaceVars (sway112 + "/fix-paths.patch") { inherit (pkgs) swaybg; })
       ]
-      ++ lib.optionals (!finalAttrs.isNixOS) [ "${sway112}/sway-config-no-nix-store-references.patch" ]
-      ++ lib.optionals finalAttrs.isNixOS [ "${sway112}/sway-config-nixos-paths.patch" ]
+      ++ lib.optionals (!finalAttrs.isNixOS) [ (sway112 + "/sway-config-no-nix-store-references.patch") ]
+      ++ lib.optionals finalAttrs.isNixOS [ (sway112 + "/sway-config-nixos-paths.patch") ]
       ++ [
         ./patches/swayfx-titlebar-buttons.patch
         ./patches/swayfx-fit-new-windows.patch
@@ -704,6 +709,10 @@ in
       BUG_REPORT_URL = "https://github.com/BenchGrid-dev/slate/issues";
     };
     networking.hostName = lib.mkDefault "slateos";
+    # NixOS's own manual is rebuilt whenever an option changes anywhere, on the person's
+    # machine: minutes at every installation and upgrade, for a book about another
+    # system's options. SlateOS's documentation is its own (the agent's OS Skills).
+    documentation.nixos.enable = lib.mkDefault false;
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
