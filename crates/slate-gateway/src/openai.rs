@@ -410,11 +410,11 @@ fn call_id(given: &str) -> String {
     )
 }
 
-fn message_id(chat_id: Option<&str>) -> String {
-    match chat_id {
-        Some(id) if !id.is_empty() => format!("msg_{}", id.trim_start_matches("chatcmpl-")),
-        _ => "msg_gateway".into(),
-    }
+/// An id for the message, always one of our own. The CLI takes answers with the same
+/// id for pieces of one message and joins them, so an endpoint that reuses its id
+/// (or sends none) would have its answers before and after a tool call fused.
+fn message_id(_chat_id: Option<&str>) -> String {
+    format!("msg_{}", &call_id("")[5..])
 }
 
 /// A whole chat completion as a Messages API message.

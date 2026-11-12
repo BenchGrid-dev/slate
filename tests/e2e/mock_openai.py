@@ -13,7 +13,6 @@ Every request is appended to LOG as one JSON line: what the endpoint was sent.
 import json
 import sys
 import time
-import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LOG = sys.argv[2] if len(sys.argv) > 2 else None
@@ -71,7 +70,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("authorization") != "Bearer sk-mock":
             return self.reply(401, {"error": {"message": "Incorrect API key provided", "type": "invalid_request_error"}})
         text, call = decide(body)
-        call_id = f"call_mock_{uuid.uuid4().hex[:10]}"     # a new id each time, as real endpoints give
+        # The worst an endpoint does, on purpose: the same completion id for every answer
+        # and tool calls numbered from zero each time. The CLI fuses answers with one id
+        # and ignores a call id it has seen, so the gateway must give both ids of its own.
+        call_id = "call_0"
         usage = {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110}
         if not body.get("stream"):
             message = {"role": "assistant", "content": text}
