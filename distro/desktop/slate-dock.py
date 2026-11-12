@@ -83,6 +83,29 @@ def theme_state():
         return {}
 
 
+def sway_events(kinds):
+    """Sway's events of these kinds, as they happen, read from its IPC socket. The
+    subscription lives in this process and ends with it (a `swaymsg -m` child outlived
+    a restart: systemd stops only the main process, KillMode=process)."""
+    import socket
+    import struct
+    path = os.environ.get("SWAYSOCK") or subprocess.run(
+        ["sway", "--get-socketpath"], capture_output=True, text=True, timeout=5).stdout.strip()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.connect(path)
+        payload = json.dumps(kinds).encode()
+        s.sendall(b"i3-ipc" + struct.pack("=II", len(payload), 2) + payload)
+        f = s.makefile("rb")
+        while True:
+            head = f.read(14)
+            if len(head) < 14:
+                return
+            length, kind = struct.unpack("=II", head[6:])
+            body = f.read(length)
+            if kind & 0x80000000:  # an event; the first message answers the subscription
+                yield json.loads(body)
+
+
 def theme_is_dark():
     try:
         return json.load(open(THEME)).get("theme", "dark") != "light"
@@ -360,7 +383,11 @@ class Dock(Gtk.Application):
         if theme_state().get("transparency", "on") == "reduced":
             css += CSS_OPAQUE_DARK if dark else CSS_OPAQUE_LIGHT
         self.theme_css.load_from_string(css)
-        Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", theme_is_dark())
+        settings = Gtk.Settings.get_default()
+        settings.set_property("gtk-application-prefer-dark-theme", dark)
+        # The icon theme too (slate-theme's), not from the settings portal: at login the
+        # dock can start before the portal answers, and GTK then keeps its default icons.
+        settings.set_property("gtk-icon-theme-name", "Colloid-Dark" if dark else "Colloid")
 
     def reload_pins(self):
         self.pins = load_pins()
@@ -400,9 +427,7 @@ class Dock(Gtk.Application):
         """Refresh on every window event; reconnect if sway restarts."""
         while True:
             try:
-                p = subprocess.Popen(["swaymsg", "-m", "-t", "subscribe", '["window","workspace"]'],
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-                for _line in p.stdout:
+                for _event in sway_events(["window", "workspace"]):
                     GLib.idle_add(self.refresh)
             except Exception:  # noqa: BLE001
                 pass

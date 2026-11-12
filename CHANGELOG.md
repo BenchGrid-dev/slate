@@ -9,6 +9,8 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - The system names itself with SlateOS's version: the boot menu's generations, the console greeting and `slateos-version` gave NixOS's ("26.11.20260926.e158d9e" on a system installed from the 0.2.0 image), which stays in `VERSION_ID` and, in brackets, in `slateos-version`.
 - The image no longer carries ZFS's kernel module, which SlateOS does not install on.
 - Fix: an encrypted disk's passphrase prompt did not show on ARM computers whose firmware names a serial port as the console (UTM, QEMU, servers): the kernel then used that port alone, the screen stayed black until the desktop started, and the passphrase could only be typed blind or on the serial port. The screen is now the console (`console=tty0`), on every architecture.
+- Fix: the dock could start with GTK's default icons at login, when it came up before the settings portal answered; it now sets the icon theme itself, as it does the colours.
+- Fix: each restart of the dock or the Slate prompt left a `swaymsg` process behind until the next window event. Both now read sway's events from its socket themselves.
 
 ## 0.2.0 — 2026-11-11
 

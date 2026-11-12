@@ -95,6 +95,29 @@ entry.ask placeholder, entry.ask text placeholder { color: #8e8e93; }
 """
 
 
+def sway_events(kinds):
+    """Sway's events of these kinds, as they happen, read from its IPC socket. The
+    subscription lives in this process and ends with it (a `swaymsg -m` child outlived
+    a restart: systemd stops only the main process, KillMode=process)."""
+    import socket
+    import struct
+    path = os.environ.get("SWAYSOCK") or subprocess.run(
+        ["sway", "--get-socketpath"], capture_output=True, text=True, timeout=5).stdout.strip()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.connect(path)
+        payload = json.dumps(kinds).encode()
+        s.sendall(b"i3-ipc" + struct.pack("=II", len(payload), 2) + payload)
+        f = s.makefile("rb")
+        while True:
+            head = f.read(14)
+            if len(head) < 14:
+                return
+            length, kind = struct.unpack("=II", head[6:])
+            body = f.read(length)
+            if kind & 0x80000000:  # an event; the first message answers the subscription
+                yield json.loads(body)
+
+
 def theme_is_dark(style=None):
     """The desktop's theme: slate-theme's choice first (it is what the person set), the
     toolkit's colour-scheme flag otherwise."""
@@ -636,19 +659,14 @@ class ShellWindow(Gtk.ApplicationWindow):
 
     def _watch_user_focus(self):
         try:
-            p = subprocess.Popen(["swaymsg", "-t", "subscribe", "-m", '["window"]'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            for ev in sway_events(["window"]):
+                if ev.get("change") != "focus":
+                    continue
+                focus = seat0_focus()
+                if focus is not None:
+                    GLib.idle_add(self.on_user_focus, focus)
         except Exception:  # noqa: BLE001
             return
-        for line in p.stdout:
-            try:
-                ev = json.loads(line)
-            except Exception:  # noqa: BLE001
-                continue
-            if ev.get("change") != "focus":
-                continue
-            focus = seat0_focus()
-            if focus is not None:
-                GLib.idle_add(self.on_user_focus, focus)
 
     def on_user_focus(self, con):
         settling = time.monotonic() - getattr(self, "passive_since", 0.0) < 1.5
