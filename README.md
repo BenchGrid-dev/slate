@@ -45,7 +45,7 @@ For applications that require the user's seat, Slate provides an explicit fallba
 
 ### Your agent, integrated into the system
 
-Slate launches the official **Claude Code** or **Codex** CLI and integrates through their headless interfaces and available extension points. Authentication and model access remain with your chosen backend; Slate does not call model APIs directly. Switch backends from the shell or Settings → AI.
+Slate launches the official **Claude Code** or **Codex** CLI and integrates through their headless interfaces and available extension points. With a subscription, authentication and model access remain with your chosen backend. You can also connect **an API key of your own**, in OpenAI's or Anthropic's format (an address, a key, a model): Claude Code then talks to a gateway on your machine, which holds the key and reaches your service, and approvals, audit and undo work the same. The installer and the first login ask which; Settings → AI changes it. See [connecting the agent](docs/agent-connection.md).
 
 ### A shell for both intent and commands
 
@@ -196,10 +196,10 @@ The current development baseline is **NixOS 26.05 with sway 1.12**. The reposito
 
 | Area | Available today | Next steps |
 | --- | --- | --- |
-| Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
+| Agent interface | Claude Code and Codex adapters; a Claude subscription or an API key of your own (OpenAI or Anthropic format); terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
 | Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo and polkit ask the person through a dialog). | Codex approval integration, agent identity isolation. |
-| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`. | Image testing on real hardware, first-run agent sign-in, software updates. |
+| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`, agent setup and a tutorial at installation and first login. | Image testing on real hardware, software updates. |
 
 **Application compatibility matters.** The agent seat has been verified with foot, Firefox, GTK3 (Thunar), and GTK4/libadwaita applications when the seat exists before the application starts. Electron and Chromium applications bind a single seat: the agent's when it opens them in the background, yours otherwise, where element actions or the user-seat fallback remain. Flatpak applications behave as their toolkit does. Applications without an accessibility tree (WeChat) are driven through screenshots and the pointer. Qt is untested. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
 
@@ -233,6 +233,7 @@ Changes affecting the shell, daemon, or desktop also need the [end-to-end tests]
 | Guide | Contents |
 | --- | --- |
 | [NixOS setup](distro/README.md) | Installation, module options, desktop configuration, and system tools. |
+| [Connecting the agent](docs/agent-connection.md) | A subscription or an API key of your own, the provider file, and what differs. |
 | [Shell reference](crates/slash/README.md) | Backend configuration, shell escapes, and session behavior. |
 | [Desktop reference](crates/slate-desktop/README.md) | MCP tools, Wayland requirements, and toolkit compatibility. |
 | [Policy reference](docs/policy.md) | Approval tiers and rule overrides. |

@@ -45,7 +45,7 @@ Agent 通过独立的 Wayland seat 获得自己的指针、键盘和焦点，并
 
 ### 你选择的 Agent，系统级的集成
 
-Slate 启动官方 **Claude Code** 或 **Codex** CLI，通过其无头运行接口和可用扩展点集成。认证与模型访问由所选后端负责，Slate 本身不直接调用模型 API。你可以在 shell 或「设置 → AI」中切换后端。
+Slate 启动官方 **Claude Code** 或 **Codex** CLI，通过其无头运行接口和可用扩展点集成。使用订阅时，认证与模型访问由所选后端负责。你也可以接入**自己的 API 密钥**，支持 OpenAI 和 Anthropic 两种格式（接口地址、密钥、模型名）：此时 Claude Code 连接的是本机上的一个网关，由网关保管密钥并访问你的服务，审批、审计和撤销照常工作。安装器和首次登录时会询问使用哪种方式，之后可在「设置 → AI」中修改。详见[连接 agent](docs/agent-connection.md)。
 
 ### 同时理解意图与命令的 shell
 
@@ -196,10 +196,10 @@ Terminal                         Desktop prompt
 
 | 领域 | 当前已实现 | 下一步 |
 | --- | --- | --- |
-| Agent 交互 | Claude Code 与 Codex 适配；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
+| Agent 交互 | Claude Code 与 Codex 适配；Claude 订阅或自己的 API 密钥（OpenAI 或 Anthropic 格式）；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
 | 桌面控制 | 独立 Agent 席位及其后台屏幕、无障碍树元素与动作（AT-SPI2）、按窗口截图、Unicode 输入、焦点验证、窗口排列及用户席位回退。 | 独立可见光标、合成器席位过滤和更多应用覆盖（Qt）。 |
 | 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 与 polkit 通过桌面对话框向用户索要密码）。 | Codex 审批集成、Agent 身份隔离。 |
-| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`。 | 真机镜像测试、首次启动的 agent 登录、系统更新。 |
+| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`；安装和首次登录时配置 agent 并提供教程。 | 真机镜像测试、系统更新。 |
 
 **应用兼容性是当前工作的重点。** 在 Agent 席位先于应用创建的条件下，foot、Firefox、GTK3（Thunar）和 GTK4/libadwaita 应用已通过验证。Electron 与 Chromium 应用只绑定一个席位：由 Agent 在后台打开时绑定 Agent 席位，否则绑定用户席位，此时可使用元素动作或回退至用户席位。Flatpak 应用的表现取决于其工具包。没有无障碍树的应用（如微信）通过截图和指针操作。Qt 尚未测试。当前桌面集成面向 sway 及其所需的 Wayland 协议，不能直接替换为 GNOME、KDE 或 X11。
 
@@ -233,6 +233,7 @@ cargo test --workspace
 | 文档 | 内容 |
 | --- | --- |
 | [NixOS 部署](distro/README.md) | 安装、模块选项、桌面配置与系统工具。 |
+| [连接 agent](docs/agent-connection.md) | 订阅或自己的 API 密钥、provider 配置文件及两者的差异。 |
 | [Shell 参考](crates/slash/README.md) | 后端配置、shell 命令与会话行为。 |
 | [桌面参考](crates/slate-desktop/README.md) | MCP 工具、Wayland 要求与工具包兼容性。 |
 | [策略参考](docs/policy.md) | 审批分级与规则覆盖。 |
