@@ -755,6 +755,11 @@ in
     # compressed swap in memory (small machines run a browser and an agent), and the
     # services behind Settings' Network, Bluetooth, Power and Printers pages.
     hardware.enableRedistributableFirmware = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
+    # The screen is the console: on ARM machines whose firmware names a serial port in
+    # ACPI's SPCR table (UTM, QEMU, servers), the kernel otherwise makes that port the
+    # only console, and what boot asks (an encrypted disk's passphrase) never reaches
+    # the screen: it stayed black until the desktop started.
+    boot.kernelParams = lib.mkIf cfg.desktop.enable [ "console=tty0" ];
     zramSwap.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
     networking.networkmanager.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault true);
     hardware.bluetooth = lib.mkIf cfg.desktop.enable {
