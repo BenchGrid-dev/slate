@@ -5,6 +5,7 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 ## Unreleased
 
 - **SlateOS follows NixOS 26.05.** The flake pinned nixos-unstable (a revision of late September), while SlateOS is developed and tested on the stable release: the image and what it installed ran packages the end-to-end suites never saw, and got no security updates. The flake now follows `nixos-26.05`, the same revision the development system runs, and later 0.2.x releases move along that branch. A system installed from the 0.2.0 image changes to it when its copy of Slate (`/etc/slateos/slate`) is replaced.
+- slash shows a Markdown table as aligned columns, its header bold; it printed the rows with their pipes.
 - The system names itself with SlateOS's version: the boot menu's generations, the console greeting and `slateos-version` gave NixOS's ("26.11.20260926.e158d9e" on a system installed from the 0.2.0 image), which stays in `VERSION_ID` and, in brackets, in `slateos-version`.
 - The image no longer carries ZFS's kernel module, which SlateOS does not install on.
 - Fix: an encrypted disk's passphrase prompt did not show on ARM computers whose firmware names a serial port as the console (UTM, QEMU, servers): the kernel then used that port alone, the screen stayed black until the desktop started, and the passphrase could only be typed blind or on the serial port. The screen is now the console (`console=tty0`), on every architecture.

@@ -871,6 +871,7 @@ dependencies = [
  "slate-proto",
  "tempfile",
  "toml",
+ "unicode-width",
 ]
 
 [[package]]

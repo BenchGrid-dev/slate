@@ -100,9 +100,10 @@ pub fn flush() {
 
 /// Inline Markdown for the terminal, applied as the answer streams in: `**bold**`,
 /// `` `code` `` and `# headings` become ANSI styles and their markers disappear;
-/// a fenced block's lines are shown as code without the fences. A marker split
-/// across two deltas is held back until the next one. Everything else (lists,
-/// single `*`, links) passes through as written.
+/// a fenced block's lines are shown as code without the fences, and a table as
+/// aligned columns once its last row has arrived. A marker split across two deltas
+/// is held back until the next one. Everything else (lists, single `*`, links)
+/// passes through as written.
 #[derive(Default)]
 pub struct Markdown {
     bold: bool,
@@ -115,6 +116,11 @@ pub struct Markdown {
     held: String,
     /// Skipping the rest of a fence line (its language tag).
     skip_line: bool,
+    /// The lines of a table (they start with `|`), shown when a line that is not
+    /// one ends it.
+    table: Vec<String>,
+    /// Lines starting with `|` that turned out not to be a table go through as text.
+    no_tables: bool,
 }
 
 impl Markdown {
@@ -158,6 +164,25 @@ impl Markdown {
                 }
                 i += 1;
                 continue;
+            }
+            if self.line_start && !self.fence && !self.no_tables {
+                if c == '|' {
+                    // A table row: kept whole, the table is laid out when it ends.
+                    match input[i..].iter().position(|&x| x == '\n') {
+                        Some(n) => {
+                            self.table.push(input[i..i + n].iter().collect());
+                            i += n + 1;
+                        }
+                        None => {
+                            self.held = input[i..].iter().collect();
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if !self.table.is_empty() {
+                    out.push_str(&self.flush_table());
+                }
             }
             // A run of '`' or '*' at the end may continue in the next delta.
             if (c == '`' || c == '*' || (c == '#' && self.line_start))
@@ -228,17 +253,132 @@ impl Markdown {
         out
     }
 
+    /// The table collected so far, laid out, or its lines as text when they are not
+    /// a table (no `---` row under the first).
+    fn flush_table(&mut self) -> String {
+        let rows = std::mem::take(&mut self.table);
+        if rows.len() >= 2 && is_separator(&rows[1]) {
+            return table(&rows, color_enabled());
+        }
+        let mut text = Markdown {
+            no_tables: true,
+            ..Self::default()
+        };
+        let mut out = text.push(&(rows.join("\n") + "\n"));
+        out.push_str(&text.finish());
+        out
+    }
+
     /// The end of the answer: flush what was held back and reset the style.
     pub fn finish(&mut self) -> String {
-        let held = std::mem::take(&mut self.held);
+        let mut held = std::mem::take(&mut self.held);
+        if self.line_start && held.starts_with('|') && !self.fence && !self.no_tables {
+            // The last row of a table, without its newline.
+            self.table.push(std::mem::take(&mut held));
+        }
+        let table = if self.table.is_empty() {
+            String::new()
+        } else {
+            self.flush_table()
+        };
         let had_style = self.bold || self.code || self.fence || self.heading;
         *self = Self::default();
-        let mut out = held;
+        let mut out = table + &held;
         if had_style && color_enabled() {
             out.push_str("\x1b[0m");
         }
         out
     }
+}
+
+fn cells(row: &str) -> Vec<String> {
+    let row = row.trim();
+    let row = row.strip_prefix('|').unwrap_or(row);
+    let row = row.strip_suffix('|').unwrap_or(row);
+    let mut cells = vec![String::new()];
+    let mut chars = row.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => cells.last_mut().unwrap().push('|'),
+            '|' => cells.push(String::new()),
+            c => cells.last_mut().unwrap().push(c),
+        }
+    }
+    // Inline markers inside a cell would only misalign the columns.
+    cells
+        .into_iter()
+        .map(|c| c.trim().replace("**", "").replace('`', ""))
+        .collect()
+}
+
+fn is_separator(row: &str) -> bool {
+    let cells = cells(row);
+    !cells.is_empty()
+        && cells.iter().all(|c| {
+            let c = c.trim_matches(':');
+            !c.is_empty() && c.chars().all(|x| x == '-')
+        })
+}
+
+/// A Markdown table as aligned columns: the header bold, a rule under it.
+fn table(rows: &[String], color: bool) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let align: Vec<char> = cells(&rows[1])
+        .iter()
+        .map(|c| match (c.starts_with(':'), c.ends_with(':')) {
+            (true, true) => 'c',
+            (false, true) => 'r',
+            _ => 'l',
+        })
+        .collect();
+    let body: Vec<Vec<String>> = std::iter::once(&rows[0])
+        .chain(&rows[2..])
+        .map(|r| cells(r))
+        .collect();
+    let columns = body.iter().map(Vec::len).max().unwrap_or(0);
+    let mut widths = vec![0; columns];
+    for row in &body {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.width());
+        }
+    }
+    let line = |row: &[String]| -> String {
+        let mut out = String::new();
+        for (n, w) in widths.iter().enumerate() {
+            let cell = row.get(n).map(String::as_str).unwrap_or("");
+            let pad = w - cell.width();
+            let (left, right) = match align.get(n) {
+                Some('r') => (pad, 0),
+                Some('c') => (pad / 2, pad - pad / 2),
+                _ => (0, pad),
+            };
+            if n > 0 {
+                out.push_str("  ");
+            }
+            out.push_str(&" ".repeat(left));
+            out.push_str(cell);
+            if n + 1 < columns {
+                out.push_str(&" ".repeat(right));
+            }
+        }
+        out
+    };
+    let mut out = String::new();
+    let header = line(&body[0]);
+    if color {
+        out.push_str(&format!("\x1b[1m{header}\x1b[0m\n"));
+    } else {
+        out.push_str(&header);
+        out.push('\n');
+    }
+    let rule: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
+    out.push_str(&rule.join("  "));
+    out.push('\n');
+    for row in &body[1..] {
+        out.push_str(&line(row));
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]
@@ -277,6 +417,26 @@ mod markdown_tests {
         );
         assert_eq!(plain(&["issue #42 and C#\n"]), "issue #42 and C#\n");
         assert_eq!(plain(&["trailing *"]), "trailing *");
+    }
+
+    #[test]
+    fn tables_become_columns() {
+        let md =
+            "Sizes:\n| Path | Size |\n| --- | ---: |\n| `target` | 4.4G |\n| 文档 | 12M |\nDone.\n";
+        let expected = "Sizes:\nPath    Size\n──────  ────\ntarget  4.4G\n文档     12M\nDone.\n";
+        assert_eq!(plain(&[md]), expected);
+        // Rows split across deltas, and a table that ends the answer without a newline.
+        let pieces = ["| a | b |\n|--", "-|---|\n| 1 ", "| 2 |"];
+        assert_eq!(plain(&pieces), "a  b\n─  ─\n1  2\n");
+    }
+
+    #[test]
+    fn a_pipe_line_that_is_no_table_stays_text() {
+        assert_eq!(
+            plain(&["| not a table **really**\nnext\n"]),
+            "| not a table really\nnext\n"
+        );
+        assert_eq!(plain(&["```\n| a | b |\n```\n"]), "| a | b |\n");
     }
 }
 
