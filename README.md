@@ -192,16 +192,16 @@ Read the [policy reference](docs/policy.md) and [snapshot design](docs/decisions
 
 ## Project status
 
-The current development baseline is **NixOS 26.05 with sway 1.12**. The repository includes unit tests and real-desktop end-to-end suites; automated CI runs Rust formatting, Clippy, builds, and unit tests. Desktop and agent integration tests require a configured machine and are run separately.
+The current development baseline is **NixOS 26.05 with sway 1.12**. The repository includes unit tests and real-desktop end-to-end suites; automated CI runs Rust formatting, Clippy, builds, and unit tests, and evaluates both images; before a minor release it also installs the x86_64 image in a virtual machine and boots the result. Desktop and agent integration tests require a configured machine and are run separately.
 
 | Area | Available today | Next steps |
 | --- | --- | --- |
 | Agent interface | Claude Code and Codex adapters; terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
-| Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt, Chromium, Flatpak). |
-| Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo asks the person through a dialog). | Codex approval integration, agent identity isolation, a polkit agent for GUI privilege requests. |
+| Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt). |
+| Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo and polkit ask the person through a dialog). | Codex approval integration, agent identity isolation. |
 | Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`. | Image testing on real hardware, first-run agent sign-in. |
 
-**Application compatibility matters.** The agent seat has been verified with foot, Firefox, and GTK3/Thunar when the seat exists before the application starts. Tested GTK4/libadwaita applications require the user-seat fallback. Qt, Chromium/Electron, and Flatpak coverage is still being investigated. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
+**Application compatibility matters.** The agent seat has been verified with foot, Firefox, GTK3 (Thunar), and GTK4/libadwaita applications when the seat exists before the application starts. Electron and Chromium applications bind a single seat: the agent's when it opens them in the background, yours otherwise, where element actions or the user-seat fallback remain. Flatpak applications behave as their toolkit does. Applications without an accessibility tree (WeChat) are driven through screenshots and the pointer. Qt is untested. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
 
 The next milestones focus on compatibility, execution boundaries, accessibility, and installation. See the [full roadmap](docs/roadmap.md), [toolkit compatibility notes](crates/slate-desktop/README.md#toolkit-compatibility), and [changelog](CHANGELOG.md).
 
