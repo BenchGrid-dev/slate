@@ -69,7 +69,7 @@ in
   isoImage.splashImage = ../desktop/splash.png;
   isoImage.efiSplashImage = ../desktop/splash.png;
   isoImage.grubTheme = grubTheme;
-  # The boot menu's first entry reads "Try or Install SlateOS 0.2.0" (the module labels
+  # The boot menu's first entry reads "Try or Install SlateOS 0.2.1" (the module labels
   # the system with SlateOS's version, which also names the image file): the live
   # desktop then asks which.
   isoImage.prependToMenuLabel = "Try or Install ";

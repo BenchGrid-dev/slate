@@ -4,6 +4,10 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-11
+
+SlateOS follows the NixOS release it is developed on, the image is installed and booted in virtual machines on both architectures, and an encrypted disk asks for its passphrase on the screen.
+
 - **SlateOS follows NixOS 26.05.** The flake pinned nixos-unstable (a revision of late September), while SlateOS is developed and tested on the stable release: the image and what it installed ran packages the end-to-end suites never saw, and got no security updates. The flake now follows `nixos-26.05`, the same revision the development system runs, and later 0.2.x releases move along that branch. A system installed from the 0.2.0 image changes to it when its copy of Slate (`/etc/slateos/slate`) is replaced.
 - **The image is installed and booted before a minor release.** `tests/image/install_test.py` starts the image in QEMU the way a person does, installs to an empty disk with `slateos-install` through a console of the live system, boots the disk without the image, types the disk's passphrase on the keyboard when the installation is encrypted, logs in and checks the desktop. A workflow (`.github/workflows/image.yml`) builds the x86_64 image and runs it, on a plain and on an encrypted disk, for the commit that prepares a minor release and on request; patch releases keep to the evaluation of both images.
 - slash shows a Markdown table as aligned columns, its header bold; it printed the rows with their pipes.
@@ -13,6 +17,12 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - Fix: the dock could start with GTK's default icons at login, when it came up before the settings portal answered; it now sets the icon theme itself, as it does the colours.
 - Fix: each restart of the dock or the Slate prompt left a `swaymsg` process behind until the next window event. Both now read sway's events from its socket themselves.
 - Firefox no longer aborts when the agent reads its session-restore page (0.2.0's known limitation): not reproduced with Firefox 159, with and without a session to restore.
+
+Known limitations, where they differ from 0.2.0's:
+
+- Both images now install and boot in QEMU: x86_64 in CI, aarch64 on the development system under emulation. No image has been tried on real hardware, and the graphical installer has not been run on x86_64 (the test installs with `slateos-install`).
+- A system installed from the 0.2.0 image does not move to this release by itself; a software update that does is planned for 0.3.0.
+- On a very slow machine (an emulated one) the session's first terminal may not open; Super+Return opens one.
 
 ## 0.2.0 — 2026-11-11
 
