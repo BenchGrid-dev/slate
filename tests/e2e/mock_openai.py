@@ -3,14 +3,17 @@
 
     python3 tests/e2e/mock_openai.py PORT [LOG]
 
-It needs no key and no model: it answers a first request that offers a `Bash` tool and
-says "run" with a call of it (`echo gateway-works`), a request whose last message is a
-tool result with a sentence quoting that result, and anything else with a greeting.
+It needs no model: it answers a request that offers a `Bash` tool and says "run" with
+a call of it (`echo gateway-works`), one that says "environment" with a command that
+shows what the agent's processes see of the connection, a request whose last message
+is a tool result with a sentence quoting that result, and anything else with a
+greeting. The key it accepts is `sk-mock`.
 Every request is appended to LOG as one JSON line: what the endpoint was sent.
 """
 import json
 import sys
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LOG = sys.argv[2] if len(sys.argv) > 2 else None
@@ -30,12 +33,19 @@ def decide(body):
     last = messages[-1] if messages else {}
     tools = [t.get("function", {}).get("name") for t in body.get("tools", [])]
     users = [text_of(m.get("content")) for m in messages if m.get("role") == "user"]
-    if last.get("role") == "tool":
-        return f"The command printed: {text_of(last.get('content')).strip()}", None
-    if any(m.get("role") == "tool" for m in messages[-3:]):
-        tool = next(m for m in reversed(messages) if m.get("role") == "tool")
+    # A tool result since the model last spoke: say what it was.
+    since = messages[max((i for i, m in enumerate(messages) if m.get("role") == "assistant"), default=-1) + 1:]
+    tool = next((m for m in since if m.get("role") == "tool"), None)
+    if tool is not None:
         return f"The command printed: {text_of(tool.get('content')).strip()}", None
-    if "Bash" in tools and users and "run" in users[-1].lower():
+    # The CLI adds notes of its own to the person's turn, so look for the whole phrase.
+    asked = users[-1].lower() if users else ""
+    if "Bash" in tools and "check the environment with the bash tool" in asked:
+        # What the agent's own commands can see of the connection: the gateway's
+        # address, and (it should print 0) how often the endpoint's key occurs.
+        command = "printenv ANTHROPIC_BASE_URL | cut -c1-17; env | grep -c sk-mock"
+        return "Let me look.", {"name": "Bash", "arguments": json.dumps({"command": command, "description": "Look at the environment"})}
+    if "Bash" in tools and "run the test command" in asked:
         return "Let me run it.", {"name": "Bash", "arguments": json.dumps({"command": "echo gateway-works", "description": "Print the test line"})}
     return "Hello from the mock model.", None
 
@@ -61,11 +71,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("authorization") != "Bearer sk-mock":
             return self.reply(401, {"error": {"message": "Incorrect API key provided", "type": "invalid_request_error"}})
         text, call = decide(body)
+        call_id = f"call_mock_{uuid.uuid4().hex[:10]}"     # a new id each time, as real endpoints give
         usage = {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110}
         if not body.get("stream"):
             message = {"role": "assistant", "content": text}
             if call:
-                message["tool_calls"] = [{"id": "call_mock_1", "type": "function", "function": call}]
+                message["tool_calls"] = [{"id": call_id, "type": "function", "function": call}]
             return self.reply(200, {"id": "chatcmpl-mock", "object": "chat.completion", "model": body.get("model"),
                                     "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if call else "stop"}], "usage": usage})
         self.send_response(200)
@@ -85,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
             chunk({"content": word + " "})
         if call:
             half = len(call["arguments"]) // 2
-            chunk({"tool_calls": [{"index": 0, "id": "call_mock_1", "type": "function", "function": {"name": call["name"], "arguments": call["arguments"][:half]}}]})
+            chunk({"tool_calls": [{"index": 0, "id": call_id, "type": "function", "function": {"name": call["name"], "arguments": call["arguments"][:half]}}]})
             chunk({"tool_calls": [{"index": 0, "function": {"arguments": call["arguments"][half:]}}]})
         chunk({}, finish="tool_calls" if call else "stop")
         self.wfile.write(f"data: {json.dumps({'id': 'chatcmpl-mock', 'choices': [], 'usage': usage})}\n\ndata: [DONE]\n\n".encode())

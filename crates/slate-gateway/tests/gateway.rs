@@ -114,7 +114,7 @@ fn request() -> Value {
 fn an_openai_endpoint_is_asked_in_its_own_format_and_answers_as_a_message_stream() {
     let chunks = [
         json!({"id": "chatcmpl-1", "choices": [{"delta": {"role": "assistant", "content": "Let me look."}}]}),
-        json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "Bash", "arguments": "{\"command\":\"df -h /\"}"}}]}}]}),
+        json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_9f8e7d6c5b4a", "function": {"name": "Bash", "arguments": "{\"command\":\"df -h /\"}"}}]}}]}),
         json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
         json!({"choices": [], "usage": {"prompt_tokens": 900, "completion_tokens": 21}}),
     ];
@@ -154,7 +154,7 @@ fn an_openai_endpoint_is_asked_in_its_own_format_and_answers_as_a_message_stream
     assert_eq!(ev[3].1["delta"]["text"], "Let me look.");
     assert_eq!(
         ev[5].1["content_block"],
-        json!({"type": "tool_use", "id": "call_1", "name": "Bash", "input": {}})
+        json!({"type": "tool_use", "id": "call_9f8e7d6c5b4a", "name": "Bash", "input": {}})
     );
     assert_eq!(
         ev[6].1["delta"]["partial_json"],
@@ -194,7 +194,8 @@ fn an_endpoint_s_refusal_reaches_the_cli_in_its_own_terms() {
     let (url, _seen) = endpoint(vec![(401, "application/json", refusal.to_string())]);
     let gateway = Gateway::start(api(Format::Openai, url, Some("m"))).unwrap();
     let (status, body) = ask(&gateway, gateway.token(), &request());
-    assert_eq!(status, 401);
+    // Not 401: the CLI would retry that for minutes, as if its own sign-in had lapsed.
+    assert_eq!(status, 400);
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["error"]["type"], "authentication_error");
     assert!(v["error"]["message"]

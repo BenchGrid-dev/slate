@@ -352,7 +352,17 @@ pub fn test(api: &Api) -> TestResult {
         };
     }
     let reason = openai::error_message(&text);
+    let refused_key = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| {
+            v.get("error")?
+                .get("type")?
+                .as_str()
+                .map(|t| t == "authentication_error" || t == "permission_error")
+        })
+        .unwrap_or(false);
     let hint = match status {
+        _ if refused_key => " (check the key)",
         401 | 403 => " (check the key)",
         404 => " (check the address and the model name)",
         502 => " (the address could not be reached)",

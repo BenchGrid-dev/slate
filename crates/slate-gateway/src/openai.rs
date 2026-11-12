@@ -390,6 +390,26 @@ fn arguments(text: &str) -> Value {
         .unwrap_or_else(|| json!({}))
 }
 
+/// A tool call's id for the CLI. The CLI tells calls apart by id and ignores one it
+/// has seen in the conversation, and some servers number theirs from zero in every
+/// answer ("call_0") or send none: those get an id of our own.
+fn call_id(given: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    if given.len() >= 10 {
+        return given.to_string();
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    format!(
+        "call_{:08x}{:04x}",
+        nanos & 0xffff_ffff,
+        NEXT.fetch_add(1, Ordering::Relaxed) & 0xffff
+    )
+}
+
 fn message_id(chat_id: Option<&str>) -> String {
     match chat_id {
         Some(id) if !id.is_empty() => format!("msg_{}", id.trim_start_matches("chatcmpl-")),
@@ -412,11 +432,11 @@ pub fn message(chat: &Value, model: &str) -> Value {
     let calls = msg
         .and_then(|m| m.get("tool_calls"))
         .and_then(Value::as_array);
-    for (n, call) in calls.into_iter().flatten().enumerate() {
+    for call in calls.into_iter().flatten() {
         let f = call.get("function");
         content.push(json!({
             "type": "tool_use",
-            "id": call.get("id").and_then(Value::as_str).filter(|i| !i.is_empty()).map(str::to_string).unwrap_or_else(|| format!("call_{n}")),
+            "id": call_id(call.get("id").and_then(Value::as_str).unwrap_or("")),
             "name": f.and_then(|f| f.get("name")).cloned().unwrap_or(Value::Null),
             "input": arguments(f.and_then(|f| f.get("arguments")).and_then(Value::as_str).unwrap_or("")),
         }));
@@ -569,12 +589,8 @@ impl StreamTranslator {
             .into_iter()
             .filter(|c| !c.name.is_empty())
             .collect();
-        for (n, call) in calls.iter().enumerate() {
-            let id = if call.id.is_empty() {
-                format!("call_{n}")
-            } else {
-                call.id.clone()
-            };
+        for call in calls.iter() {
+            let id = call_id(&call.id);
             out.push((
                 "content_block_start",
                 json!({"type": "content_block_start", "index": self.blocks,
@@ -807,8 +823,8 @@ mod tests {
         ev = t.push(&json!({"choices": [{"delta": {"content": "look."}}]}));
         assert_eq!(ev[0].1["delta"]["text"], "look.");
         // Two calls, their fragments interleaved.
-        t.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_a", "function": {"name": "Bash", "arguments": "{\"comm"}}]}}]}));
-        t.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 1, "id": "call_b", "function": {"name": "Read", "arguments": "{\"file_path\":\"/etc/hostname\"}"}}]}}]}));
+        t.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_a1b2c3d4e5", "function": {"name": "Bash", "arguments": "{\"comm"}}]}}]}));
+        t.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 1, "id": "call_0", "function": {"name": "Read", "arguments": "{\"file_path\":\"/etc/hostname\"}"}}]}}]}));
         t.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "and\":\"df\"}"}}]}}]}));
         t.push(&json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}));
         t.push(&json!({"choices": [], "usage": {"prompt_tokens": 1200, "completion_tokens": 30, "prompt_tokens_details": {"cached_tokens": 1000}}}));
@@ -830,7 +846,13 @@ mod tests {
         assert_eq!(end[1].1["content_block"]["name"], "Bash");
         assert_eq!(end[1].1["index"], 1);
         assert_eq!(end[2].1["delta"]["partial_json"], "{\"command\":\"df\"}");
-        assert_eq!(end[4].1["content_block"]["id"], "call_b");
+        assert_eq!(end[1].1["content_block"]["id"], "call_a1b2c3d4e5");
+        // "call_0" could be any call of any answer: it gets an id of its own.
+        let renamed = end[4].1["content_block"]["id"].as_str().unwrap();
+        assert!(
+            renamed.starts_with("call_") && renamed.len() > 12 && renamed != call_id("call_0"),
+            "{renamed}"
+        );
         assert_eq!(end[7].1["delta"]["stop_reason"], "tool_use");
         assert_eq!(
             end[7].1["usage"],

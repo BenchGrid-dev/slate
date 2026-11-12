@@ -160,9 +160,19 @@ fn error_body(status: u16, message: &str) -> Value {
     json!({"type": "error", "error": {"type": openai::error_type(status), "message": message}})
 }
 
+/// The status the CLI is told. A refused key stays refused however often it is
+/// presented, but the CLI treats 401 and 403 as its own sign-in having lapsed and
+/// tries again for minutes; as a 400 it reports the endpoint's words at once.
+fn status_for_cli(status: u16) -> u16 {
+    match status {
+        401 | 403 => 400,
+        other => other,
+    }
+}
+
 fn respond_error(out: &mut TcpStream, state: &State, status: u16, message: &str) -> io::Result<()> {
     *state.last_error.lock().unwrap() = Some(message.to_string());
-    respond_json(out, status, &error_body(status, message))
+    respond_json(out, status_for_cli(status), &error_body(status, message))
 }
 
 fn start_stream(out: &mut TcpStream, status: u16, content_type: &str) -> io::Result<()> {
@@ -309,7 +319,7 @@ fn pass_through(out: &mut TcpStream, state: &State, api: &Api, request: Request)
             api.host(),
             openai::error_message(&text)
         ));
-        return respond(out, status, &content_type, text.as_bytes());
+        return respond(out, status_for_cli(status), &content_type, text.as_bytes());
     }
     start_stream(out, status, &content_type)?;
     let mut buffer = [0u8; 8192];
