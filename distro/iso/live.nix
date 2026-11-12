@@ -69,9 +69,9 @@ in
   isoImage.splashImage = ../desktop/splash.png;
   isoImage.efiSplashImage = ../desktop/splash.png;
   isoImage.grubTheme = grubTheme;
-  # The boot menu's first entry reads "Try or Install SlateOS 0.2.0": the live desktop
-  # then asks which. The label (nixpkgs' version otherwise) also names the image file.
-  system.nixos.label = config.services.slate.package.version;
+  # The boot menu's first entry reads "Try or Install SlateOS 0.2.0" (the module labels
+  # the system with SlateOS's version, which also names the image file): the live
+  # desktop then asks which.
   isoImage.prependToMenuLabel = "Try or Install ";
   isoImage.appendToMenuLabel = "";
   # Memtest86+ only exists for x86; elsewhere its entry only led to "file not found".

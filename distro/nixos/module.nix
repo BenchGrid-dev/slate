@@ -61,7 +61,7 @@ let
     EOF
     cat > $out/bin/slateos-version <<'EOF'
     #!/bin/sh
-    if [ $# -eq 0 ]; then echo "SlateOS $(nixos-version)"; else exec nixos-version "$@"; fi
+    if [ $# -eq 0 ]; then echo "SlateOS ${pkg.version} (NixOS $(nixos-version))"; else exec nixos-version "$@"; fi
     EOF
     cat > $out/bin/slateos-enter <<'EOF'
     #!/bin/sh
@@ -641,6 +641,10 @@ in
     system.nixos.distroId = "slateos";
     system.nixos.vendorName = "BenchGrid";
     system.nixos.vendorId = "benchgrid";
+    # The label names generations in the boot menu, the console greeting and the system's
+    # store path; it is SlateOS's version instead of the NixOS one (still in VERSION).
+    # nixpkgs sets its own with mkDefault; a configuration's plain definition still wins.
+    system.nixos.label = lib.mkOverride 900 pkg.version;
     # The base release stays in VERSION and VERSION_ID (NixOS tools read them); what a
     # person sees names SlateOS and its own version, with SlateOS's logo and links.
     system.nixos.extraOSReleaseArgs = {
