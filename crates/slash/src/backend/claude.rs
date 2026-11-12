@@ -4,9 +4,13 @@
 //! stdin, and parses the JSONL event stream. Sessions are continued with `--resume`.
 //! Session context goes in via `--append-system-prompt`.
 //!
-//! Permissions: until slated's approval broker exists (which will be wired in via
-//! `--permission-prompt-tool`), headless Claude Code only has `--permission-mode`
-//! and `--allowedTools`. Both are configurable in slash.toml.
+//! Permissions: with slated, hooks classify every tool call and Confirm-tier calls go
+//! to the permission tool (`--permission-prompt-tool`); without it, headless Claude
+//! Code only has `--permission-mode` and `--allowedTools`, both set in slash.toml.
+//!
+//! With an API connection (provider.toml) the CLI is pointed at slash's own gateway
+//! (slate-gateway), which holds the person's key and reaches their endpoint; the CLI
+//! gets a token that is only good there.
 
 use super::{pump_lines, summarize_input, Backend, Event, TurnRequest};
 use crate::config::ClaudeConfig;
@@ -18,14 +22,28 @@ use std::process::{Command, Stdio};
 pub struct ClaudeCode {
     cfg: ClaudeConfig,
     session_id: Option<String>,
+    /// The person's API connection, when that is how the agent reaches a model.
+    api: Option<slate_gateway::Api>,
+    /// Started with the first turn, serving `api` until slash exits.
+    gateway: Option<slate_gateway::Gateway>,
 }
 
 impl ClaudeCode {
-    pub fn new(cfg: ClaudeConfig) -> Self {
+    pub fn new(cfg: ClaudeConfig, api: Option<slate_gateway::Api>) -> Self {
         Self {
             cfg,
             session_id: None,
+            api,
+            gateway: None,
         }
+    }
+
+    /// The model named on the command line: the connection's own when it has one
+    /// (the CLI's aliases mean nothing to another provider), else slash.toml's.
+    fn model_arg(&self) -> Option<String> {
+        let own = self.api.as_ref().and_then(|a| a.model.clone());
+        own.filter(|m| !m.trim().is_empty())
+            .or_else(|| self.cfg.model.clone())
     }
 
     fn command(&self, req: &TurnRequest<'_>) -> Command {
@@ -74,8 +92,25 @@ impl ClaudeCode {
         if let Some(id) = &self.session_id {
             cmd.arg("--resume").arg(id);
         }
-        if let Some(m) = &self.cfg.model {
+        if let Some(m) = self.model_arg() {
             cmd.arg("--model").arg(m);
+        }
+        if let Some(gateway) = &self.gateway {
+            // The CLI talks to the gateway, with a token that is only good there.
+            // Nothing else of the person's sign-in or keys goes along, and with a
+            // provider of their own the CLI's telemetry to its vendor stays off.
+            cmd.env("ANTHROPIC_BASE_URL", gateway.base_url())
+                .env("ANTHROPIC_AUTH_TOKEN", gateway.token())
+                .env_remove("ANTHROPIC_API_KEY")
+                .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+            if !gateway.api().host().ends_with("anthropic.com") {
+                // Two things Anthropic's servers do for the CLI and other providers do
+                // not: expanding tools the CLI loads on demand, and searching the web.
+                // Every tool is sent up front, and web search is not offered.
+                cmd.env("ENABLE_TOOL_SEARCH", "false")
+                    .arg("--disallowedTools")
+                    .arg("WebSearch");
+            }
         }
         if !self.cfg.allowed_tools.is_empty() {
             cmd.arg("--allowedTools")
@@ -103,14 +138,35 @@ impl Backend for ClaudeCode {
     }
 
     fn model(&self) -> Option<&str> {
-        self.cfg.model.as_deref()
+        let own = self.api.as_ref().and_then(|a| a.model.as_deref());
+        own.filter(|m| !m.trim().is_empty())
+            .or(self.cfg.model.as_deref())
     }
 
     fn set_model(&mut self, model: Option<String>) {
-        self.cfg.model = model;
+        match &mut self.api {
+            // With a connection of the person's own, /model picks among its models.
+            Some(api) => {
+                api.model = model.clone();
+                if let Some(gateway) = &self.gateway {
+                    gateway.set_model(model);
+                }
+            }
+            None => self.cfg.model = model,
+        }
+    }
+
+    fn endpoint(&self) -> Option<String> {
+        self.api.as_ref().map(slate_gateway::Api::host)
     }
 
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()> {
+        if let (Some(api), None) = (&self.api, &self.gateway) {
+            self.gateway = Some(
+                slate_gateway::Gateway::start(api.clone())
+                    .context("starting the gateway for your API connection")?,
+            );
+        }
         let mut child = self
             .command(&req)
             .spawn()
@@ -149,15 +205,23 @@ impl Backend for ClaudeCode {
         let err = stderr_thread.join().unwrap_or_default();
         self.session_id = session_id;
         if !status.success() {
+            // What the person's endpoint said is worth more than the CLI's exit status.
+            let refused = self
+                .gateway
+                .as_ref()
+                .and_then(slate_gateway::Gateway::last_error)
+                .map(|e| format!("\n{e}"))
+                .unwrap_or_default();
             bail!(
-                "{} exited with {}{}",
+                "{} exited with {}{}{}",
                 self.cfg.bin,
                 status,
                 if err.trim().is_empty() {
                     String::new()
                 } else {
                     format!(":\n{}", err.trim())
-                }
+                },
+                refused
             );
         }
         Ok(())

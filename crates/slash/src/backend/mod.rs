@@ -79,13 +79,21 @@ pub trait Backend {
     fn model(&self) -> Option<&str>;
     /// Change the model for subsequent turns. None restores the backend default.
     fn set_model(&mut self, model: Option<String>);
+    /// The host requests go to when the person connected an API of their own;
+    /// None with the agent's own sign-in.
+    fn endpoint(&self) -> Option<String> {
+        None
+    }
     /// Run one turn, calling `on_event` as events arrive.
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()>;
 }
 
 pub fn by_name(name: &str, cfg: &crate::config::Config) -> Option<Box<dyn Backend>> {
     match name {
-        "claude" | "claude-code" => Some(Box::new(claude::ClaudeCode::new(cfg.claude.clone()))),
+        "claude" | "claude-code" => Some(Box::new(claude::ClaudeCode::new(
+            cfg.claude.clone(),
+            cfg.provider.active_api().cloned(),
+        ))),
         "codex" => Some(Box::new(codex::Codex::new(cfg.codex.clone()))),
         _ => None,
     }

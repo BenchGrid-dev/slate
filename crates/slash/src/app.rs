@@ -92,6 +92,12 @@ impl App {
         } else {
             None
         };
+        if let Some(problem) = &cfg.provider_problem {
+            eprintln!(
+                "{} your API connection is not in use ({problem}); Settings, AI sets it up again",
+                yellow("warning:")
+            );
+        }
         let auto_approve = cfg.auto_approve;
         let verbose = cfg.verbose;
         Ok(Self {
@@ -279,10 +285,12 @@ impl App {
         let backend_note = format!(
             "backend: {}{}",
             self.backend.name(),
-            self.backend
-                .model()
-                .map(|m| format!(" ({m})"))
-                .unwrap_or_default()
+            match (self.backend.model(), self.backend.endpoint()) {
+                (Some(m), Some(host)) => format!(" ({m} at {host})"),
+                (None, Some(host)) => format!(" (at {host})"),
+                (Some(m), None) => format!(" ({m})"),
+                (None, None) => String::new(),
+            }
         );
         let mut notes = vec![backend_note.as_str(), slated_note];
         if self.desktop_bin.is_some() {

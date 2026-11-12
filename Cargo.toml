@@ -6,6 +6,7 @@ members = [
     "crates/slash",
     "crates/slate",
     "crates/slate-desktop",
+    "crates/slate-gateway",
 ]
 
 [workspace.package]
@@ -17,3 +18,4 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 slate-proto = { path = "crates/slate-proto" }
+slate-gateway = { path = "crates/slate-gateway" }

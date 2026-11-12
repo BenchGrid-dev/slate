@@ -22,6 +22,14 @@ pub struct Config {
     pub claude: ClaudeConfig,
     pub codex: CodexConfig,
     pub slated: SlatedConfig,
+    /// How the agent reaches a model: its own sign-in, or an API connection with the
+    /// person's key. Not part of slash.toml: it lives in provider.toml, which holds
+    /// the key and is readable by the person alone.
+    #[serde(skip)]
+    pub provider: slate_gateway::Provider,
+    /// Why provider.toml could not be used, to say once at start.
+    #[serde(skip)]
+    pub provider_problem: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -80,6 +88,8 @@ impl Default for Config {
             claude: ClaudeConfig::default(),
             codex: CodexConfig::default(),
             slated: SlatedConfig::default(),
+            provider: slate_gateway::Provider::default(),
+            provider_problem: None,
         }
     }
 }
@@ -113,15 +123,21 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
-        let Some(path) = Self::path() else {
-            return Ok(Self::default());
+        let mut cfg = match Self::path() {
+            Some(path) if path.exists() => {
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?;
+                toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
+            }
+            _ => Self::default(),
         };
-        if !path.exists() {
-            return Ok(Self::default());
+        // A broken provider.toml must not lock the person out of their shell: say
+        // so and go on with the agent's own sign-in.
+        match slate_gateway::Provider::load() {
+            Ok(p) => cfg.provider = p,
+            Err(e) => cfg.provider_problem = Some(format!("{e:#}")),
         }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        Ok(cfg)
     }
 
     /// The POSIX shell slash delegates to. Never resolves to slash itself, and

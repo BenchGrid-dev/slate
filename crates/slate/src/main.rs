@@ -21,6 +21,9 @@ usage:
   slate agent-status           one-line JSON for a panel module (waybar custom module)
   slate skills install [DIR]   link OS Skills (default: the bundled base set) into ~/.claude/skills
   slate skills list
+  slate provider show          how the agent reaches a model (the key is not printed)
+  slate provider test [FILE]   try an API connection once: provider.toml, FILE, or - for stdin
+  slate provider serve [FILE]  run the gateway for it and print its address (for testing)
   slate hook pre-tool-use      Claude Code PreToolUse hook (reads stdin)
   slate hook post-tool-use     Claude Code PostToolUse hook (reads stdin)
   slate mcp                    MCP server exposing the approval tool",
@@ -233,6 +236,7 @@ fn main() -> Result<()> {
             Some("list") => skills_list()?,
             _ => usage(),
         },
+        "provider" => provider(&args[1..])?,
         "hook" => match args.get(1).map(String::as_str) {
             Some("pre-tool-use") => hook::pre_tool_use()?,
             Some("post-tool-use") => hook::post_tool_use()?,
@@ -464,4 +468,59 @@ fn desktop_status() -> serde_json::Value {
         .and_then(|v| v["content"][0]["text"].as_str().map(str::to_string))
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
         .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// The provider file named on the command line (`-` reads it from stdin), or the person's own.
+fn read_provider(file: Option<&String>) -> Result<slate_gateway::Provider> {
+    match file.map(String::as_str) {
+        None => slate_gateway::Provider::load(),
+        Some("-") => {
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
+            Ok(toml::from_str(&text)?)
+        }
+        Some(path) => slate_gateway::Provider::load_from(std::path::Path::new(path)),
+    }
+}
+
+fn provider(args: &[String]) -> Result<()> {
+    match args.first().map(String::as_str) {
+        Some("show") => {
+            let p = slate_gateway::Provider::load()?;
+            let shown = match p.active_api() {
+                Some(api) => serde_json::json!({
+                    "connection": "api", "format": api.format, "base_url": api.base_url, "host": api.host(),
+                    "model": api.model, "small_model": api.small_model,
+                    "key": format!("…{}", api.api_key.trim().chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()),
+                }),
+                None => serde_json::json!({"connection": "subscription"}),
+            };
+            println!("{shown}");
+        }
+        Some("test") => {
+            let p = read_provider(args.get(1))?;
+            let Some(api) = p.api.as_ref() else {
+                bail!("no API connection to test: provider.toml has no [api] section");
+            };
+            let result = slate_gateway::test(api);
+            println!("{}", serde_json::to_string(&result)?);
+            if !result.ok {
+                std::process::exit(1);
+            }
+        }
+        Some("serve") => {
+            let p = read_provider(args.get(1))?;
+            let Some(api) = p.api.clone() else {
+                bail!("no API connection to serve: provider.toml has no [api] section");
+            };
+            let gateway = slate_gateway::Gateway::start(api)?;
+            println!("ANTHROPIC_BASE_URL={}", gateway.base_url());
+            println!("ANTHROPIC_AUTH_TOKEN={}", gateway.token());
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        }
+        _ => usage(),
+    }
+    Ok(())
 }
