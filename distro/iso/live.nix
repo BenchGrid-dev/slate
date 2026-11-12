@@ -76,6 +76,9 @@ in
   isoImage.appendToMenuLabel = "";
   # Memtest86+ only exists for x86; elsewhere its entry only led to "file not found".
   boot.loader.grub.memtest86.enable = lib.mkForce pkgs.stdenv.hostPlatform.isx86;
+  # No ZFS on the image: SlateOS installs on btrfs, and nixpkgs' installer base would
+  # carry ZFS's kernel module (and warn about its import default on 26.05).
+  boot.supportedFilesystems.zfs = lib.mkForce false;
   # The text consoles: nixpkgs' installer greeting speaks of a "nixos" account.
   services.getty.helpLine = lib.mkForce ''
 

@@ -4,6 +4,9 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+- **SlateOS follows NixOS 26.05.** The flake pinned nixos-unstable (a revision of late September), while SlateOS is developed and tested on the stable release: the image and what it installed ran packages the end-to-end suites never saw, and got no security updates. The flake now follows `nixos-26.05`, the same revision the development system runs, and later 0.2.x releases move along that branch. A system installed from the 0.2.0 image changes to it when its copy of Slate (`/etc/slateos/slate`) is replaced.
+- The image no longer carries ZFS's kernel module, which SlateOS does not install on.
+
 ## 0.2.0 — 2026-11-11
 
 The second milestone. SlateOS can be tried and installed from its image, with a graphical installer, and has what a computer needs day to day: Wi-Fi, Bluetooth, the battery and power modes, printers, input methods, apps from Flathub, and a screen that locks when you are away. The agent gets more of its own: Chromium-based apps it opens take its keyboard and pointer, you choose what it may do while the screen is locked, and a request from the Slate prompt arrives with what you are looking at. It is also the first release whose image builds; 0.1.0 and 0.1.1 had none.

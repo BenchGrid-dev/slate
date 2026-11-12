@@ -2,7 +2,7 @@
   description = "Slate: an AI-native Linux where humans and agents share the same desktop";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs = { self, nixpkgs }:
