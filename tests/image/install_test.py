@@ -282,8 +282,9 @@ def install(args):
 
 def unlock(vm):
     """Type the disk's passphrase once the boot has stopped to ask for it. Nothing tells
-    the outside that it has, so: the screen shows something and no longer changes. The
-    boot menu also stands still, for five seconds; keys typed into it would be commands."""
+    the outside that it has, so: the screen shows something and has not changed over
+    three intervals of six seconds. The boot menu counts down for five seconds, and keys
+    typed into it would be commands (`e` edits the kernel's command line)."""
     still = 0
     previous = None
     typed = 0
@@ -291,8 +292,12 @@ def unlock(vm):
     while time.monotonic() < deadline:
         if "login: " in vm.buffer:
             return
-        # Under emulation the kernel's first lines also stand still for a while.
-        vm._read(6.0 * min(vm.args.patience, 3.0))
+        # A whole interval between two looks at the screen, whatever the console prints
+        # meanwhile (the firmware and the boot menu write to it too). Under emulation
+        # the kernel's first lines also stand still for a while.
+        interval_end = time.monotonic() + 6.0 * min(vm.args.patience, 3.0)
+        while time.monotonic() < interval_end:
+            vm._read(min(1.0, max(0.05, interval_end - time.monotonic())))
         vm.check_running()
         _, _, pixels = vm.screen()
         lit = len(pixels) - pixels.count(0)
