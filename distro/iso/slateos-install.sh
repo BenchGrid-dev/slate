@@ -3,6 +3,8 @@
 #   sudo slateos-install --disk /dev/nvme0n1 --user alice --host mybox [--tz Europe/Berlin]
 #   --encrypt              encrypt the disk (LUKS2); its passphrase is asked at every boot
 #   --apps minimal|full    the application set (default full; minimal for small disks)
+#   --home-files DIR       copy DIR's content into the new user's home directory (the
+#                          graphical installer passes the agent's connection this way)
 #   options for scripted use: --yes, --password-hash HASH, --passphrase-file FILE, --dry-run
 #
 # Layout: GPT, 512 MiB EFI system partition, the rest btrfs (inside LUKS2 with --encrypt)
@@ -10,7 +12,7 @@
 # what Slate's snapshots and undo need. Everything on the disk is erased.
 set -euo pipefail
 
-disk="" user="" host="slateos" tz="UTC" dry=0 yes=0 hash="" encrypt=0 passfile="" apps="full"
+disk="" user="" host="slateos" tz="UTC" dry=0 yes=0 hash="" encrypt=0 passfile="" apps="full" homefiles=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --disk) disk="$2"; shift 2 ;;
@@ -21,9 +23,10 @@ while [ $# -gt 0 ]; do
     --encrypt) encrypt=1; shift ;;
     --passphrase-file) encrypt=1; passfile="$2"; shift 2 ;;  # scripted; otherwise asked
     --password-hash) hash="$2"; shift 2 ;;   # for scripted installs; otherwise asked
+    --home-files) homefiles="$2"; shift 2 ;;
     --yes) yes=1; shift ;;                   # skip the disk confirmation (scripted installs)
     --dry-run) dry=1; shift ;;               # partition, subvolumes and configuration only
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -134,6 +137,10 @@ echo "== installing (this copies the system from the live image; no network need
 # runs in and the ones above.
 cd /
 NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd
+if [ -n "$homefiles" ] && [ -d "$homefiles" ]; then
+  # Modes are kept (the agent's key is readable by its owner alone); the owner is set below.
+  cp -a "$homefiles"/. "/mnt/home/$user/"
+fi
 chown -R "$(stat -c %u /mnt/home/"$user" 2>/dev/null || echo 1000):100" "/mnt/home/$user" || true
 
 echo

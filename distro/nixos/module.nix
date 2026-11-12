@@ -7,6 +7,40 @@
 let
   cfg = config.services.slate;
   pkg = cfg.package;
+  # What Settings, the welcome and the installer share: the agent's connection (its
+  # form, the provider file) and the tutorial.
+  slateAgentLib = pkgs.runCommand "slate-agent-lib" { } ''
+    mkdir -p $out
+    cp ${../desktop/slate_agent.py} $out/slate_agent.py
+  '';
+  # The first minutes: connect the agent when that is still missing, then the tutorial.
+  slateWelcome = pkgs.stdenv.mkDerivation {
+    pname = "slate-welcome";
+    version = pkg.version;
+    src = ../desktop/slate-welcome.py;
+    dontUnpack = true;
+    nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
+    buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    preFixup = ''
+      gappsWrapperArgs+=(--prefix PYTHONPATH : ${slateAgentLib})
+    '';
+    installPhase = ''
+      mkdir -p $out/bin $out/share/applications
+      cp $src $out/bin/slate-welcome
+      chmod +x $out/bin/slate-welcome
+      cat > $out/share/applications/slate-welcome.desktop <<EOF
+      [Desktop Entry]
+      Type=Application
+      Name=Welcome
+      Comment=Connect the agent and learn how to work with it
+      Exec=slate-welcome
+      Icon=slateos
+      StartupWMClass=dev.benchgrid.slate.Welcome
+      Categories=System;
+      EOF
+    '';
+    meta.mainProgram = "slate-welcome";
+  };
   # The settings app: Python + GTK4 + libadwaita, no build step, quick to iterate on.
   slateSettings = pkgs.stdenv.mkDerivation {
     pname = "slate-settings";
@@ -15,6 +49,9 @@ let
     dontUnpack = true;
     nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
     buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
+    preFixup = ''
+      gappsWrapperArgs+=(--prefix PYTHONPATH : ${slateAgentLib})
+    '';
     installPhase = ''
       mkdir -p $out/bin $out/share/applications
       cp $src $out/bin/slate-settings
@@ -586,6 +623,17 @@ in
       '';
     };
 
+    desktop.welcome = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Open the welcome at a person's first login: the agent's connection (a Claude
+        subscription or an API key) when it is still missing, then a short tutorial.
+        Without a connection it opens at every login. The live image turns it off:
+        its installer asks instead.
+      '';
+    };
+
     desktop.dockFirst = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -659,7 +707,7 @@ in
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
-        slateSettings slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
+        slateSettings slateWelcome slateShell slateDock slateAskpass slateosSession slateosSessionStart slateTheme slateApps dconf
         slateLock slateSessionMenu swayosd slateIdle slateIdleWait slateScreens slateBattery slateosSettings
         # Advanced network settings (VPN, 802.1X, static addresses), from Settings, Network.
         networkmanagerapplet
@@ -850,6 +898,8 @@ in
       "slate/wallpaper-dark.jpg".source = ../desktop/wallpaper-dark.jpg;
       "slate/wallpaper-light.jpg".source = ../desktop/wallpaper-light.jpg;
       "slate/sway.d/effects.conf" = lib.mkIf cfg.desktop.effects { source = ../desktop/sway/effects.conf; };
+      # After the panel, the dock and the first terminal are up.
+      "slate/sway.d/welcome.conf" = lib.mkIf cfg.desktop.welcome { text = "exec sleep 6 && slate-welcome --first-run\n"; };
       "slate/dock.json".source = dockDefaults;
       "slate/swayosd.css".source = ../desktop/swayosd/style.css;
       "slate/system-settings.json".text = builtins.toJSON {

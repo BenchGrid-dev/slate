@@ -17,8 +17,10 @@ let
     nativeBuildInputs = [ pkgs.wrapGAppsHook4 pkgs.gobject-introspection ];
     buildInputs = [ pkgs.gtk4 pkgs.libadwaita (pkgs.python3.withPackages (ps: [ ps.pygobject3 ])) ];
     installPhase = ''
-      mkdir -p $out/bin $out/share/applications
+      mkdir -p $out/bin $out/share/applications $out/lib/slate
+      cp ${../desktop/slate_agent.py} $out/lib/slate/slate_agent.py
       substitute $src $out/bin/slateos-installer \
+        --subst-var-by lib $out/lib/slate \
         --subst-var-by install ${installer}/bin/slateos-install \
         --subst-var-by mkpasswd ${pkgs.mkpasswd}/bin/mkpasswd \
         --subst-var-by inhibit ${config.systemd.package}/bin/systemd-inhibit
@@ -96,6 +98,8 @@ in
     # The live user has no password, and the lock screen takes no empty one: a lock
     # (ten minutes away, Super+L) would shut the person out of the session for good.
     desktop.screenLock = false;
+    # The installer asks how the agent connects; the live session itself needs no welcome.
+    desktop.welcome = false;
     loginShellUsers = [ "slate" ];
   };
   users.users.slate = {

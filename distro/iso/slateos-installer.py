@@ -6,9 +6,12 @@
                                  live session opens it at login
 
 It asks where (a whole disk, which is erased), who (user name, password, computer
-name) and how (time zone, applications, disk encryption), then runs slateos-install
-with those answers and follows its progress. The password reaches slateos-install as a
-hash only; the disk passphrase goes through a file only root can read.
+name), how the agent reaches a model (a Claude subscription or an API key: a required
+step, because SlateOS without an agent does not answer) and how (time zone,
+applications, disk encryption), then runs slateos-install with those answers and
+follows its progress, with the short tutorial to read meanwhile. The password reaches
+slateos-install as a hash only; the disk passphrase and the agent's key go through
+files only the person and root can read.
 
 For development: --dry-run passes --dry-run on (partitions and writes the
 configuration, then stops), --disk PATH offers PATH (a loop device) besides the real
@@ -18,6 +21,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,6 +31,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+
+# The agent's connection and the tutorial are shared with the installed desktop
+# (distro/desktop/slate_agent.py); the package puts the module next to this program.
+LIB = "@lib@"
+sys.path.insert(0, LIB if not LIB.startswith("@") else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "desktop"))
+import slate_agent  # noqa: E402
 
 APP_ID = "dev.benchgrid.slate.Installer"
 # Absolute paths, filled in by the package (sudo may not keep PATH).
@@ -182,9 +192,12 @@ class Installer(Adw.ApplicationWindow):
         self.set_content(self.toast)
 
         self.stack.add_named(self.welcome_page(), "welcome")
-        self.steps = ["disk", "account", "setup", "review"]
+        self.steps = ["disk", "account", "agent", "setup", "review"]
         self.stack.add_named(self.disk_page(), "disk")
         self.stack.add_named(self.account_page(), "account")
+        self.home_files = None
+        self.agent = slate_agent.AgentSetup(on_change=self.update_next, window=self)
+        self.stack.add_named(self.agent, "agent")
         self.stack.add_named(self.setup_page(), "setup")
         self.review_group = Adw.PreferencesGroup(title="Ready to install")
         review = Adw.PreferencesPage()
@@ -301,8 +314,7 @@ class Installer(Adw.ApplicationWindow):
         security = Adw.PreferencesGroup(title="Security")
         self.encrypt_row = Adw.SwitchRow(
             title="Encrypt the disk",
-            subtitle="A passphrase is asked at every start; without it nobody can read the disk. "
-            "Some virtual machines (UTM's default display) cannot show that prompt.",
+            subtitle="A passphrase is asked at every start; without it nobody can read the disk.",
         )
         self.pass_row = Adw.PasswordEntryRow(title="Disk passphrase", visible=False)
         self.pass2_row = Adw.PasswordEntryRow(title="Disk passphrase again", visible=False)
@@ -323,17 +335,25 @@ class Installer(Adw.ApplicationWindow):
         return page
 
     def progress_page(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_top=48, margin_bottom=24, margin_start=48, margin_end=48)
-        box.append(Gtk.Image(icon_name="slateos", pixel_size=96))
-        box.append(Gtk.Label(label="Installing SlateOS", css_classes=["title-1"]))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=22, margin_bottom=16, margin_start=48, margin_end=48)
+        head = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER)
+        head.append(Gtk.Image(icon_name="slateos", pixel_size=48))
+        head.append(Gtk.Label(label="Installing SlateOS", css_classes=["title-1"]))
+        box.append(head)
         self.stage = Gtk.Label(label="Starting", css_classes=["stage"])
         box.append(self.stage)
-        self.bar = Gtk.ProgressBar(margin_top=6)
+        self.bar = Gtk.ProgressBar(margin_top=2)
         box.append(self.bar)
         box.append(Gtk.Label(label="This takes a while. Keep the computer on and connected to power.", css_classes=["dim-label"], wrap=True))
+        # Something to read meanwhile: how to work with the agent. It turns by itself.
+        self.tour = slate_agent.Tour(auto=14, compact=True)
+        self.tour.set_margin_top(10)
+        self.tour.set_vexpand(True)
+        box.append(self.tour)
         self.log_view = Gtk.TextView(editable=False, monospace=True, cursor_visible=False, css_classes=["log"], wrap_mode=Gtk.WrapMode.CHAR)
-        scroll = Gtk.ScrolledWindow(child=self.log_view, min_content_height=180, vexpand=True)
-        self.details = Gtk.Expander(label="Details", child=scroll, margin_top=8)
+        scroll = Gtk.ScrolledWindow(child=self.log_view, min_content_height=150)
+        self.details = Gtk.Expander(label="Details", child=scroll)
+        self.details.connect("notify::expanded", lambda e, *_: self.tour.set_visible(not e.get_expanded()))
         box.append(self.details)
         return box
 
@@ -440,6 +460,8 @@ class Installer(Adw.ApplicationWindow):
             touched = any(r.get_text() for r in (self.user_row, self.pw_row, self.pw2_row))
             self.account_hint.set_text(problem if (problem and touched) else "")
             ok = problem is None
+        elif name == "agent":
+            ok = self.agent.complete
         elif name == "setup":
             ok = self.setup_problem() is None
         self.next.set_sensitive(ok)
@@ -457,6 +479,7 @@ class Installer(Adw.ApplicationWindow):
             ("Disk (erased)", self.disk() or ""),
             ("User", self.user_row.get_text().strip()),
             ("Computer name", self.host_row.get_text().strip()),
+            ("Agent", self.agent.summary()),
             ("Time zone", self.zone()),
             ("Applications", "Everyday apps (needs the internet)" if self.apps() == "full" else "Minimal"),
             ("Disk encryption", "On" if self.encrypt_row.get_active() else "Off"),
@@ -509,6 +532,12 @@ class Installer(Adw.ApplicationWindow):
             with os.fdopen(fd, "w") as f:
                 f.write(self.pass_row.get_text())
             cmd += ["--passphrase-file", self.passfile]
+        # The agent's connection, as files for the new home directory: the key, or
+        # Claude Code's sign-in from this session.
+        self.home_files = tempfile.mkdtemp(prefix="slateos-home-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
+        for rel, text in self.agent.files().items():
+            slate_agent.write_private(os.path.join(self.home_files, rel), text)
+        cmd += ["--home-files", self.home_files]
         if self.dry_run:
             cmd.append("--dry-run")
         self.expected_paths = self.count_store_paths()
@@ -598,6 +627,9 @@ class Installer(Adw.ApplicationWindow):
             except OSError:
                 pass
             self.passfile = None
+        if self.home_files:
+            shutil.rmtree(self.home_files, ignore_errors=True)
+            self.home_files = None
         if ok:
             self.bar.set_fraction(1.0)
             self.show("done")
@@ -638,6 +670,7 @@ class App(Adw.Application):
             extra = None
             if "--disk" in args and args.index("--disk") + 1 < len(args):
                 extra = args[args.index("--disk") + 1]
+            slate_agent.install_css()
             provider = Gtk.CssProvider()
             provider.load_from_data(CSS)
             Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)

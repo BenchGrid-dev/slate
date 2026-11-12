@@ -25,6 +25,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import slate_agent  # noqa: E402
+
 SWAYD = os.path.expanduser("~/.config/slate/sway.d")
 OUTPUT_CONF = os.path.join(SWAYD, "output.conf")
 SCALES = ["1", "1.25", "1.5", "1.75", "2"]
@@ -547,13 +550,29 @@ class AIPage(Page):
         self.cfg = load_slash_config()
         page = self.page
 
-        agent = Adw.PreferencesGroup(title="Agent", description="Slate drives the official Claude Code or Codex CLI with your own subscription. Changes apply to new sessions.")
+        connection = Adw.PreferencesGroup(
+            title="Connection",
+            description="How the agent reaches a model: your Claude subscription, or an API key of your own (OpenAI or Anthropic format).")
+        page.add(connection)
+        self.connection_row = Adw.ActionRow(title="Connected through", subtitle="Checking…")
+        change = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
+        change.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--agent"]))
+        self.connection_row.add_suffix(change)
+        connection.add(self.connection_row)
+        tour = Adw.ActionRow(title="How to work with the agent", subtitle="The short tutorial from the welcome")
+        show = Gtk.Button(label="Show", valign=Gtk.Align.CENTER)
+        show.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--tour"]))
+        tour.add_suffix(show)
+        connection.add(tour)
+        self.every(5, self.refresh_connection)
+
+        agent = Adw.PreferencesGroup(title="Agent", description="Slate drives the official Claude Code or Codex CLI. Changes apply to new sessions.")
         page.add(agent)
         self.backend = Adw.ComboRow(title="Backend", model=Gtk.StringList.new(["Claude Code", "Codex"]))
         self.backend.set_selected(self.BACKENDS.index(self.cfg.get("backend", "claude")) if self.cfg.get("backend", "claude") in self.BACKENDS else 0)
         self.backend.connect("notify::selected", lambda *_: self.set_value(["backend"], self.BACKENDS[self.backend.get_selected()]))
         agent.add(self.backend)
-        self.model = Adw.EntryRow(title="Claude model (sonnet, opus, haiku or a model id)")
+        self.model = Adw.EntryRow(title="Claude model (sonnet, opus, haiku or a model id; an API connection names its own)")
         self.model.set_text(str(self.cfg.get("claude", {}).get("model") or ""))
         self.model.connect("apply", lambda *_: self.set_value(["claude", "model"], self.model.get_text().strip() or None))
         self.model.set_show_apply_button(True)
@@ -564,7 +583,7 @@ class AIPage(Page):
         self.codex_model.set_show_apply_button(True)
         agent.add(self.codex_model)
 
-        signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in happens in the agent's own CLI (a terminal opens). Slate never sees your credentials.")
+        signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in with a subscription happens in the agent's own CLI (a terminal opens). Slate never sees those credentials.")
         page.add(signin)
         self.claude_row = Adw.ActionRow(title="Claude Code")
         self.add_auth_buttons(self.claude_row, ["claude", "auth", "login"], ["claude", "auth", "logout"])
@@ -718,6 +737,9 @@ class AIPage(Page):
         else:
             node[path[-1]] = value
         save_slash_config(self.cfg)
+
+    def refresh_connection(self):
+        in_thread(slate_agent.describe, lambda text: self.connection_row.set_subtitle(text if isinstance(text, str) else "Unknown"))
 
     def add_auth_buttons(self, row, login_cmd, logout_cmd):
         login = Gtk.Button(label="Sign in…", valign=Gtk.Align.CENTER)

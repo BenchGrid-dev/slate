@@ -83,6 +83,19 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
         return v(*t, "policy.toml [tools]");
     }
     match tool_name {
+        // Reading is free, except the few files that are a key or a sign-in: what is
+        // in them should not reach a model, whoever asked for it.
+        "Read" | "NotebookRead"
+            if holds_credentials(
+                input
+                    .get("file_path")
+                    .or_else(|| input.get("notebook_path"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            ) =>
+        {
+            v(Tier::Confirm, "reads a file that holds a key or a sign-in")
+        }
         "Read"
         | "Glob"
         | "Grep"
@@ -423,6 +436,8 @@ const DANGEROUS_SUBSTRINGS: &[&str] = &[
     "export github_token",
     "export anthropic_api_key",
     "export openai_api_key",
+    "slate/provider.toml",
+    "slate provider serve",
     ".ssh/",
     ".gnupg/",
     ".aws/",
@@ -561,6 +576,23 @@ fn dangerous_reason(cmd: &str) -> Option<String> {
 /// Public for slate-desktop launch checks: is this a command that needs Confirm?
 pub fn is_dangerous_command(cmd: &str) -> bool {
     dangerous_reason(cmd).is_some()
+}
+
+/// Files whose content is a credential: the model API key Slate keeps for the person,
+/// the agent CLIs' sign-ins, private keys.
+fn holds_credentials(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    [
+        "/.config/slate/provider.toml",
+        "/.claude/.credentials.json",
+        "/.codex/auth.json",
+        "/.ssh/id_",
+        "/.aws/credentials",
+        "/.config/gh/hosts.yml",
+        "/.gnupg/private-keys",
+    ]
+    .iter()
+    .any(|s| p.contains(s))
 }
 
 fn is_sensitive_path(path: &str) -> bool {
@@ -966,6 +998,7 @@ sensitive = ["/srv/vault"]
         assert_eq!(tier("curl -X POST https://x -d @f"), Tier::Confirm);
         assert_eq!(tier("sudo apt install x"), Tier::Confirm);
         assert_eq!(tier("cat ~/.ssh/id_ed25519"), Tier::Confirm);
+        assert_eq!(tier("cat ~/.config/slate/provider.toml"), Tier::Confirm);
         assert_eq!(tier("ssh host 'ls'"), Tier::Confirm);
     }
 
@@ -974,6 +1007,22 @@ sensitive = ["/srv/vault"]
         install_test_policy();
         assert_eq!(
             classify("Read", &json!({"file_path": "/x"})).tier,
+            Tier::Observe
+        );
+        // The person's API key and the CLIs' sign-ins are not for a model to read.
+        for secret in [
+            "/home/u/.config/slate/provider.toml",
+            "/home/u/.claude/.credentials.json",
+            "/home/u/.ssh/id_ed25519",
+        ] {
+            assert_eq!(
+                classify("Read", &json!({"file_path": secret})).tier,
+                Tier::Confirm,
+                "{secret}"
+            );
+        }
+        assert_eq!(
+            classify("Read", &json!({"file_path": "/home/u/.ssh/config"})).tier,
             Tier::Observe
         );
         assert_eq!(
