@@ -59,8 +59,8 @@ jobs:
           nix build --inputs-from . nixpkgs#qemu_kvm --out-link qemu
           echo "$PWD/qemu/bin" >> "$GITHUB_PATH"
           echo "OVMF_FD=$(nix build --inputs-from . nixpkgs#OVMF.fd --no-link --print-out-paths)/FV/OVMF.fd" >> "$GITHUB_ENV"
-      - name: Install and boot
-        run: python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/plain"
+      - name: Install without a network, and boot
+        run: python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/plain" --offline
       - name: Install and boot, encrypted disk
         run: python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/encrypted" --encrypt
       - uses: actions/upload-artifact@v4

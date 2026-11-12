@@ -128,6 +128,11 @@ in
   # The source the installer copies into the target, so the installed system builds the
   # same Slate package (already in the image's store) without a network fetch.
   environment.etc."slateos/src".source = self;
+  # And the nixpkgs that source is locked to: the new system's configuration is a flake
+  # evaluation, which wants this exact tree in the store. Without it the "Minimal, no
+  # internet needed" installation fetched it from cache.nixos.org and failed offline
+  # (the registry's nixpkgs, below, is the installer's own copy: another store path).
+  system.extraDependencies = [ nixpkgs.outPath ];
   environment.etc."slateos/template.nix".source = ./template.nix;
 
   # The agent CLIs (Claude Code, Codex) are unfree packages.

@@ -69,7 +69,8 @@ class Machine:
             "-display", "none",
             "-device", "qemu-xhci", "-device", "usb-kbd", "-device", "usb-tablet",
             "-device", "virtio-rng-pci",
-            "-nic", "user,model=virtio-net-pci",
+            # Without a network when asked to: the minimal installation must not need one.
+            "-nic", "none" if (args.offline and with_image) else "user,model=virtio-net-pci",
             "-drive", f"file={args.disk},if=none,id=target,format=qcow2,discard=unmap",
             "-device", "virtio-blk-pci,drive=target,serial=slateos-target,bootindex=1",
             "-device", "virtio-serial-pci",
@@ -266,7 +267,7 @@ def install(args):
         if args.encrypt:
             vm.run(f"printf %s '{PASSPHRASE}' > /tmp/passphrase", 30)
             options += " --passphrase-file /tmp/passphrase"
-        log("install: running slateos-install" + (" --encrypt" if args.encrypt else ""))
+        log("install: running slateos-install" + (" --encrypt" if args.encrypt else "") + (", without a network" if args.offline else ""))
         started = time.monotonic()
         status, out = vm.run(f"slateos-install {options} 2>&1", 3000)
         if status != 0:
@@ -378,6 +379,7 @@ def main():
     parser.add_argument("--cpus", type=int, default=min(4, os.cpu_count() or 2))
     parser.add_argument("--disk-size", default="32G")
     parser.add_argument("--encrypt", action="store_true", help="install on an encrypted disk and type its passphrase at boot")
+    parser.add_argument("--offline", action="store_true", help="install without a network (the minimal application set promises to need none)")
     parser.add_argument("--patience", type=float, help="multiply every wait (default 1, or 8 under emulation)")
     parser.add_argument("--only", choices=["install", "boot"], help="one half: install only, or boot the disk a previous run left in --workdir")
     parser.add_argument("--keep-disk", action="store_true", help="keep the installed disk in --workdir")
