@@ -371,6 +371,75 @@ pub fn test(api: &Api) -> TestResult {
     }
 }
 
+/// The models the endpoint lists (`GET …/models`), for choosing one by name. Not
+/// every service has the list; the model can always be typed.
+pub fn models(api: &Api) -> Result<Vec<String>> {
+    let key = api.api_key.trim();
+    if key.is_empty() {
+        bail!("the API key is empty");
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .into();
+    let request = match api.format {
+        Format::Openai => {
+            let base = api.chat_url();
+            let base = base.trim_end_matches("/chat/completions");
+            agent
+                .get(format!("{base}/models"))
+                .header("authorization", format!("Bearer {key}"))
+        }
+        Format::Anthropic => {
+            let mut r = agent
+                .get(api.anthropic_url("/v1/models?limit=1000"))
+                .header("anthropic-version", "2023-06-01");
+            if api.auth != Auth::Bearer {
+                r = r.header("x-api-key", key);
+            }
+            if api.auth == Auth::Bearer
+                || (api.auth == Auth::Auto && !api.host().ends_with("anthropic.com"))
+            {
+                r = r.header("authorization", format!("Bearer {key}"));
+            }
+            r
+        }
+    };
+    let mut response = request
+        .call()
+        .with_context(|| format!("could not reach {}", api.host()))?;
+    let status = response.status().as_u16();
+    let text = response.body_mut().read_to_string().unwrap_or_default();
+    if status >= 400 {
+        bail!(
+            "{} answered {status}: {}",
+            api.host(),
+            openai::error_message(&text)
+        );
+    }
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} did not send a list of models", api.host()))?;
+    let list = v
+        .get("data")
+        .or_else(|| v.get("models"))
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut ids: Vec<String> = list
+        .iter()
+        .filter_map(|m| {
+            m.get("id")
+                .or_else(|| m.get("name"))
+                .and_then(|i| i.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,11 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def do_GET(self):
+        if self.path.endswith("/models") and self.headers.get("authorization") == "Bearer sk-mock":
+            return self.reply(200, {"object": "list", "data": [{"id": "mock-large", "object": "model"}, {"id": "mock-small", "object": "model"}]})
+        self.reply(401 if self.path.endswith("/models") else 404, {"error": {"message": "Incorrect API key provided"}})
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
         if LOG:

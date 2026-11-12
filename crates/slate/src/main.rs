@@ -23,6 +23,7 @@ usage:
   slate skills list
   slate provider show          how the agent reaches a model (the key is not printed)
   slate provider test [FILE]   try an API connection once: provider.toml, FILE, or - for stdin
+  slate provider models [FILE] the models the connection's endpoint lists
   slate provider serve [FILE]  run the gateway for it and print its address (for testing)
   slate hook pre-tool-use      Claude Code PreToolUse hook (reads stdin)
   slate hook post-tool-use     Claude Code PostToolUse hook (reads stdin)
@@ -506,6 +507,22 @@ fn provider(args: &[String]) -> Result<()> {
             println!("{}", serde_json::to_string(&result)?);
             if !result.ok {
                 std::process::exit(1);
+            }
+        }
+        Some("models") => {
+            let p = read_provider(args.get(1))?;
+            let Some(api) = p.api.as_ref() else {
+                bail!("no API connection: provider.toml has no [api] section");
+            };
+            match slate_gateway::models(api) {
+                Ok(models) => println!("{}", serde_json::json!({"ok": true, "models": models})),
+                Err(e) => {
+                    println!(
+                        "{}",
+                        serde_json::json!({"ok": false, "message": format!("{e:#}")})
+                    );
+                    std::process::exit(1);
+                }
             }
         }
         Some("serve") => {
