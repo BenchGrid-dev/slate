@@ -5,9 +5,9 @@
 | Step | What happens | Oracle |
 |---|---|---|
 | Boot the image | Firmware (UEFI), the boot menu's default entry, the live system | a login prompt on the live system's console |
-| Install | `slateos-install` on an empty disk, with `--passphrase-file` for an encrypted one | its exit status |
+| Install | `slateos-install` on an empty disk, with `--passphrase-file` for an encrypted one, `--home-files` with an agent connection, and with `--offline` no network card (the minimal application set promises to need none) | its exit status |
 | Boot the disk | Without the image; the disk's passphrase is typed on the keyboard once the screen stands still | a login prompt on the installed system's console |
-| Check | The new user logs in (their login shell is slash; `!` runs the checks) | `slate-desktop`, `slate-dock`, `slate-panel` and `slated` are active, sway runs, `slateos-version` names the image's version, the root is btrfs (inside LUKS when encrypted) |
+| Check | The new user logs in (their login shell is slash; `!` runs the checks) | `slate-desktop`, `slate-dock`, `slate-panel` and `slated` are active, sway runs, `slateos-version` names the image's version, the root is btrfs (inside LUKS when encrypted), the agent's connection is in the new home, private and the user's |
 
 The console is a virtio console (`hvc0`), which systemd gives a login prompt on any system; the screen and the keyboard stay what a person has. Logs and screenshots (`desktop.png`, `passphrase-prompt-*.png`, `failure.png`) are written to `--workdir`.
 
