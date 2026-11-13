@@ -14,7 +14,7 @@
       packages = forAll (pkgs: rec {
         slate = pkgs.rustPlatform.buildRustPackage {
           pname = "slate";
-          version = "0.2.1";
+          version = "0.2.2";
           # Only what the Rust build reads: the desktop profile and image (distro/) change
           # often and must not rebuild the runtime.
           src = pkgs.lib.cleanSourceWith {

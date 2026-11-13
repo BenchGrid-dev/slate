@@ -4,6 +4,10 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 
 ## Unreleased
 
+## 0.2.2 — 2026-11-12
+
+Connecting the agent is a step of the installation, a model API key of your own works beside a Claude subscription, a tutorial shows how to work with the agent, and an installation with the minimal applications needs no network.
+
 - **Connecting the agent is part of installing.** The installer has a new step, between the account and the options: how the agent reaches a model. It does not go on without an answer, because SlateOS without an agent is a desktop that does not answer. The choices are a Claude subscription (Claude Code's own sign-in, done in the live session and carried over to the installed system) and an API key of your own. Systems that were not installed this way (the module on an existing NixOS, `slateos-install` from a console) get the same question from a welcome at first login (`slate-welcome`, `services.slate.desktop.welcome`), which comes back at every login until the agent is connected. Settings, AI shows the connection and changes it.
 - **An API key of your own, in OpenAI's or Anthropic's format.** An address, a key and a model name are enough: OpenAI, Anthropic, OpenRouter, DeepSeek, a relay, a model on your own network. The form asks the service for its models and tries the connection before it accepts it. The agent stays Claude Code, so approvals, the audit log and undo work as with a subscription: slash points it at a gateway of its own on this computer (the new `slate-gateway`), which passes Anthropic-format requests through and rewrites the others for chat completions and back, tool calls and streaming included. The key stays in slash and in `~/.config/slate/provider.toml` (readable by you alone); the commands the agent runs see a token that is only good for that gateway, and slated asks before the agent reads the file. `slate provider show`, `test` and `models` do the same from a terminal; slash's banner names the model and the service, and `/model` picks another of the service's models. With another service the agent has no web search (Anthropic's servers do that) and Claude Code's telemetry is off. docs/agent-connection.md has the details and the limits, docs/decisions/0008 the reasons. Tested with the real Claude Code against a scripted endpoint (`tests/e2e/mock_openai.py`), not yet against each provider's own.
 - **A tutorial.** Six short pages on working with the agent: asking with Super+S, its own screen, approvals, undo, the terminal, the rest of the desktop. The installer shows them while it installs, the welcome after the agent is connected, and Settings, AI on request (`slate-welcome --tour`).
@@ -11,6 +15,17 @@ Small releases, often. Patch releases are snapshots the maintainer can test; a m
 - Fix: installations built most of the system again on the person's machine, and failed without a network although the "Minimal" set says it needs none. Three causes. The SwayFX build named sway's patches as strings inside the nixpkgs tree, so the image (built from the flake's copy of nixpkgs) and an installation (evaluated from the installer's copy) asked for two different compositors, and each installation compiled its own. NixOS marks its small generated files as never to be copied from elsewhere, so some three hundred that the image already held were built again, a few of them wanting a C compiler. And the installed system is not a subset of the live one (another boot loader, an encrypted initrd), nor was the nixpkgs tree its configuration is locked to on the image. Now the patches are copied by content; `slateos-install` lets Nix copy what the image holds; the image carries the closure of the system an installation builds, evaluated with placeholder answers; and the desktop profile no longer builds NixOS's manual (`documentation.nixos.enable`, a default). What is left to build are the few dozen files with the person's names in them. On the CI runner an installation went from about 350 s to about 200 s, and the image test now installs its plain run without a network card.
 - Speech synthesis is off by default (`services.speechd.enable`): NixOS turns it on for graphical systems, with 450 MB of voices, and SlateOS has no screen reader to use it yet. The image is 200 MB smaller.
 - Fix: the installer still said that some virtual machines cannot show an encrypted disk's passphrase prompt; 0.2.1 fixed that.
+
+Upgrading from 0.2.1:
+
+- The welcome opens once at the next login. Where Claude Code is signed in already, it shows the tutorial and asks nothing; where it is not, it asks for the connection at every login until there is one. `services.slate.desktop.welcome = false` turns the welcome off.
+- Speech synthesis is no longer enabled by the desktop profile. A configuration that uses it sets `services.speechd.enable = true`.
+
+Known limitations, where they differ from 0.2.1's:
+
+- An API connection has been run with the real Claude Code against a scripted OpenAI-format endpoint, and against no provider's own service yet. Services differ in the parameters they accept and in how they stream tool calls; the gateway learns the former from their error messages, and a fault in the latter shows as a tool call the agent does not make.
+- With a model other than Claude the agent works from prompts and tool descriptions written for Claude, and Claude Code assumes Claude's context window. docs/agent-connection.md lists what differs.
+- The installer's new step and the welcome have been run on the development system (the installer without writing to a disk), not yet in a live session started from the image. The image test carries a connection into the new home with `slateos-install --home-files`.
 
 ## 0.2.1 — 2026-11-11
 
