@@ -148,7 +148,11 @@ if [ -n "$homefiles" ] && [ -d "$homefiles" ]; then
   # Modes are kept (the agent's key is readable by its owner alone); the owner is set below.
   cp -a "$homefiles"/. "/mnt/home/$user/"
 fi
-chown -R "$(stat -c %u /mnt/home/"$user" 2>/dev/null || echo 1000):100" "/mnt/home/$user" || true
+# The home directory and what was put into it belong to the new user. The account itself
+# only comes into being at the first start, so by number: the first person of a fresh
+# system is 1000, in the group users (100). (Asking the directory for its owner, as this
+# did before, answers root at this point, and files copied in stayed root's.)
+chown -R 1000:100 "/mnt/home/$user" || true
 
 echo
 echo "SlateOS is installed. Remove the medium and reboot; the desktop logs in as $user."
