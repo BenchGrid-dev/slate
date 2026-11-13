@@ -36,7 +36,7 @@ def restart_prompt():
 
 class Welcome(Adw.ApplicationWindow):
     def __init__(self, app, only=None):
-        super().__init__(application=app, title="Welcome to SlateOS", default_width=720, default_height=600)
+        super().__init__(application=app, title="Welcome to SlateOS", default_width=720, default_height=670)
         self.only = only
         self.title = Adw.WindowTitle(title="Welcome to SlateOS")
         header = Adw.HeaderBar(title_widget=self.title)

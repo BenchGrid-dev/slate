@@ -713,6 +713,9 @@ in
     # machine: minutes at every installation and upgrade, for a book about another
     # system's options. SlateOS's documentation is its own (the agent's OS Skills).
     documentation.nixos.enable = lib.mkDefault false;
+    # Speech synthesis for screen readers is on by default in NixOS and brings half a
+    # gigabyte of voices. SlateOS has no screen reader yet; turn it on with one.
+    services.speechd.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault false);
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [

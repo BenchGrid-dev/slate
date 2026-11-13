@@ -20,8 +20,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-PROVIDER = os.path.expanduser("~/.config/slate/provider.toml")
-WELCOME_DONE = os.path.expanduser("~/.local/state/slate/welcome-done")
+# The same places slash looks in (XDG, with the usual defaults).
+PROVIDER = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "slate", "provider.toml")
+WELCOME_DONE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "slate", "welcome-done")
 
 # Services with an address worth remembering. The model is asked of the service
 # (`GET …/models`) or typed: names change faster than this file.
@@ -337,7 +338,9 @@ class AgentSetup(Gtk.Box):
         preset = PRESETS[self.preset.get_selected()]
         self.format.set_selected([f for f, _ in FORMATS].index(preset["format"]))
         custom = preset["id"].startswith("custom-")
-        self.format.set_sensitive(custom)
+        # A known service has one format; the row is for the others (and keeps the
+        # form short enough to show its Test button without scrolling).
+        self.format.set_visible(custom)
         if preset["base_url"] or custom:
             self.address.set_text(preset["base_url"])
         self.model.set_title("Model" if preset["format"] == "openai" else "Model (empty: Claude Code's own choice)")

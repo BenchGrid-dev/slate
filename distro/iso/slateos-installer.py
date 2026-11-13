@@ -160,7 +160,7 @@ def radio_row(title, subtitle, group=None):
 
 class Installer(Adw.ApplicationWindow):
     def __init__(self, app, welcome, dry_run, extra_disk):
-        super().__init__(application=app, title="Install SlateOS", default_width=720, default_height=600)
+        super().__init__(application=app, title="Install SlateOS", default_width=720, default_height=670)
         self.dry_run = dry_run
         self.extra_disk = extra_disk
         self.running = False
