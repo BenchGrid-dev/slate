@@ -715,7 +715,8 @@ in
     documentation.nixos.enable = lib.mkDefault false;
     # Speech synthesis for screen readers is on by default in NixOS and brings half a
     # gigabyte of voices. SlateOS has no screen reader yet; turn it on with one.
-    services.speechd.enable = lib.mkIf cfg.desktop.enable (lib.mkDefault false);
+    # (NixOS sets its own with mkDefault; a configuration's plain definition still wins.)
+    services.speechd.enable = lib.mkIf cfg.desktop.enable (lib.mkOverride 900 false);
 
     environment.systemPackages = [ pkg slateosTools pkgs.btrfs-progs ] ++ cfg.agents
       ++ lib.optionals cfg.desktop.enable (with pkgs; [
