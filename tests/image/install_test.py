@@ -11,7 +11,7 @@ encrypted, logs in as the new user on the console (their login shell is slash) a
 checks that the desktop runs. Logs and a screenshot of the desktop stay in --workdir.
 
 Needs qemu-system-<arch> and qemu-img on PATH and a UEFI firmware image (OVMF.fd for
-x86_64, QEMU_EFI.fd for aarch64). With /dev/kvm it takes about seven minutes, without
+x86_64, QEMU_EFI.fd for aarch64). With /dev/kvm it takes about five minutes, without
 it (emulation) more than an hour. .github/workflows/image.yml runs it for minor releases.
 """
 import argparse

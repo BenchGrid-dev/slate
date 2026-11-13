@@ -2,7 +2,7 @@ name: Image
 
 # Builds the x86_64 image, installs it in a virtual machine and boots what was installed
 # (tests/image/install_test.py), once on a plain disk and once on an encrypted one. It
-# takes about 25 minutes, so it runs for minor releases only: on the commit
+# takes about 20 minutes, so it runs for minor releases only: on the commit
 # "chore(release): prepare X.Y.0", before that commit is tagged. Patch releases rely on
 # the evaluation in ci.yml. To run it for anything else: Actions, Image, Run workflow.
 on:
