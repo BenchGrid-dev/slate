@@ -364,7 +364,7 @@ class Installer(Adw.ApplicationWindow):
             title="SlateOS is installed",
             description="Remove the installation medium, then restart. In a virtual machine, eject the "
             "ISO image first (UTM: the CD/DVD button in the toolbar, then Clear).\n"
-            "After the restart, sign in to your AI from Settings → AI and press Super+S.",
+            "After the restart your agent is connected: press Super+S and ask.",
         )
         box = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, css_classes=["welcome-buttons"])
         keep = Gtk.Button(label="Keep Trying", css_classes=["pill"])

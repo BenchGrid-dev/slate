@@ -151,4 +151,8 @@ chown -R "$(stat -c %u /mnt/home/"$user" 2>/dev/null || echo 1000):100" "/mnt/ho
 
 echo
 echo "SlateOS is installed. Remove the medium and reboot; the desktop logs in as $user."
-echo "Sign in to your agent from Settings → AI, then press Super+s."
+if [ -n "$homefiles" ]; then
+  echo "The agent is connected: press Super+s and ask."
+else
+  echo "At the first login a welcome asks how the agent reaches a model (a subscription or an API key)."
+fi

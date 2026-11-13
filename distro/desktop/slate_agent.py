@@ -485,7 +485,8 @@ class Tour(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.carousel = Adw.Carousel(hexpand=True, vexpand=not compact, spacing=24, allow_long_swipes=True)
         for icon, title, text, keys, example in TOUR:
-            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8 if compact else 12, valign=Gtk.Align.CENTER,
+            # As wide as the carousel, so the next page does not show at the edge.
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8 if compact else 12, valign=Gtk.Align.CENTER, hexpand=True,
                            margin_start=28, margin_end=28, margin_top=4, margin_bottom=4)
             head = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
             head.append(Gtk.Image(icon_name=icon, pixel_size=28 if compact else 40))
