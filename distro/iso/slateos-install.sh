@@ -140,9 +140,10 @@ cd /
 # locked, but Nix would still download the registry first, and stop without a network.
 # And what the image already holds is copied: NixOS marks its small generated files
 # (environments, wrappers, units) as "always build here", which would make this machine
-# build some three hundred of them again and want a compiler for a few.
+# build some three hundred of them again and want a compiler for a few. What cannot be
+# copied (no network, or not there) is built (fallback).
 NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd \
-  --option flake-registry "" --option always-allow-substitutes true
+  --option flake-registry "" --option always-allow-substitutes true --option fallback true
 if [ -n "$homefiles" ] && [ -d "$homefiles" ]; then
   # Modes are kept (the agent's key is readable by its owner alone); the owner is set below.
   cp -a "$homefiles"/. "/mnt/home/$user/"

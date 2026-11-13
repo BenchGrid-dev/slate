@@ -176,8 +176,11 @@ in
   # internet needed" installation fetched it from cache.nixos.org and failed offline
   # (the registry's nixpkgs, below, is the installer's own copy: another store path).
   system.extraDependencies = [ nixpkgs.outPath installed.config.system.build.toplevel ]
-    # And the tools the files that remain are made with (the same list a dry run of an
-    # installation asks a binary cache for, when it has one).
+    # And what the files that remain are made with. For the large ones, everything
+    # their counterparts in that system were built from (install-info for the system
+    # path's info directory, the initrd's tools, …); for the small ones, the tools a
+    # dry run of an installation asked a binary cache for.
+    ++ (with installed.config.system; [ build.toplevel.inputDerivation path.inputDerivation build.etc.inputDerivation build.initialRamdisk.inputDerivation ])
     ++ (with pkgs; [ lndir makeShellWrapper findXMLCatalogs kmod.dev nukeReferences remarshal libxslt.bin ]);
   environment.etc."slateos/template.nix".source = ./template.nix;
 
