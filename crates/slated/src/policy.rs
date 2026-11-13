@@ -849,7 +849,7 @@ fn segment_is_read_only(seg: &str) -> bool {
         return subs.iter().any(|s| rest.starts_with(s));
     }
     // Interpreters and build tools with arbitrary args are not read-only.
-    if matches!(
+    !matches!(
         base,
         "python"
             | "python3"
@@ -880,10 +880,7 @@ fn segment_is_read_only(seg: &str) -> bool {
             | "ip"
             | "xdg-open"
             | "open"
-    ) {
-        return false;
-    }
-    true
+    )
 }
 
 #[cfg(test)]
