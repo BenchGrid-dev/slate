@@ -235,7 +235,14 @@ class Machine:
         self.seen = start
         self.send(f'{prefix}{command}; echo "@@EXIT:$?@@"\n')
         match = self.expect(EXIT.pattern, seconds, f"the end of `{command[:60]}`")
-        return int(match.group(1)), self.buffer[start:match.start()]
+        result = int(match.group(1)), self.buffer[start:match.start()]
+        if prefix:
+            # slash reads the next line once its prompt is back; what is typed while it
+            # returns to its line editor is cut short (the terminal's pending input is
+            # dropped when it changes mode).
+            self.expect("❯", 60, "slash's prompt after the command")
+            time.sleep(0.5 * self.args.patience)
+        return result
 
     def stop(self, seconds=0):
         """Wait for the guest to power off, then make sure QEMU is gone."""
