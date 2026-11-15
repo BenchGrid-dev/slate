@@ -29,6 +29,10 @@ def news(state):
     elif phase == "idle" and offer.get("version"):
         items.append((f"available:{offer['version']}", f"SlateOS {offer['version']} is available",
                       offer.get("summary") or "Settings, Software Update installs it."))
+    # How the last update ended is news only while nothing newer is under way: with
+    # another attempt waiting for its restart, or on trial, it is that attempt's turn.
+    if phase != "idle":
+        return items
     key = f"{last.get('outcome')}:{last.get('version')}:{last.get('when')}"
     if last.get("outcome") == "installed":
         items.append((key, f"SlateOS was updated to {last.get('version')}", "The version before stays on this computer for a while."))
@@ -81,8 +85,12 @@ def main():
     for key, title, body in news(state):
         if key in told:
             continue
-        if notify(title, body):
-            told.append(key)
+        # Remembered before it is shown: the notification stays up for a while, and a
+        # restart in that time must not make it news again at the next login.
+        told.append(key)
+        remember(told)
+        if not notify(title, body):
+            told.remove(key)
             remember(told)
     return 0
 
