@@ -1812,8 +1812,8 @@ def update_view(status, offer=None, checking=False, busy=False):
     button is None or (label, action); progress None or a fraction (-1: unknown);
     notes None or (summary, link); last None or (heading, detail)."""
     if status is None:
-        return ("SlateOS", "This system follows its own configuration and is updated the way that is "
-                "(services.slate.update.enable).", None, None, None, None)
+        return ("SlateOS", "This system is built from a NixOS configuration of its own and is updated with it "
+                "(services.slate.update.enable is off).", None, None, None, None)
     title = f"SlateOS {status.get('current', '')}"
     phase = status.get("phase", "idle")
     target = status.get("target") or {}
@@ -1855,7 +1855,11 @@ def update_view(status, offer=None, checking=False, busy=False):
         "rolled-back": "SlateOS {} did not start, and this version runs again",
     }.get(outcome.get("outcome"))
     if heading and phase == "idle":
-        last = (heading.format(outcome.get("version", "")) + f" ({ago(outcome.get('when', 0))})", outcome.get("message", ""))
+        # Why it could not be installed is what Nix said; a version that did not start
+        # has nothing more to say than that it can be tried again.
+        detail = outcome.get("message", "") if outcome.get("outcome") == "failed" else \
+            "Everything is as it was before the update. Update Now tries it again; SlateOS does not by itself."
+        last = (heading.format(outcome.get("version", "")) + f" ({ago(outcome.get('when', 0))})", detail)
     return title, subtitle, button, progress, notes, last
 
 
