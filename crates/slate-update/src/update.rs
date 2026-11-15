@@ -182,6 +182,7 @@ impl Updater {
         state.target = Some(Target {
             version: version.clone(),
             previous_version: self.config.version.clone(),
+            boot: self.sys().boot_id(),
             ..Default::default()
         });
         state.save(&self.paths)?;
@@ -482,6 +483,12 @@ impl Updater {
             anyhow!("an update waits for a restart, and the state does not say which")
         })?;
         let sys = self.sys();
+        // Asked again during the start the update was installed in (a rebuild starts
+        // the system's units anew): the restart is still to come, and the version that
+        // runs is the old one because nothing else was tried yet.
+        if target.boot.is_some() && target.boot == sys.boot_id() {
+            return Ok(None);
+        }
         let running = std::fs::canonicalize(self.paths.current_system()).ok();
         let wanted = target
             .system
@@ -611,6 +618,7 @@ impl Updater {
             previous_generation: Some(current),
             trial: false,
             back: true,
+            boot: sys.boot_id(),
         };
         // The two sources change places; the boot menu's default is the old system.
         let aside = self.source().with_extension("aside");

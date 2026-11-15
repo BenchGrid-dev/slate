@@ -48,6 +48,10 @@ pub struct Target {
     /// This is the way back to the version before, not an update.
     #[serde(default)]
     pub back: bool,
+    /// The start of the computer during which this was set up (the kernel's boot id).
+    /// Which version came up is only asked at a later start.
+    #[serde(default)]
+    pub boot: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

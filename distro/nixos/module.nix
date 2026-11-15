@@ -1265,10 +1265,14 @@ in
       after = [ "local-fs.target" ];
       path = [ config.nix.package config.systemd.package pkgs.coreutils ];
       environment.HOME = "/root";
-      # Not when the system is switched: it has nothing to do then, and a version on
-      # trial must not be confirmed twice.
+      # Once for each start of the computer. A rebuild starts the system's units anew:
+      # it stays "active" after it is done so that it is not run again then (and the
+      # updater itself knows the start an update was installed in).
       restartIfChanged = false;
-      serviceConfig.ExecStart = "${pkg}/bin/slateos-update boot";
+      serviceConfig = {
+        ExecStart = "${pkg}/bin/slateos-update boot";
+        RemainAfterExit = true;
+      };
     };
 
     # Once a day, and a while after each start: ask the release server, and download

@@ -363,6 +363,14 @@ impl<'a> Sys<'a> {
         Ok(())
     }
 
+    /// Names this start of the computer; another one after every restart.
+    pub fn boot_id(&self) -> Option<String> {
+        std::fs::read_to_string(self.paths.at("/proc/sys/kernel/random/boot_id"))
+            .ok()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+    }
+
     /// Free bytes where the store is.
     pub fn free_bytes(&self) -> Option<u64> {
         let mut dir = self.paths.at("/nix");

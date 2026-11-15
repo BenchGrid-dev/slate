@@ -221,6 +221,7 @@ impl Machine {
         )
         .unwrap();
         machine.run_generation(1);
+        machine.new_boot();
         machine
     }
 
@@ -288,6 +289,17 @@ impl Machine {
         updater
     }
 
+    /// Every start of the computer has its own id.
+    fn new_boot(&self) {
+        let file = self.path("proc/sys/kernel/random/boot_id");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let n = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        std::fs::write(&file, format!("{}\n", n + 1)).unwrap();
+    }
+
     fn run_generation(&self, generation: u64) {
         let link = self
             .path("nix/var/nix/profiles")
@@ -339,6 +351,7 @@ impl Machine {
             self.default_generation()
         };
         self.run_generation(generation);
+        self.new_boot();
         generation
     }
 
@@ -455,6 +468,12 @@ fn an_update_is_started_once_and_becomes_the_default_when_it_runs() {
     // A second request says what is the case instead of building again.
     let again = install(&machine, Asked::Person).unwrap_err().to_string();
     assert!(again.contains("starts at the next restart"), "{again}");
+    // The system's units are started anew by a rebuild: asked before the restart which
+    // version came up, the answer is "none yet", not "the old one, so undo".
+    assert_eq!(machine.updater().boot().unwrap(), None);
+    assert_eq!(machine.state().phase, Phase::Restart);
+    assert_eq!(machine.oneshot(), "nixos-generation-2.conf");
+    assert_eq!(machine.version_in("slate").as_deref(), Some("0.3.1"));
 
     assert_eq!(machine.restart(true), 2);
     assert_eq!(machine.updater().boot().unwrap(), Some(Outcome::Installed));
@@ -618,6 +637,7 @@ fn without_a_trial_the_new_version_is_the_default_at_once() {
     machine.flag("no-systemd-boot", true);
     install(&machine, Asked::Person).unwrap().unwrap();
     machine.run_generation(1);
+    machine.new_boot();
     assert_eq!(machine.updater().boot().unwrap(), Some(Outcome::RolledBack));
     machine.assert_untouched();
 }
