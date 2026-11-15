@@ -16,6 +16,14 @@ STATE = os.environ.get("SLATEOS_UPDATE_STATE", "/var/lib/slateos-update/state.js
 SEEN = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "slate", "update-notified")
 
 
+def running_version():
+    try:
+        with open(os.environ.get("SLATEOS_UPDATE_CONFIG", "/etc/slate/update.json"), encoding="utf-8") as f:
+            return json.load(f).get("version")
+    except (OSError, ValueError):
+        return None
+
+
 def news(state):
     """What a state has to tell: a list of (key, title, body), a key for each piece of
     news so that it is told once."""
@@ -25,7 +33,10 @@ def news(state):
     offer = state.get("available") or {}
     last = state.get("last") or {}
     if phase == "restart" and not target.get("back"):
-        items.append((f"ready:{target.get('version')}", f"SlateOS {target.get('version')} is ready", "Restart to use it."))
+        # After the restart the state still says so until the new version has proven
+        # itself; it is not "ready" to the person who is already using it.
+        if target.get("version") != running_version():
+            items.append((f"ready:{target.get('version')}", f"SlateOS {target.get('version')} is ready", "Restart to use it."))
     elif phase == "idle" and offer.get("version"):
         items.append((f"available:{offer['version']}", f"SlateOS {offer['version']} is available",
                       offer.get("summary") or "Settings, Software Update installs it."))
