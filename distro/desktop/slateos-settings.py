@@ -2,12 +2,16 @@
 """slateos-settings: the system-wide choices Settings makes.
 
     slateos-settings show                        what the running system has and offers
-    slateos-settings get KEY                     the value in effect (agent-while-locked, lock-while-agent-works)
+    slateos-settings get KEY                     the value in effect (agent-while-locked, lock-while-agent-works,
+                                                 automatic-updates)
     slateos-settings set input-methods NAME,...  install these input methods ("none": no input method)
     slateos-settings set agent-while-locked pause|elements|continue
                                                  what the agent may do in windows while the screen is locked
     slateos-settings set lock-while-agent-works yes|no
                                                  no: the idle lock waits until the agent stops using the screen
+    slateos-settings set automatic-updates off|check|download
+                                                 what software update does unasked: nothing, look for a new
+                                                 version once a day, or also download and prepare it
 
 The choices live in settings.json next to the system configuration (/etc/slateos, or
 /etc/nixos where there is no /etc/slateos), and the configuration itself wins where it
@@ -109,6 +113,26 @@ def agent_set(name, value):
     print(f"{path}: {name} {value}")
 
 
+# What software update does without being asked (slateos-update reads it at run time).
+UPDATES = ["off", "check", "download"]
+
+
+def updates_get():
+    _, current = read_settings(settings_path())
+    value = current.get("automaticUpdates")
+    return value if value in UPDATES else "check"
+
+
+def updates_set(value):
+    if value not in UPDATES:
+        fail(f"automatic-updates takes {'|'.join(UPDATES)}", 2)
+    path = settings_path()
+    _, current = read_settings(path)
+    current["automaticUpdates"] = value
+    write_settings(path, current)
+    print(f"{path}: automatic-updates {value}")
+
+
 def set_input_methods(value):
     offered = system().get("inputMethods", {}).get("available", [])
     names = [] if value == "none" else [n for n in value.split(",") if n]
@@ -124,6 +148,7 @@ def set_input_methods(value):
     write_settings(path, current)
 
     print(f"Updating the system ({path}: input methods {', '.join(names) or 'none'})", flush=True)
+    # (slateos-rebuild refuses while an update waits for its restart, and says so.)
     if subprocess.run([REBUILD, "switch"]).returncode != 0:
         if before is None:
             os.remove(path)
@@ -148,17 +173,23 @@ def main():
         print(__doc__.strip())
         return
     if args[0] == "show":
-        agent = {name: agent_get(name)[0] for name in AGENT}
-        print(json.dumps({"file": settings_path(), **system(), "effective": agent}, indent=2))
+        effective = {name: agent_get(name)[0] for name in AGENT}
+        effective["automatic-updates"] = updates_get()
+        print(json.dumps({"file": settings_path(), **system(), "effective": effective}, indent=2))
+        return
+    if args[0] == "get" and len(args) == 2 and args[1] == "automatic-updates":
+        print(updates_get())
         return
     if args[0] == "get" and len(args) == 2 and args[1] in AGENT:
         print(agent_get(args[1])[0])
         return
-    if args[0] == "set" and len(args) == 3 and (args[1] == "input-methods" or args[1] in AGENT):
+    if args[0] == "set" and len(args) == 3 and (args[1] in ("input-methods", "automatic-updates") or args[1] in AGENT):
         if os.geteuid() != 0:
             fail("needs root: sudo slateos-settings set ...")
         if args[1] == "input-methods":
             set_input_methods(args[2])
+        elif args[1] == "automatic-updates":
+            updates_set(args[2])
         else:
             agent_set(args[1], args[2])
         return

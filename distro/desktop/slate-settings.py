@@ -3,11 +3,12 @@
 
 Pages: Network (Wi-Fi), Bluetooth, Display (resolution, scale, HiDPI, with a
 confirm-or-revert countdown), Appearance, Sound, Keyboard (input methods), Power
-(battery, power mode, screen lock), Printers, Slate (agent status, memories) and AI.
+(battery, power mode, screen lock), Printers, Software Update, Slate (agent status,
+memories) and AI.
 Display changes are applied live through sway and persisted to
 ~/.config/slate/sway.d/output.conf, which the Slate sway profile includes.
 
-    slate-settings [PAGE]    open on a page: network, bluetooth, display, power, ...
+    slate-settings [PAGE]    open on a page: network, bluetooth, display, power, update, ...
 """
 import glob
 import json
@@ -1779,6 +1780,304 @@ class PrintersPage(Page):
             self.rows.append(row)
 
 
+# ---- Software Update ----------------------------------------------------------------
+
+SLATEOS_UPDATE = "/run/current-system/sw/bin/slateos-update"
+
+
+def ago(when):
+    """Seconds since 1970 as "3 hours ago"."""
+    seconds = max(0, int(time.time()) - int(when))
+    if seconds < 120:
+        return "just now"
+    if seconds < 7200:
+        return f"{seconds // 60} minutes ago"
+    if seconds < 172800:
+        return f"{seconds // 3600} hours ago"
+    return f"{seconds // 86400} days ago"
+
+
+def update_status():
+    """What slateos-update knows, or None where the system is not updated this way."""
+    try:
+        out = subprocess.run([SLATEOS_UPDATE, "status", "--json"], capture_output=True, text=True, timeout=10)
+        return json.loads(out.stdout) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def update_view(status, offer=None, checking=False, busy=False):
+    """What the page shows for a status: (title, subtitle, button, progress, notes, last).
+
+    button is None or (label, action); progress None or a fraction (-1: unknown);
+    notes None or (summary, link); last None or (heading, detail)."""
+    if status is None:
+        return ("SlateOS", "This system follows its own configuration and is updated the way that is "
+                "(services.slate.update.enable).", None, None, None, None)
+    title = f"SlateOS {status.get('current', '')}"
+    phase = status.get("phase", "idle")
+    target = status.get("target") or {}
+    button = progress = notes = last = None
+    if phase in ("downloading", "building"):
+        p = status.get("progress") or {}
+        total, done = p.get("total", 0), p.get("done", 0)
+        count = f" ({done} of {total})" if total else ""
+        subtitle = f"Installing SlateOS {target.get('version', '')}: {p.get('text', 'Preparing')}{count}"
+        progress = done / total if total else -1
+    elif phase == "restart":
+        if target.get("back"):
+            subtitle = f"SlateOS {target.get('version', '')} starts again at the next restart."
+        elif target.get("trial"):
+            subtitle = (f"SlateOS {target.get('version', '')} is ready and starts at the next restart. "
+                        "If it does not come up, the restart after that is this version again.")
+        else:
+            subtitle = f"SlateOS {target.get('version', '')} is ready and starts at the next restart."
+        button = ("Restart Now", "restart")
+    elif busy:
+        subtitle, progress = "Waiting for your password…", -1
+    else:
+        offer = offer or status.get("available")
+        if offer:
+            subtitle = f"SlateOS {offer.get('version', '')} is available."
+            button = ("Update Now", "install")
+            notes = (offer.get("summary", ""), offer.get("notes", ""))
+        elif checking:
+            subtitle = "Checking…"
+        else:
+            checked = status.get("checked")
+            subtitle = f"Up to date. Checked {ago(checked)}." if checked else "Not checked yet."
+            if status.get("check_error"):
+                subtitle = "The last check got no answer. " + (f"Before that: checked {ago(checked)}." if checked else "")
+            button = ("Check Now", "check")
+    outcome = status.get("last") or {}
+    heading = {
+        "failed": "SlateOS {} could not be installed",
+        "rolled-back": "SlateOS {} did not start, and this version runs again",
+    }.get(outcome.get("outcome"))
+    if heading and phase == "idle":
+        last = (heading.format(outcome.get("version", "")) + f" ({ago(outcome.get('when', 0))})", outcome.get("message", ""))
+    return title, subtitle, button, progress, notes, last
+
+
+class UpdatePage(Page):
+    """Software Update: the version that runs, a newer one when there is one, its
+    installation and the restart that finishes it. slateos-update does the work; this
+    page shows its state file and starts it with the person's password."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.status = None
+        self.offer = None        # what Check Now found (root's timer records its own)
+        self.checking = False
+        self.busy = False        # a command of ours runs
+        self.loading = False
+        self.setting = False     # the switches are being set from the status, not by the person
+
+        group = Adw.PreferencesGroup()
+        self.page.add(group)
+        self.row = Adw.ActionRow(title="SlateOS", subtitle="", subtitle_lines=4)
+        self.row.add_prefix(Gtk.Image(icon_name="slateos", pixel_size=40, margin_top=8, margin_bottom=8))
+        self.button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        self.button.connect("clicked", lambda *_: self.act(self.action))
+        self.take_back = Gtk.Button(label="Take Back", valign=Gtk.Align.CENTER, visible=False, css_classes=["flat"])
+        self.take_back.connect("clicked", lambda *_: self.act("cancel"))
+        self.row.add_suffix(self.take_back)
+        self.row.add_suffix(self.button)
+        group.add(self.row)
+        self.action = None
+        self.bar = Gtk.ProgressBar(margin_start=14, margin_end=14, margin_top=12, margin_bottom=12)
+        self.bar_row = Adw.PreferencesRow(child=self.bar, activatable=False, visible=False)
+        group.add(self.bar_row)
+        self.notes = Adw.ActionRow(title="", subtitle_lines=6, visible=False)
+        self.notes_button = Gtk.Button(label="Release Notes", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        self.notes_button.connect("clicked", lambda *_: subprocess.Popen(["xdg-open", self.notes_link]))
+        self.notes.add_suffix(self.notes_button)
+        self.notes_link = ""
+        group.add(self.notes)
+        self.last = Adw.ActionRow(title="", subtitle_lines=8, visible=False)
+        self.last.add_prefix(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+        group.add(self.last)
+
+        self.auto = Adw.PreferencesGroup(
+            title="Automatic Updates",
+            description="Changing these needs your password. An update never restarts the computer by itself.")
+        self.check_row = Adw.SwitchRow(title="Check for updates", subtitle="Once a day, and say when there is one.")
+        self.download_row = Adw.SwitchRow(
+            title="Download and prepare updates",
+            subtitle="In the background, while the computer is plugged in. Only the restart is left to you.")
+        self.check_row.connect("notify::active", lambda *_: self.on_automatic())
+        self.download_row.connect("notify::active", lambda *_: self.on_automatic())
+        self.auto.add(self.check_row)
+        self.auto.add(self.download_row)
+        self.page.add(self.auto)
+
+        self.back = Adw.PreferencesGroup()
+        self.back_row = Adw.ActionRow(title="", subtitle="The version before the last update is still on this computer.")
+        back_button = Gtk.Button(label="Go Back…", valign=Gtk.Align.CENTER)
+        back_button.connect("clicked", lambda *_: self.confirm_back())
+        self.back_row.add_suffix(back_button)
+        self.back.add(self.back_row)
+        self.page.add(self.back)
+        self.every(2, self.refresh)
+
+    def refresh(self):
+        if self.loading:
+            return
+        self.loading = True
+
+        def done(status):
+            self.loading = False
+            self.status = None if isinstance(status, Exception) else status
+            self.render()
+        in_thread(update_status, done)
+
+    def render(self):
+        status = self.status
+        title, subtitle, button, progress, notes, last = update_view(status, self.offer, self.checking, self.busy)
+        self.row.set_title(title)
+        self.row.set_subtitle(subtitle)
+        self.action = button[1] if button else None
+        self.button.set_visible(button is not None)
+        if button:
+            self.button.set_label(button[0])
+            self.button.set_css_classes(["suggested-action"] if button[1] in ("install", "restart") else [])
+            self.button.set_sensitive(not self.busy and not self.checking)
+        phase = (status or {}).get("phase", "idle")
+        self.take_back.set_visible(phase == "restart")
+        self.take_back.set_sensitive(not self.busy)
+        self.bar_row.set_visible(progress is not None)
+        if progress is not None:
+            if progress < 0:
+                self.bar.pulse()
+            else:
+                self.bar.set_fraction(progress)
+        self.notes.set_visible(bool(notes and (notes[0] or notes[1])))
+        if notes:
+            self.notes.set_title("What is new")
+            self.notes.set_subtitle(GLib.markup_escape_text(notes[0]))
+            self.notes_link = notes[1]
+            self.notes_button.set_visible(notes[1].startswith("https://"))
+        self.last.set_visible(last is not None)
+        if last:
+            self.last.set_title(GLib.markup_escape_text(last[0]))
+            self.last.set_subtitle(GLib.markup_escape_text("\n".join(last[1].splitlines()[-6:])))
+        self.auto.set_visible(status is not None)
+        if status is not None:
+            self.setting = True
+            mode = status.get("automatic", "check")
+            self.check_row.set_active(mode != "off")
+            self.download_row.set_active(mode == "download")
+            self.download_row.set_sensitive(mode != "off" and not self.busy)
+            self.check_row.set_sensitive(not self.busy)
+            self.setting = False
+        previous = (status or {}).get("previous")
+        self.back.set_visible(bool(previous) and phase == "idle")
+        if previous:
+            self.back_row.set_title(f"Go back to SlateOS {previous.get('version', '')}")
+
+    def sudo(self, command, why, done):
+        """Run a command as root with the person's password; done(code, last lines)."""
+        env = dict(os.environ, SLATE_ASKPASS_TITLE="Settings needs your password", SLATE_ASKPASS_BODY=why)
+        self.busy = True
+        self.render()
+
+        def work():
+            p = subprocess.Popen(["sudo", "-A"] + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+            tail = []
+            for line in p.stdout:
+                tail = (tail + [line.rstrip()])[-8:]
+            return p.wait(), tail
+
+        def finished(res):
+            self.busy = False
+            code, tail = (1, [str(res)]) if isinstance(res, Exception) else res
+            if code != 0 and tail and all(t.startswith("sudo:") for t in tail if t.strip()):
+                self.toast("Nothing changed: the password was not given.")
+            else:
+                done(code, tail)
+            self.refresh()
+        in_thread(work, finished)
+
+    def problem(self, heading, tail):
+        d = Adw.AlertDialog(heading=heading, body="\n".join(tail[-6:]))
+        d.add_response("ok", "OK")
+        d.present(self.win)
+
+    def act(self, action):
+        if action == "check":
+            self.checking = True
+            self.render()
+
+            def work():
+                out = subprocess.run([SLATEOS_UPDATE, "check", "--json"], capture_output=True, text=True, timeout=90)
+                if out.returncode != 0:
+                    raise RuntimeError(out.stderr.strip().splitlines()[-1] if out.stderr.strip() else "no answer")
+                return json.loads(out.stdout).get("available")
+
+            def done(res):
+                self.checking = False
+                if isinstance(res, Exception):
+                    self.toast(f"No answer: {res}")
+                else:
+                    self.offer = res
+                    if res is None:
+                        self.toast("SlateOS is up to date.")
+                self.render()
+            in_thread(work, done)
+        elif action == "install":
+            offer = self.offer or (self.status or {}).get("available") or {}
+            version = offer.get("version", "")
+
+            def done(code, tail):
+                self.offer = None
+                if code == 0:
+                    self.toast(f"SlateOS {version} is ready. Restart to use it.")
+                else:
+                    self.problem("The update was not installed", tail)
+            self.sudo([SLATEOS_UPDATE, "install"], f"To install SlateOS {version}. It is downloaded and built while you keep working.", done)
+        elif action == "restart":
+            d = Adw.AlertDialog(heading="Restart now?", body="Open windows are closed first. Save what you are working on.")
+            d.add_response("cancel", "Cancel")
+            d.add_response("ok", "Restart")
+            d.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+            d.set_close_response("cancel")
+            d.connect("response", lambda _d, resp: subprocess.Popen(["slate-session-menu", "restart"]) if resp == "ok" else None)
+            d.present(self.win)
+        elif action == "cancel":
+            version = ((self.status or {}).get("target") or {}).get("version", "")
+            self.sudo([SLATEOS_UPDATE, "cancel"], f"To take back SlateOS {version} before it starts.",
+                      lambda code, tail: self.toast("Taken back.") if code == 0 else self.problem("Not taken back", tail))
+
+    def confirm_back(self):
+        version = ((self.status or {}).get("previous") or {}).get("version", "")
+        d = Adw.AlertDialog(
+            heading=f"Go back to SlateOS {version}?",
+            body="The next restart starts the version before the last update. Your files and settings stay. "
+                 "The newer version is not installed again by itself; Update Now brings it back.")
+        d.add_response("cancel", "Cancel")
+        d.add_response("ok", "Go Back")
+        d.set_close_response("cancel")
+
+        def go(_d, resp):
+            if resp == "ok":
+                self.sudo([SLATEOS_UPDATE, "back"], f"To go back to SlateOS {version}.",
+                          lambda code, tail: None if code == 0 else self.problem("Not changed", tail))
+        d.connect("response", go)
+        d.present(self.win)
+
+    def on_automatic(self):
+        if self.setting or self.status is None:
+            return
+        mode = "off" if not self.check_row.get_active() else ("download" if self.download_row.get_active() else "check")
+        if mode == self.status.get("automatic", "check"):
+            return
+
+        def done(code, tail):
+            if code != 0:
+                self.problem("Not changed", tail)
+        self.sudo([SLATEOS_SETTINGS, "set", "automatic-updates", mode], "To change how SlateOS updates itself.", done)
+
+
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Settings", default_width=820, default_height=560)
@@ -1809,6 +2108,7 @@ class Window(Adw.ApplicationWindow):
             ("Keyboard", "input-keyboard-symbolic", lambda: KeyboardPage(self)),
             ("Power", "battery-good-symbolic", lambda: PowerPage(self)),
             ("Printers", "printer-symbolic", lambda: PrintersPage(self)),
+            ("Software Update", "software-update-available-symbolic", lambda: UpdatePage(self)),
             ("Slate", "starred-symbolic", SlatePage),
             ("AI", "system-run-symbolic", lambda: AIPage(self)),
         ]
@@ -1832,9 +2132,11 @@ class Window(Adw.ApplicationWindow):
         self.listbox = listbox
 
     def show_page(self, name):
+        # `slate-settings update` and `slate-settings software-update` both mean the page.
+        wanted = {"update": "software update"}.get(name.lower(), name.lower().replace("-", " "))
         i = 0
         while (row := self.listbox.get_row_at_index(i)) is not None:
-            if row.page_name.lower() == name.lower():
+            if row.page_name.lower() == wanted:
                 self.listbox.select_row(row)
                 return True
             i += 1

@@ -19,6 +19,9 @@ in
     loginShellUsers = [ "@USER@" ];
     # What Settings chooses for the whole system (input methods), next to this file.
     settingsFile = ./settings.json;
+    # New SlateOS releases replace ./slate and build this configuration again
+    # (Settings, Software Update; slateos-update).
+    update.enable = true;
   };
 
   users.users."@USER@" = {

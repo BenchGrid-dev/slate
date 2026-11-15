@@ -128,39 +128,48 @@ pub fn now() -> u64 {
 }
 
 impl State {
-    /// The state on disk; a missing or unreadable file is an empty state.
+    /// The state on disk; a missing or unreadable file is an empty state. While an
+    /// installation runs, its progress comes from the file next to it.
     pub fn load(paths: &Paths) -> Self {
-        std::fs::read_to_string(paths.state_file())
+        let mut state: Self = std::fs::read_to_string(paths.state_file())
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if matches!(state.phase, Phase::Downloading | Phase::Building) {
+            if let Some(progress) = std::fs::read_to_string(progress_file(paths))
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+            {
+                state.progress = Some(progress);
+            }
+        }
+        state
     }
 
     /// Written whole and renamed into place, so a reader never sees half a file; and
     /// on the disk before this returns, because the next start decides by it.
     pub fn save(&mut self, paths: &Paths) -> Result<()> {
-        self.write(paths, true)
-    }
-
-    /// The same without waiting for the disk: for progress, which nothing decides by.
-    pub fn note(&mut self, paths: &Paths) -> Result<()> {
-        self.write(paths, false)
-    }
-
-    fn write(&mut self, paths: &Paths, durable: bool) -> Result<()> {
         self.format = 1;
         let dir = paths.state_dir();
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        let tmp = dir.join("state.json.tmp");
-        let mut file = File::create(&tmp).with_context(|| format!("writing {}", tmp.display()))?;
-        file.write_all(serde_json::to_string_pretty(self)?.as_bytes())?;
-        file.write_all(b"\n")?;
-        if durable {
-            file.sync_all()?;
+        write_whole(
+            &paths.state_file(),
+            serde_json::to_string_pretty(self)?.as_bytes(),
+            true,
+        )?;
+        if !matches!(self.phase, Phase::Downloading | Phase::Building) {
+            let _ = std::fs::remove_file(progress_file(paths));
         }
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))?;
-        std::fs::rename(&tmp, paths.state_file())?;
         Ok(())
+    }
+
+    /// How far an installation is, in a file of its own: it changes twice a second,
+    /// nothing decides by it, and what watches the state for news is left alone.
+    pub fn note(&mut self, paths: &Paths, progress: Progress) {
+        if let Ok(text) = serde_json::to_string(&progress) {
+            let _ = write_whole(&progress_file(paths), text.as_bytes(), false);
+        }
+        self.progress = Some(progress);
     }
 
     pub fn finish(&mut self, version: &str, outcome: Outcome, message: impl Into<String>) {
@@ -174,6 +183,23 @@ impl State {
             message: message.into(),
         });
     }
+}
+
+fn progress_file(paths: &Paths) -> std::path::PathBuf {
+    paths.state_dir().join("progress.json")
+}
+
+fn write_whole(path: &std::path::Path, bytes: &[u8], durable: bool) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    let mut file = File::create(&tmp).with_context(|| format!("writing {}", tmp.display()))?;
+    file.write_all(bytes)?;
+    file.write_all(b"\n")?;
+    if durable {
+        file.sync_all()?;
+    }
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 /// One updater at a time: an exclusive lock on a file, gone with the process.
@@ -234,6 +260,37 @@ mod tests {
         assert_eq!(State::load(&paths).phase, Phase::Idle);
         std::fs::write(paths.state_file(), "garbage").unwrap();
         assert_eq!(State::load(&paths), State::default());
+    }
+
+    #[test]
+    fn progress_is_kept_beside_the_state_while_an_installation_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let mut state = State {
+            phase: Phase::Building,
+            ..Default::default()
+        };
+        state.save(&paths).unwrap();
+        let before = std::fs::read_to_string(paths.state_file()).unwrap();
+        state.note(
+            &paths,
+            Progress {
+                text: "Building".into(),
+                done: 3,
+                total: 40,
+            },
+        );
+        // The state file itself did not change; a reader still sees the progress.
+        assert_eq!(std::fs::read_to_string(paths.state_file()).unwrap(), before);
+        assert_eq!(State::load(&paths).progress.unwrap().done, 3);
+
+        state.finish("0.3.1", Outcome::Installed, "");
+        state.save(&paths).unwrap();
+        assert!(State::load(&paths).progress.is_none());
+        assert!(!dir
+            .path()
+            .join("var/lib/slateos-update/progress.json")
+            .exists());
     }
 
     #[test]

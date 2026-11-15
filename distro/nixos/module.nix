@@ -79,10 +79,17 @@ let
     # Prints the arguments that point a nixos-* tool at the SlateOS configuration.
     cfg=/etc/slateos
     if [ -e "$cfg/flake.nix" ]; then echo --flake; echo "$cfg"
-    elif [ -e "$cfg/configuration.nix" ]; then echo -I; echo "nixos-config=$cfg/configuration.nix"
+    elif [ -e "$cfg/configuration.nix" ]; then
+      echo -I; echo "nixos-config=$cfg/configuration.nix"
+      # A SlateOS release fixes the whole system: the configuration is evaluated
+      # against the nixpkgs the Slate source next to it is locked to, not against
+      # whatever a channel has moved to since.
+      if [ -e "$cfg/slate/flake.lock" ] && nixpkgs=$(slateos-update pinned-nixpkgs "$cfg/slate" 2>/dev/null) && [ -n "$nixpkgs" ]; then
+        echo -I; echo "nixpkgs=$nixpkgs"
+      fi
     fi
     EOF
-    for tool in rebuild option install; do
+    for tool in option install; do
       cat > $out/bin/slateos-$tool <<EOF
     #!/bin/sh
     # SlateOS front end for nixos-$tool: the system configuration lives in /etc/slateos.
@@ -91,6 +98,22 @@ let
     exec nixos-$tool "\$@"
     EOF
     done
+    # A rebuild while an update waits for its restart would be built from the new
+    # release and become the default, past the trial start the update set up.
+    cat > $out/bin/slateos-rebuild <<'EOF'
+    #!/bin/sh
+    # SlateOS front end for nixos-rebuild: the system configuration lives in /etc/slateos.
+    case " $* " in *" --flake "*|*" -I "*|*" --file "*|*" -f "*) exec nixos-rebuild "$@" ;; esac
+    case " $* " in *" switch "*|*" boot "*|*" test "*)
+      if waiting=$(slateos-update waiting 2>/dev/null); then
+        echo "slateos-rebuild: $waiting" >&2
+        echo "Restart first, or take the update back: sudo slateos-update cancel" >&2
+        exit 1
+      fi ;;
+    esac
+    set -- $(slateos-config-args) "$@"
+    exec nixos-rebuild "$@"
+    EOF
     cat > $out/bin/slateos-generate-config <<'EOF'
     #!/bin/sh
     case " $* " in *" --dir "*) exec nixos-generate-config "$@" ;; esac
@@ -228,7 +251,8 @@ let
   # The supervised services of a session, (re)started when it begins.
   sessionUnits = [ "slate-desktop.service" "slate-panel.service" "slate-dock.service" "slate-apps.service"
     "slate-idle.service" "slate-battery.service" "slate-mirror.service" ]
-    ++ lib.optional (inputMethods != [ ]) "slate-input-method.service";
+    ++ lib.optional (inputMethods != [ ]) "slate-input-method.service"
+    ++ lib.optionals cfg.update.enable [ "slate-update-notify.path" "slate-update-notify.service" ];
   # The first thing the session runs: the background screen if the backend gave none,
   # the person's focus on a real screen (sway focuses the first output, which can be the
   # headless one, and the first windows would open there), then the display handed to
@@ -363,6 +387,21 @@ let
     '';
     meta.mainProgram = "slate-battery";
   };
+  # Software update's news as notifications (see the script).
+  slateUpdateNotify = pkgs.stdenv.mkDerivation {
+    pname = "slate-update-notify";
+    version = pkg.version;
+    src = ../desktop/slate-update-notify.py;
+    dontUnpack = true;
+    buildInputs = [ pkgs.python3 ];
+    installPhase = ''
+      mkdir -p $out/bin
+      cp $src $out/bin/slate-update-notify
+      chmod +x $out/bin/slate-update-notify
+      patchShebangs $out/bin/slate-update-notify
+    '';
+    meta.mainProgram = "slate-update-notify";
+  };
   # System-wide choices Settings makes (input methods), applied as root with a rebuild.
   slateosSettings = pkgs.stdenv.mkDerivation {
     pname = "slateos-settings";
@@ -407,8 +446,12 @@ let
       ${pkgs.libnotify}/bin/notify-send -a SlateOS "$1 canceled" "A window is still open. Close it, then try again."
       return 1
     }
-    choice=$(printf '%s\n' "Lock Screen" "Log Out" "Restart" "Shut Down" \
-      | ${pkgs.fuzzel}/bin/fuzzel --dmenu --prompt "" --placeholder "SlateOS" --lines 4 --width 22 --no-icons)
+    # `slate-session-menu restart`: without the menu (Settings, Software Update).
+    case "''${1:-}" in
+      restart) choice="Restart" ;;
+      *) choice=$(printf '%s\n' "Lock Screen" "Log Out" "Restart" "Shut Down" \
+        | ${pkgs.fuzzel}/bin/fuzzel --dmenu --prompt "" --placeholder "SlateOS" --lines 4 --width 22 --no-icons) ;;
+    esac
     case "$choice" in
       "Lock Screen") exec slate-lock ;;
       "Log Out") close_all "Log out" && exec swaymsg exit ;;
@@ -665,6 +708,74 @@ in
       '';
     };
 
+    update.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = builtins ? currentSystem && builtins.pathExists "/etc/slateos/slate/flake.nix";
+      defaultText = lib.literalMD ''
+        true where the configuration is evaluated impurely and `/etc/slateos/slate`
+        holds the Slate source, as the installer leaves it; the installer's
+        configuration sets it
+      '';
+      description = ''
+        SlateOS's software update, for a system laid out the way the installer does it:
+        the configuration in `/etc/slateos`, built from the Slate source in
+        `/etc/slateos/slate`. `slateos-update` (Settings, Software Update) replaces that
+        source with a newer release's and builds the system again, against the nixpkgs
+        revision the release was tested on; `slateos-rebuild` uses the same revision.
+        A new version is started once, on trial, and becomes the default when its
+        session stays up. A system that takes Slate from a flake of its own leaves this
+        off and updates that flake. See docs/software-update.md.
+      '';
+    };
+
+    update.url = lib.mkOption {
+      type = lib.types.str;
+      default = "https://github.com/BenchGrid-dev/slate/releases/latest/download/slateos-update.json";
+      description = ''
+        The release manifest: the newest version, where its source is and its checksum.
+        Its signature is at the same address with `.sig` added.
+      '';
+    };
+
+    update.publicKeys = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        # SlateOS's release key, and the one that takes its place should it be lost.
+        "Z8x4jAp6kWmui87KMEOag3y9d3d/A63FbXoIVVEC3lw="
+        "aJ2nT8kYT8TpfDQT/fQ4d5OBr6hDRO86pk1zRqHj5Eg="
+      ];
+      description = ''
+        Ed25519 public keys (base64) a release manifest may be signed with; a manifest
+        none of them signed is not read. The default is SlateOS's release key and a
+        second one kept apart from it. A system that follows other releases (a fork, a
+        company's own) names its keys and `update.url` here.
+      '';
+    };
+
+    update.trial = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Start a new version once before it becomes the default (systemd-boot's entry
+        for one start; needs firmware variables that can be written). Off, or where
+        that is not possible, a new version is the default at once, and one that does
+        not start is left by choosing the older entry in the boot menu.
+      '';
+    };
+
+    update.cache = lib.mkOption {
+      type = lib.types.nullOr (lib.types.submodule {
+        options.url = lib.mkOption { type = lib.types.str; description = "The binary cache's address."; };
+        options.publicKey = lib.mkOption { type = lib.types.str; description = "The key its store paths are signed with (`name:base64`)."; };
+      });
+      default = null;
+      description = ''
+        A binary cache with what a SlateOS release is made of and cache.nixos.org does
+        not have: Slate itself and the packages SlateOS patches. Without one an update
+        builds those on this computer.
+      '';
+    };
+
     snapshotRoot = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -682,7 +793,7 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (lib.mkMerge [{
     assertions = [{
       assertion = cfg.desktop.agentWhileLocked != "continue" || cfg.desktop.effects;
       message = "services.slate.desktop.agentWhileLocked = \"continue\" needs desktop.effects (SwayFX, which exempts the agent's seat from the lock).";
@@ -1126,5 +1237,107 @@ in
     # be a btrfs subvolume they own (see docs/decisions/0006-privilege-free-snapshots.md);
     # the installer is responsible for that.
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  };
+  }
+
+  # Software update (docs/software-update.md).
+  (lib.mkIf cfg.update.enable {
+    # What slateos-update knows about the system it runs on.
+    environment.etc."slate/update.json".text = builtins.toJSON {
+      version = pkg.version;
+      url = cfg.update.url;
+      keys = cfg.update.publicKeys;
+      config = "/etc/slateos";
+      trial = cfg.update.trial;
+      # A new version counts as working once the session the desktop logs into by
+      # itself stays up. slate-desktop needs the compositor and is restarted when it
+      # fails, so the same process twenty seconds later is a desktop that runs.
+      health =
+        if cfg.desktop.enable && cfg.desktop.autologinUser != null
+        then { user = cfg.desktop.autologinUser; processes = [ "slate-desktop" ]; }
+        else null;
+    };
+
+    # At every start: make a version that came up the default, or put back what an
+    # update changed when the old version runs again.
+    systemd.services.slateos-update-boot = {
+      description = "SlateOS software update: finish or undo the last update";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "local-fs.target" ];
+      path = [ config.nix.package config.systemd.package pkgs.coreutils ];
+      environment.HOME = "/root";
+      # Not when the system is switched: it has nothing to do then, and a version on
+      # trial must not be confirmed twice.
+      restartIfChanged = false;
+      serviceConfig.ExecStart = "${pkg}/bin/slateos-update boot";
+    };
+
+    # Once a day, and a while after each start: ask the release server, and download
+    # when Settings says so. Quietly: an update never competes with the person's work.
+    systemd.services.slateos-update = {
+      description = "SlateOS software update: look for a new version";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      path = [ config.nix.package config.systemd.package pkgs.coreutils ];
+      environment.HOME = "/root";
+      restartIfChanged = false;
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${pkg}/bin/slateos-update auto";
+        Nice = 10;
+        IOSchedulingClass = "idle";
+        CPUWeight = 20;
+      };
+    };
+    # In the session: a notification when the state changes (a new version, one that
+    # waits for its restart, one that did not start), each told once.
+    systemd.user.services.slate-update-notify = lib.mkIf cfg.desktop.enable {
+      description = "SlateOS software update: notifications";
+      partOf = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      path = [ pkgs.libnotify slateSettings ];
+      serviceConfig.ExecStart = "${slateUpdateNotify}/bin/slate-update-notify";
+    };
+    systemd.user.paths.slate-update-notify = lib.mkIf cfg.desktop.enable {
+      description = "SlateOS software update: watch for news";
+      partOf = [ "graphical-session.target" ];
+      pathConfig.PathChanged = "/var/lib/slateos-update/state.json";
+    };
+
+    systemd.timers.slateos-update = {
+      description = "SlateOS software update: look for a new version";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "15min";
+        OnCalendar = "daily";
+        RandomizedDelaySec = "3h";
+        Persistent = true;
+      };
+    };
+
+    # The release fixes nixpkgs: `nix-shell -p`, `nix shell nixpkgs#…` and <nixpkgs>
+    # mean the revision this system is built on, not one fetched since.
+    nix.nixPath = [ "nixpkgs=${self.inputs.nixpkgs}" "nixos-config=/etc/slateos/configuration.nix" ];
+    nix.registry.nixpkgs.flake = self.inputs.nixpkgs;
+    # A source tree from a flake lock carries no version file as a channel does;
+    # without these NixOS would call itself "26.05pre-git".
+    system.nixos.versionSuffix = lib.mkDefault
+      ".${lib.substring 0 8 (self.inputs.nixpkgs.lastModifiedDate or "19700101")}.${self.inputs.nixpkgs.shortRev or "dirty"}";
+    system.nixos.revision = lib.mkDefault (self.inputs.nixpkgs.rev or null);
+
+    nix.settings = lib.mkIf (cfg.update.cache != null) {
+      extra-substituters = [ cfg.update.cache.url ];
+      extra-trusted-public-keys = [ cfg.update.cache.publicKey ];
+    };
+
+    # Every update leaves a generation. The boot partition holds a kernel and an
+    # initrd for each that differs, and is half a gigabyte.
+    boot.loader.systemd-boot.configurationLimit = lib.mkDefault 8;
+    # Old generations and what only they need go after a month.
+    nix.gc = {
+      automatic = lib.mkDefault true;
+      dates = lib.mkDefault "weekly";
+      options = lib.mkDefault "--delete-older-than 30d";
+    };
+  })
+  ]);
 }

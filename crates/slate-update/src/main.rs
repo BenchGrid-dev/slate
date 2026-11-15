@@ -28,6 +28,7 @@ for the system:
   slateos-update auto               the daily timer: check, and download if Settings says so
   slateos-update pinned-nixpkgs [DIR]  the nixpkgs a Slate source is locked to (for slateos-rebuild)
   slateos-update activate SYSTEM    second half of install, run from the release being installed
+  slateos-update waiting            succeeds, with a sentence, when an update waits for its restart
 
 for making a release:
   slateos-update keygen FILE        write a new signing key to FILE and print its public half
@@ -298,6 +299,17 @@ fn main() -> Result<()> {
                 Some(Outcome::Installed) => println!("SlateOS {} runs", updater.config.version),
                 Some(outcome) => println!("{outcome:?}"),
                 None => {}
+            }
+        }
+        // Exit status 0 and a sentence when an update waits for its restart.
+        "waiting" => {
+            let state = State::load(&updater.paths);
+            match (state.phase, state.target) {
+                (Phase::Restart, Some(target)) => println!(
+                    "SlateOS {} is installed and waits for a restart.",
+                    target.version
+                ),
+                _ => std::process::exit(1),
             }
         }
         "activate" => {

@@ -75,6 +75,7 @@ let
           desktop.apps = "minimal";
           desktop.autologinUser = "user";
           loginShellUsers = [ "user" ];
+          update.enable = true;
         };
         users.users.user = {
           isNormalUser = true;

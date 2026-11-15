@@ -119,8 +119,7 @@ impl Updater {
     fn progress(&self, state: &mut State, text: impl Into<String>, done: u64, total: u64) {
         let text = text.into();
         self.sys().log(&format!("== {text}"));
-        state.progress = Some(Progress { text, done, total });
-        let _ = state.note(&self.paths);
+        state.note(&self.paths, Progress { text, done, total });
     }
 
     /// Downloads, builds and enters the newest release in the boot menu. Ok(None):
@@ -283,12 +282,14 @@ impl Updater {
                 // The state file is what Settings draws its bar from; twice a second is plenty.
                 if shown.elapsed() > Duration::from_millis(500) {
                     shown = std::time::Instant::now();
-                    state.progress = Some(Progress {
-                        text: what.clone(),
-                        done: done.min(total),
-                        total,
-                    });
-                    let _ = state.note(&self.paths);
+                    state.note(
+                        &self.paths,
+                        Progress {
+                            text: what.clone(),
+                            done: done.min(total),
+                            total,
+                        },
+                    );
                 }
             }
         })?;
