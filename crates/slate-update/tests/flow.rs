@@ -185,7 +185,16 @@ impl Machine {
         }
         source(&machine.path("etc/slateos/slate"), "0.3.0");
         std::fs::write(machine.path("etc/slateos/configuration.nix"), "{ }\n").unwrap();
+        // Firmware that keeps its variables: the boot entry the installation wrote.
         std::fs::create_dir_all(machine.path("sys/firmware/efi/efivars")).unwrap();
+        std::fs::write(
+            machine.path("sys/firmware/efi/efivars/Boot0001-8be4df61-93ca-11d2-aa0d-00e098032b8c"),
+            "Linux Boot Manager"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap();
         std::fs::create_dir_all(machine.path("release")).unwrap();
         // The installed system: generation 1, the default, and running.
         let system = machine.path("nix/store/system-0.3.0");
@@ -574,13 +583,23 @@ fn a_source_that_is_not_the_releases_is_refused() {
 
 #[test]
 fn without_a_trial_the_new_version_is_the_default_at_once() {
-    for obstacle in ["no-efivars", "no-systemd-boot", "fail-oneshot"] {
+    for obstacle in [
+        "no-efivars",
+        "forgetful-firmware",
+        "no-systemd-boot",
+        "fail-oneshot",
+    ] {
         let machine = Machine::new();
         machine.publish("0.3.1");
-        if obstacle == "no-efivars" {
-            std::fs::remove_dir_all(machine.path("sys/firmware/efi")).unwrap();
-        } else {
-            machine.flag(obstacle, true);
+        match obstacle {
+            "no-efivars" => std::fs::remove_dir_all(machine.path("sys/firmware/efi")).unwrap(),
+            // The variables are there to write, but the entry the installation made is not.
+            "forgetful-firmware" => {
+                let vars = machine.path("sys/firmware/efi/efivars");
+                std::fs::remove_dir_all(&vars).unwrap();
+                std::fs::create_dir_all(&vars).unwrap();
+            }
+            _ => machine.flag(obstacle, true),
         }
         let target = install(&machine, Asked::Person).unwrap().unwrap();
         assert!(!target.trial, "{obstacle}");

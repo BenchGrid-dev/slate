@@ -9,3 +9,4 @@ Cargo.lock.bak
 *.log
 __pycache__/
 *.pyc
+/release-*/

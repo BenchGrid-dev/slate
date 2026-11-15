@@ -10,11 +10,24 @@ the image, types the disk's passphrase on the keyboard when the installation is
 encrypted, logs in as the new user on the console (their login shell is slash) and
 checks that the desktop runs. Logs and a screenshot of the desktop stay in --workdir.
 
+With --update REPO it goes on from there, as software update does on a person's
+computer: it makes a release one version newer from the repository (its Slate package
+in a binary cache, its source and signed manifest on a web server the guest reaches),
+installs it with `slateos-update`, and restarts. First with the new version's boot
+entry made unable to start: the machine is reset, the version from before comes up,
+and nothing of the new one may be left. Then left alone: the new version comes up,
+and becomes the default once its session stays up. Then back to the version before.
+
 Needs qemu-system-<arch> and qemu-img on PATH and a UEFI firmware image (OVMF.fd for
 x86_64, QEMU_EFI.fd for aarch64). With /dev/kvm it takes about five minutes, without
-it (emulation) more than an hour. .github/workflows/image.yml runs it for minor releases.
+it (emulation) more than an hour; the update adds about a quarter of an hour, and needs
+the firmware's code and variable store as two files (--firmware OVMF_CODE.fd
+--firmware-vars OVMF_VARS.fd). .github/workflows/image.yml runs it for minor releases.
 """
 import argparse
+import functools
+import hashlib
+import http.server
 import json
 import os
 import platform
@@ -25,7 +38,9 @@ import socket
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 import zlib
 
@@ -67,7 +82,6 @@ class Machine:
             f"qemu-system-{args.arch}",
             "-machine", ("q35" if args.arch == "x86_64" else "virt") + f",accel={args.accel}",
             "-cpu", cpu, "-smp", str(args.cpus), "-m", str(args.memory),
-            "-bios", args.firmware,
             "-display", "none",
             "-device", "qemu-xhci", "-device", "usb-kbd", "-device", "usb-tablet",
             "-device", "virtio-rng-pci",
@@ -81,6 +95,13 @@ class Machine:
             "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
             "-serial", f"file:{os.path.join(args.workdir, name + '-serial.log')}",
         ]
+        if args.vars:
+            # Firmware with a variable store, as computers have: what the boot loader
+            # is told for the next start (the update's trial) survives the restart.
+            command += ["-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={args.firmware}",
+                        "-drive", f"if=pflash,format=raw,unit=1,file={args.vars}"]
+        else:
+            command += ["-bios", args.firmware]
         if args.arch == "x86_64":
             command += ["-vga", "none", "-device", "virtio-vga"]
         else:
@@ -324,18 +345,23 @@ def unlock(vm):
     raise Failure("boot: the encrypted system did not come up after its passphrase was typed")
 
 
+def login(vm, what="the installed system"):
+    """Wait for the login prompt and log in as the new user. Their shell is slash."""
+    if vm.args.encrypt:
+        unlock(vm)
+    vm.expect(r"login: ", 600, f"{what}'s login prompt")
+    log(f"boot: {what} is up; logging in as the new user")
+    vm.send(f"{USER}\n")
+    vm.expect(r"Password: ", 60, "the password prompt")
+    vm.send(f"{PASSWORD}\n")
+    time.sleep(8 * vm.args.patience)
+
+
 def boot(args):
     """Boot the installed disk without the image and check the desktop."""
     vm = Machine(args, "boot", with_image=False)
     try:
-        if args.encrypt:
-            unlock(vm)
-        vm.expect(r"login: ", 600, "the installed system's login prompt")
-        log("boot: the installed system is up; logging in as the new user")
-        vm.send(f"{USER}\n")
-        vm.expect(r"Password: ", 60, "the password prompt")
-        vm.send(f"{PASSWORD}\n")
-        time.sleep(8 * args.patience)
+        login(vm)
         # The login shell is slash: `!` hands a line to the real shell. slash shows the
         # line as it is typed, so nothing a check looks for is spelled out in it.
         checks = (
@@ -369,6 +395,8 @@ def boot(args):
         log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")
+        if args.update:
+            update(vm, args)
         vm.stop()
     except BaseException:
         try:
@@ -379,10 +407,222 @@ def boot(args):
         raise
 
 
+def next_version(version):
+    major, minor, patch = version.split(".")
+    return f"{major}.{minor}.{int(patch) + 1}"
+
+
+class QuietFiles(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+
+class Release:
+    """A SlateOS release newer than the image's, made from the repository and served to
+    the guest over HTTP (10.0.2.2 is the host, seen from QEMU's user network): its source
+    and signed manifest, and a binary cache with its Slate package, so that the guest
+    only builds what carries its own names, as a person's computer does with a cache."""
+
+    def __init__(self, args):
+        self.version = next_version(args.version)
+        work = os.path.join(args.workdir, "release")
+        www = os.path.join(work, "www")
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(os.path.join(www, "release"))
+        log(f"update: making release {self.version} from {args.update}")
+        tree = os.path.join(work, f"slateos-{self.version}")
+        tracked = subprocess.run(["git", "-C", args.update, "ls-files", "-z"], check=True, capture_output=True).stdout
+        for name in filter(None, tracked.decode().split("\0")):
+            target = os.path.join(tree, name)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(os.path.join(args.update, name), target, follow_symlinks=False)
+        self.set_version(tree, args.version, args.update)
+
+        def nix(*command):
+            return subprocess.run(["nix", "--extra-experimental-features", "nix-command flakes", *command],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+        started = time.monotonic()
+        package = nix("build", f"path:{tree}#slate", "--no-link", "--print-out-paths").splitlines()[-1]
+        log(f"update: built {package} in {int(time.monotonic() - started)} s")
+        updater = os.path.join(package, "bin", "slateos-update")
+        secret, public = os.path.join(work, "cache.secret"), os.path.join(work, "cache.public")
+        subprocess.run(["nix-store", "--generate-binary-cache-key", "slateos-image-test-1", secret, public], check=True)
+        with open(public, encoding="utf-8") as f:
+            self.cache_key = f.read().strip()
+        nix("copy", "--to", f"file://{www}/cache?secret-key={secret}", package)
+
+        archive = os.path.join(www, "release", f"slateos-{self.version}-source.tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(tree, arcname=f"slateos-{self.version}")
+        with open(archive, "rb") as f:
+            data = f.read()
+        manifest = os.path.join(www, "release", "slateos-update.json")
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump({"format": 1, "version": self.version, "released": time.strftime("%Y-%m-%d"),
+                       "summary": "A release made by the image test.", "notes": "",
+                       "source": {"url": os.path.basename(archive), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}}, f)
+        key = os.path.join(work, "release.key")
+        self.release_key = subprocess.run([updater, "keygen", key], check=True, capture_output=True, text=True).stdout.strip()
+        with open(manifest + ".sig", "w", encoding="utf-8") as f:
+            f.write(subprocess.run([updater, "sign", key, manifest], check=True, capture_output=True, text=True).stdout)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietFiles, directory=www))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.address = f"http://10.0.2.2:{self.server.server_address[1]}"
+        log(f"update: release {self.version} is served at {self.address} (the guest's view)")
+
+    @staticmethod
+    def set_version(tree, old, repo):
+        """The version, wherever a release names it: the workspace, its lock file, the flake."""
+        def replace(name, pattern, replacement, count=1):
+            path = os.path.join(tree, name)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            text, done = re.subn(pattern, replacement, text, flags=re.M)
+            if done < count:
+                raise Failure(f"update: {name} does not name version {old} where a release does")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        new = next_version(old)
+        replace("Cargo.toml", rf'^version = "{re.escape(old)}"$', f'version = "{new}"')
+        replace("flake.nix", rf'version = "{re.escape(old)}";', f'version = "{new}";')
+        members = []
+        for crate in sorted(os.listdir(os.path.join(repo, "crates"))):
+            manifest = os.path.join(repo, "crates", crate, "Cargo.toml")
+            if os.path.isfile(manifest):
+                with open(manifest, encoding="utf-8") as f:
+                    members.append(re.search(r'^name = "(.+)"$', f.read(), re.M).group(1))
+        names = "|".join(re.escape(m) for m in members)
+        replace("Cargo.lock", rf'^(name = "(?:{names})"\nversion = "){re.escape(old)}"$', rf'\g<1>{new}"', count=len(members))
+
+
+def as_root(vm, name, lines, seconds):
+    """Run shell lines as root in the guest: (exit status, output). They go into a file
+    (so: no single quotes in them) that sudo runs, with the person's password on its input."""
+    quoted = " ".join(f"'{line}'" for line in lines)
+    vm.run(f"printf '%s\\n' {quoted} > /tmp/{name}", 60, prefix="!")
+    return vm.run(f'echo {PASSWORD} | sudo -S -p "" sh /tmp/{name}', seconds, prefix="!")
+
+
+def update_state(vm):
+    """What slateos-update knows, as the lines of its JSON that name a state."""
+    _, out = vm.run("slateos-update status --json | grep -E 'phase|outcome|generation|trial|current'", 120, prefix="!")
+    return out
+
+
+def wait_for(vm, pattern, seconds, what):
+    deadline = time.monotonic() + seconds * vm.args.patience
+    while True:
+        out = update_state(vm)
+        if re.search(pattern, out):
+            return out
+        if time.monotonic() > deadline:
+            raise Failure(f"update: {what} did not happen. slateos-update says:\n{out}")
+        time.sleep(5 * vm.args.patience)
+
+
+def restart(vm, comes_up=True):
+    """Restart the guest from inside. A version that does not come up shows no login
+    prompt; after a while the machine is reset, as a person does with the power button."""
+    vm.send(f'!echo {PASSWORD} | sudo -S -p "" systemctl reboot\n')
+    time.sleep(5 * vm.args.patience)
+    vm.seen = len(vm.buffer)
+    if comes_up:
+        return
+    deadline = time.monotonic() + 100 * vm.args.patience
+    while time.monotonic() < deadline:
+        vm._read(1.0)
+        if "login: " in vm.buffer[vm.seen:]:
+            raise Failure("update: the version that was made unable to start came up")
+    vm.check_running()
+    vm.screenshot("update-does-not-start.png")
+    log("update: no login prompt after 100 s; resetting the machine")
+    vm.command("system_reset")
+    vm.seen = len(vm.buffer)
+
+
+def update(vm, args):
+    """From the installed system: a new release is installed and started on trial. Made
+    unable to start, it is gone at the next start; installed again, it comes up and
+    becomes the default; then the version before is gone back to."""
+    old = args.version
+    release = Release(args)
+    new = release.version
+    config = {"version": old, "url": f"{release.address}/release/slateos-update.json", "keys": [release.release_key],
+              "config": "/etc/slateos", "trial": True, "health": {"user": USER, "processes": ["slate-desktop"]}}
+    vm.run(f"printf '%s\\n' '{json.dumps(config)}' > /tmp/update.json", 60, prefix="!")
+    install = [
+        # The test's cache next to cache.nixos.org, for this command alone.
+        f'export NIX_CONFIG="extra-substituters = {release.address}/cache',
+        f'extra-trusted-public-keys = {release.cache_key}"',
+        "slateos-update --config /tmp/update.json install",
+    ]
+
+    def install_update(attempt):
+        log(f"update: installing {new} ({attempt})")
+        started = time.monotonic()
+        status, out = as_root(vm, "install.sh", install, 2400)
+        if status != 0:
+            _, tail = as_root(vm, "log.sh", ["tail -n 40 /var/lib/slateos-update/log"], 60)
+            raise Failure(f"update: slateos-update install exited with {status}:\n{out[-2000:]}\nIts log ends:\n{tail[-3000:]}")
+        if "if it does not come up" not in out:
+            raise Failure(f"update: {new} was installed without a trial start:\n{out[-1500:]}")
+        state = update_state(vm)
+        generation = re.search(r'"generation": (\d+)', state)
+        if not re.search(r'"phase": "restart"', state) or not generation:
+            raise Failure(f"update: after the installation slateos-update says:\n{state}")
+        log(f"update: {new} is generation {generation.group(1)}, installed in {int(time.monotonic() - started)} s")
+        return generation.group(1)
+
+    def running(version, what):
+        _, out = vm.run("slateos-version", 120, prefix="!")
+        if f"SlateOS {version} " not in out:
+            raise Failure(f"update: {what}, and slateos-version says:\n{out}")
+
+    # 1. A version that does not start: the old one is back by itself, everything as it was.
+    generation = install_update("to be kept from starting")
+    as_root(vm, "break.sh", [f'echo "options systemd.unit=emergency.target" >> /boot/loader/entries/nixos-generation-{generation}.conf', "sync"], 60)
+    restart(vm, comes_up=False)
+    login(vm, "the version from before")
+    running(old, f"after {new} did not start, {old} should run again")
+    wait_for(vm, r'"outcome": "rolled-back"', 180, f"noticing that {new} did not start")
+    _, left = as_root(vm, "left.sh", ["ls /boot/loader/entries /nix/var/nix/profiles", "grep -m1 ^version /etc/slateos/slate/Cargo.toml", "ls /etc/slateos"], 60)
+    if f"generation-{generation}.conf" in left or f"system-{generation}-link" in left or f'"{old}"' not in left or "slate.previous" in left:
+        raise Failure(f"update: {new} did not start, and something of it is left:\n{left}")
+    log(f"update: {new} did not start; {old} runs again and nothing of {new} is left")
+
+    # 2. The same release, left alone: it comes up and becomes the default.
+    generation = install_update("to be started")
+    restart(vm)
+    login(vm, f"SlateOS {new}")
+    running(new, f"{new} was started on trial")
+    wait_for(vm, r'"outcome": "installed"', 300, f"{new} becoming the default once its session stays up")
+    _, default = as_root(vm, "default.sh", ["cat /boot/loader/loader.conf"], 60)
+    if f"nixos-generation-{generation}.conf" not in default:
+        raise Failure(f"update: {new} runs, but the boot menu's default is:\n{default}")
+    vm.screenshot("updated.png")
+    log(f"update: {new} came up on trial and is the default now")
+
+    # 3. Back to the version before.
+    status, out = as_root(vm, "back.sh", ["slateos-update back"], 600)
+    if status != 0 or "starts again at the next restart" not in out:
+        raise Failure(f"update: going back exited with {status}:\n{out[-1500:]}")
+    restart(vm)
+    login(vm, "the version gone back to")
+    running(old, f"after going back, {old} should run")
+    wait_for(vm, r'"outcome": "went-back"', 180, "recording the way back")
+    log(f"update: went back to {old}")
+    release.server.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--iso", required=True, help="the image to install from")
     parser.add_argument("--firmware", default=os.environ.get("OVMF_FD"), help="UEFI firmware image (or $OVMF_FD)")
+    parser.add_argument("--firmware-vars", help="the firmware's variable store template (OVMF_VARS.fd): --firmware is then its code (OVMF_CODE.fd), "
+                        "and variables survive a restart, which an update's trial start needs")
+    parser.add_argument("--update", metavar="REPO", help="after the boot: make a newer release from this repository and update to it "
+                        "(needs --firmware-vars, nix and git, and the host's architecture)")
     parser.add_argument("--workdir", help="where the disk, logs and screenshots go (default: a temporary directory)")
     parser.add_argument("--arch", choices=["x86_64", "aarch64"], help="default: from the image's name")
     parser.add_argument("--accel", choices=["kvm", "tcg"], help="default: kvm when /dev/kvm is usable for this architecture")
@@ -413,11 +653,23 @@ def main():
     os.makedirs(args.workdir, exist_ok=True)
     args.disk = os.path.join(args.workdir, "disk.qcow2")
     args.iso = os.path.realpath(args.iso)
+    # The variable store belongs to the machine like its disk: written by the
+    # installation (the boot entry), read by every start after it.
+    args.vars = os.path.join(args.workdir, "vars.fd") if args.firmware_vars else None
+    if args.update:
+        if not args.firmware_vars:
+            parser.error("--update needs --firmware-vars: without a variable store the firmware forgets the trial start")
+        if args.encrypt or args.only == "install" or not args.version:
+            parser.error("--update goes with a plain installation that is booted, from an image whose name carries its version")
+        args.update = os.path.abspath(args.update)
 
     log(f"image {args.iso} ({args.arch}, version {args.version or 'unknown'}); work in {args.workdir}")
     try:
         if args.only != "boot":
             subprocess.run(["qemu-img", "create", "-q", "-f", "qcow2", args.disk, args.disk_size], check=True)
+            if args.vars:
+                shutil.copyfile(args.firmware_vars, args.vars)
+                os.chmod(args.vars, 0o644)
             install(args)
         if args.only != "install":
             boot(args)
@@ -427,7 +679,8 @@ def main():
     finally:
         if not args.keep_disk and args.only != "install" and os.path.exists(args.disk):
             os.remove(args.disk)
-    log("PASSED: the image installs" + (" on an encrypted disk" if args.encrypt else "") + " and the installed system boots into the desktop")
+    log("PASSED: the image installs" + (" on an encrypted disk" if args.encrypt else "") + " and the installed system boots into the desktop"
+        + (", updates to a newer release on trial, survives one that does not start, and goes back" if args.update else ""))
     return 0
 
 

@@ -2,7 +2,7 @@
 //! runs the same commands.
 
 use anyhow::{bail, Context, Result};
-use slate_update::config::{Automatic, Paths};
+use slate_update::config::{Automatic, Config, Paths};
 use slate_update::manifest;
 use slate_update::state::{now, Outcome, Phase, State};
 use slate_update::system::Sys;
@@ -22,6 +22,7 @@ usage:
 
 Installing, cancelling and going back need root. A new version is started once, on
 trial: if it does not come up, the next start is the old version again by itself.
+--config FILE reads another description of this system than /etc/slate/update.json.
 
 for the system:
   slateos-update boot               at every start: finish or undo the last update
@@ -149,12 +150,19 @@ fn status(updater: &Updater, json: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let json = args.iter().any(|a| a == "--json");
-    let words: Vec<&str> = args
-        .iter()
-        .map(String::as_str)
-        .filter(|a| !a.starts_with("--"))
-        .collect();
+    let mut json = false;
+    let mut config_file = None;
+    let mut words: Vec<&str> = Vec::new();
+    let mut rest = args.iter().map(String::as_str);
+    while let Some(arg) = rest.next() {
+        match arg {
+            "--json" => json = true,
+            "--config" => config_file = Some(rest.next().unwrap_or_else(|| usage())),
+            "--help" => usage(),
+            _ if arg.starts_with("--") => usage(),
+            _ => words.push(arg),
+        }
+    }
     let command = words.first().copied().unwrap_or("status");
     let paths = Paths::system();
     if paths.is_real() {
@@ -210,7 +218,12 @@ fn main() -> Result<()> {
         _ => {}
     }
 
-    let updater = Updater::new(paths)?;
+    // --config: another description of the system than the module's (a test, a fork
+    // trying its own releases); the state and everything else stay where they are.
+    let updater = match config_file {
+        Some(file) => Updater::with(paths, Config::load(Path::new(file))?),
+        None => Updater::new(paths)?,
+    };
     match command {
         "status" => status(&updater, json)?,
         "check" => {

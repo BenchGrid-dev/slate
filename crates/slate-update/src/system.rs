@@ -297,16 +297,48 @@ impl<'a> Sys<'a> {
         Ok(())
     }
 
-    /// systemd-boot starts this computer, and its firmware variables can be written:
-    /// what a trial start needs.
+    /// A trial start is possible: systemd-boot starts this computer, and the firmware
+    /// keeps the variables it is given. The second is seen from the boot entry the
+    /// installation wrote ("Linux Boot Manager"): firmware that forgets variables at a
+    /// restart (QEMU without a variable store) has lost that one too, and would forget
+    /// which version to try, so that every update looked like one that did not start.
     pub fn can_try_once(&self) -> bool {
-        self.paths.efivars().is_dir()
-            && self
-                .command(self.tool("bootctl"), &["is-installed"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .is_ok_and(|s| s.success())
+        let installed = self
+            .command(self.tool("bootctl"), &["is-installed"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !installed {
+            self.log("no trial start: systemd-boot does not start this computer");
+            return false;
+        }
+        if !self.firmware_keeps_variables() {
+            self.log("no trial start: the firmware does not keep the boot loader's variables");
+            return false;
+        }
+        true
+    }
+
+    fn firmware_keeps_variables(&self) -> bool {
+        let Ok(entries) = std::fs::read_dir(self.paths.efivars()) else {
+            return false;
+        };
+        let wanted: Vec<u8> = "Linux Boot Manager"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        entries.flatten().any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // Boot0001-8be4df61-…: the firmware's own boot entries.
+            name.len() > 9
+                && name.starts_with("Boot")
+                && name[4..8].bytes().all(|b| b.is_ascii_hexdigit())
+                && name.as_bytes()[8] == b'-'
+                && std::fs::read(entry.path())
+                    .is_ok_and(|bytes| bytes.windows(wanted.len()).any(|w| w == wanted.as_slice()))
+        })
     }
 
     /// The boot menu entry of a generation, as NixOS names it.
@@ -599,6 +631,37 @@ mod tests {
         let two = archive(dir.path(), &[("a/x", "1"), ("b/y", "2")]);
         assert!(unpack(&two, &dir.path().join("other")).is_err());
         assert!(!dir.path().join("other").exists());
+    }
+
+    #[test]
+    fn a_trial_needs_firmware_that_remembers() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let sys = Sys::new(&paths);
+        assert!(
+            !sys.firmware_keeps_variables(),
+            "no firmware variables at all"
+        );
+        let vars = paths.efivars();
+        std::fs::create_dir_all(&vars).unwrap();
+        let utf16 =
+            |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+        let guid = "8be4df61-93ca-11d2-aa0d-00e098032b8c";
+        std::fs::write(vars.join(format!("Boot0000-{guid}")), utf16("UiApp")).unwrap();
+        std::fs::write(
+            vars.join(format!("BootOrder-{guid}")),
+            utf16("Linux Boot Manager"),
+        )
+        .unwrap();
+        assert!(
+            !sys.firmware_keeps_variables(),
+            "only the firmware's own entries"
+        );
+        let mut entry = vec![7, 0, 0, 0, 1, 0, 0, 0, 0x62, 0];
+        entry.extend(utf16("Linux Boot Manager"));
+        entry.extend([0, 0, 4, 1]);
+        std::fs::write(vars.join(format!("Boot0003-{guid}")), entry).unwrap();
+        assert!(sys.firmware_keeps_variables());
     }
 
     #[test]

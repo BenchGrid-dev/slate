@@ -1,14 +1,22 @@
 name: Image
 
 # Builds the x86_64 image, installs it in a virtual machine and boots what was installed
-# (tests/image/install_test.py), once on a plain disk and once on an encrypted one. It
-# takes about 20 minutes, so it runs for minor releases only: on the commit
-# "chore(release): prepare X.Y.0", before that commit is tagged. Patch releases rely on
-# the evaluation in ci.yml. To run it for anything else: Actions, Image, Run workflow.
+# (tests/image/install_test.py): once without a network on a plain disk, once on an
+# encrypted one, and once followed by a software update to a release made on the spot
+# (installed on trial, kept from starting, started, gone back from). It takes about 40
+# minutes, so it runs for minor releases only: on the commit "chore(release): prepare
+# X.Y.0", before that commit is tagged. Patch releases rely on the evaluation in ci.yml.
+# To run it for anything else: Actions, Image, Run workflow (all of it, or one part).
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tests:
+        description: Which installations to run
+        type: choice
+        default: all
+        options: [all, install, update]
 
 jobs:
   gate:
@@ -58,11 +66,20 @@ jobs:
         run: |
           nix build --inputs-from . nixpkgs#qemu_kvm --out-link qemu
           echo "$PWD/qemu/bin" >> "$GITHUB_PATH"
-          echo "OVMF_FD=$(nix build --inputs-from . nixpkgs#OVMF.fd --no-link --print-out-paths)/FV/OVMF.fd" >> "$GITHUB_ENV"
+          echo "OVMF_FV=$(nix build --inputs-from . nixpkgs#OVMF.fd --no-link --print-out-paths)/FV" >> "$GITHUB_ENV"
       - name: Install without a network, and boot
-        run: python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/plain" --offline
+        if: inputs.tests != 'update'
+        run: python3 tests/image/install_test.py --iso image/iso/*.iso --firmware "$OVMF_FV/OVMF.fd" --workdir "$RUNNER_TEMP/plain" --offline
       - name: Install and boot, encrypted disk
-        run: python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/encrypted" --encrypt
+        if: inputs.tests != 'update'
+        run: python3 tests/image/install_test.py --iso image/iso/*.iso --firmware "$OVMF_FV/OVMF.fd" --workdir "$RUNNER_TEMP/encrypted" --encrypt
+      # With the firmware's variable store, as computers have one: the trial start of an
+      # update is a variable the boot loader reads at the next start.
+      - name: Install, boot, update, a version that does not start, the way back
+        if: inputs.tests != 'install'
+        run: >-
+          python3 tests/image/install_test.py --iso image/iso/*.iso --workdir "$RUNNER_TEMP/update"
+          --firmware "$OVMF_FV/OVMF_CODE.fd" --firmware-vars "$OVMF_FV/OVMF_VARS.fd" --update "$PWD"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,4 +89,6 @@ jobs:
             ${{ runner.temp }}/plain/*.png
             ${{ runner.temp }}/encrypted/*.log
             ${{ runner.temp }}/encrypted/*.png
+            ${{ runner.temp }}/update/*.log
+            ${{ runner.temp }}/update/*.png
           if-no-files-found: ignore
