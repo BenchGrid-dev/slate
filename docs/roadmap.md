@@ -68,7 +68,10 @@ Dates are intentions, not promises. Everything here is open for discussion. Rele
 - [x] Root with consent (sudo askpass); polkit agent for GUI requests still open
 - [ ] Compositor patches upstreamed or carried (seat filtering, ghost cursor)
 - [ ] Base OS Skills: browser, files, mail, calendar, printing, Bluetooth, power
-- [ ] Installable image and installer (homes as user-owned btrfs subvolumes, skills preinstalled, agent sign-in on first boot)
+- [x] Installable image and installer (homes as user-owned btrfs subvolumes, skills preinstalled, the agent connected while installing): `0.2`
+- [x] Software update: releases named by a signed manifest, the system built against the release's nixpkgs, a trial start and a way back (ADR 0009)
+- [ ] The image as a download, and a binary cache so that an update compiles nothing
+- [ ] Secure Boot; installing next to another system
 - [x] `0.1.0`, the first milestone (2026-10-15)
 
 ## Later

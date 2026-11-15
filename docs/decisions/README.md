@@ -12,3 +12,4 @@ Architecture decision records. Short, dated, and never edited after the fact; a 
 | 0006 | Privilege-free snapshots: each user's home is a user-owned btrfs subvolume | accepted |
 | 0007 | Toolkits that only bind the first seat: user-seat fallback now, compositor global filtering later | accepted |
 | 0008 | API connections: the person's own key and endpoint, through a gateway of Slate's own | accepted |
+| 0009 | Software update: a release replaces the source, the system is built again and started once on trial | accepted |

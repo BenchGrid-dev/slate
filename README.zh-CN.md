@@ -167,6 +167,7 @@ Terminal                         Desktop prompt
 | [`slate`](crates/slate) | 管理 CLI、Agent hooks、MCP 工具与 OS Skills 安装。 |
 | [`slate-desktop`](crates/slate-desktop) | Wayland 席位管理、窗口截图、输入、窗口管理与桌面 MCP 工具。 |
 | [`slate-proto`](crates/slate-proto) | 本地进程通信共享的协议类型。 |
+| [`slate-update`](crates/slate-update) | `slateos-update`：发现新版本，在运行中的系统旁构建它，并先试启动一次。 |
 | [`skills/base`](skills/base) | 十三类任务指南：音量、亮度、显示、窗口与应用、网络、服务、系统配置、撤销、办公文档、邮件与日历、PDF、媒体播放、文本编辑。 |
 | [`distro`](distro) | NixOS 模块、sway 配置、顶栏、启动器、通知、应用套件，以及 Python/GTK4 编写的输入框和设置应用。 |
 
@@ -192,14 +193,14 @@ Terminal                         Desktop prompt
 
 ## 项目状态
 
-当前开发基线为 **NixOS 26.05 + sway 1.12**。仓库包含单元测试与真实桌面环境下的端到端测试；自动化 CI 执行 Rust 格式检查、Clippy、构建和单元测试，并对两种架构的镜像求值；发布次版本前，还会在虚拟机中安装 x86_64 镜像并启动安装结果。桌面与 Agent 集成测试需要配置好的机器，单独运行。
+当前开发基线为 **NixOS 26.05 + sway 1.12**。仓库包含单元测试与真实桌面环境下的端到端测试；自动化 CI 执行 Rust 格式检查、Clippy、构建和单元测试，并对两种架构的镜像求值；发布次版本前，还会在虚拟机中安装 x86_64 镜像、启动安装结果并对其执行一次系统更新。桌面与 Agent 集成测试需要配置好的机器，单独运行。
 
 | 领域 | 当前已实现 | 下一步 |
 | --- | --- | --- |
 | Agent 交互 | Claude Code 与 Codex 适配；Claude 订阅或自己的 API 密钥（OpenAI 或 Anthropic 格式）；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
 | 桌面控制 | 独立 Agent 席位及其后台屏幕、无障碍树元素与动作（AT-SPI2）、按窗口截图、Unicode 输入、焦点验证、窗口排列及用户席位回退。 | 独立可见光标、合成器席位过滤和更多应用覆盖（Qt）。 |
 | 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 与 polkit 通过桌面对话框向用户索要密码）。 | Codex 审批集成、Agent 身份隔离。 |
-| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`；安装和首次登录时配置 agent 并提供教程。 | 真机镜像测试、系统更新。 |
+| 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`；安装和首次登录时配置 agent 并提供教程；系统更新支持试启动和回退。 | 真机镜像测试、可下载的镜像、更新用的二进制缓存。 |
 
 **应用兼容性是当前工作的重点。** 在 Agent 席位先于应用创建的条件下，foot、Firefox、GTK3（Thunar）和 GTK4/libadwaita 应用已通过验证。Electron 与 Chromium 应用只绑定一个席位：由 Agent 在后台打开时绑定 Agent 席位，否则绑定用户席位，此时可使用元素动作或回退至用户席位。Flatpak 应用的表现取决于其工具包。没有无障碍树的应用（如微信）通过截图和指针操作。Qt 尚未测试。当前桌面集成面向 sway 及其所需的 Wayland 协议，不能直接替换为 GNOME、KDE 或 X11。
 
@@ -234,6 +235,7 @@ cargo test --workspace
 | --- | --- |
 | [NixOS 部署](distro/README.md) | 安装、模块选项、桌面配置与系统工具。 |
 | [连接 agent](docs/agent-connection.md) | 订阅或自己的 API 密钥、provider 配置文件及两者的差异。 |
+| [系统更新](docs/software-update.md) | 已安装的系统如何升级到新版本、试启动、回到上一版本。 |
 | [Shell 参考](crates/slash/README.md) | 后端配置、shell 命令与会话行为。 |
 | [桌面参考](crates/slate-desktop/README.md) | MCP 工具、Wayland 要求与工具包兼容性。 |
 | [策略参考](docs/policy.md) | 审批分级与规则覆盖。 |

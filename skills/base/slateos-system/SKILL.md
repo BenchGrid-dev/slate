@@ -1,6 +1,6 @@
 ---
 name: slate-system
-description: Install packages, change system settings, rebuild, and roll back on SlateOS by editing the system configuration in /etc/slateos. Use whenever the user wants software installed or a system setting changed. SlateOS (or plain NixOS) only.
+description: Install packages, change system settings, rebuild, roll back and update SlateOS by editing the system configuration in /etc/slateos. Use whenever the user wants software installed, a system setting changed, or asks about SlateOS versions and updates. SlateOS (or plain NixOS) only.
 ---
 
 # SlateOS system changes
@@ -39,6 +39,20 @@ Tier: confirm (a rebuild that downloads the input method, a minute or more). Aft
 Two more choices govern you, and they are the person's alone: what you may do in windows while the screen is locked (`agent-while-locked`: `pause`, `elements`, `continue`) and whether the screen locks while you work (`lock-while-agent-works`: `yes`, `no`). `slateos-settings get agent-while-locked` reads one (tier: observe). Never change them on your own initiative, and never suggest loosening them to finish a task; when the person asks, point them to Settings, AI, which explains what each choice allows, or run `sudo slateos-settings set agent-while-locked pause` and the like for them (they type their password).
 
 Desktop applications (chat, office, browsers) come from Flathub for the person instead: see the apps-flatpak skill.
+
+## A new SlateOS version
+
+SlateOS updates itself as a whole, release by release (Settings, Software Update). Do not move it to other package versions by other means (`nix-channel --update`, replacing `/etc/slateos/slate` by hand).
+
+```
+slateos-update                # the version that runs, and whether a newer one is known
+slateos-update check          # ask the release server now
+sudo slateos-update install   # download and build the newest release; the next restart runs it
+sudo slateos-update cancel    # take that back before the restart
+sudo slateos-update back      # the version before the last update, at the next restart
+```
+
+`slateos-update` and `check` are tier observe. Installing is tier confirm: say which version, that it is built in the background (minutes) and takes effect at a restart; never restart the computer on your own initiative. The new version is started once on trial: if it does not come up, the restart after that is the old version again by itself. While an update waits for its restart, `slateos-rebuild switch` refuses; tell the person to restart first, or cancel the update if they ask you to.
 
 ## Root
 

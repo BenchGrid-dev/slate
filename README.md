@@ -167,6 +167,7 @@ Terminal                         Desktop prompt
 | [`slate`](crates/slate) | Management CLI, agent hooks, MCP tools, and OS Skills installation. |
 | [`slate-desktop`](crates/slate-desktop) | Wayland seat ownership, window capture, input, window management, and desktop MCP tools. |
 | [`slate-proto`](crates/slate-proto) | Shared protocol types for local process communication. |
+| [`slate-update`](crates/slate-update) | `slateos-update`: finds a newer release, builds it beside the running system, starts it once on trial. |
 | [`skills/base`](skills/base) | Thirteen task guides: audio, brightness, displays, windows and applications, networking, services, system configuration, undo, office documents, mail and calendar, PDFs, media playback, text editing. |
 | [`distro`](distro) | NixOS module, sway profile, panel, launcher, notifications, the application suite, and Python/GTK4 prompt and settings applications. |
 
@@ -192,14 +193,14 @@ Read the [policy reference](docs/policy.md) and [snapshot design](docs/decisions
 
 ## Project status
 
-The current development baseline is **NixOS 26.05 with sway 1.12**. The repository includes unit tests and real-desktop end-to-end suites; automated CI runs Rust formatting, Clippy, builds, and unit tests, and evaluates both images; before a minor release it also installs the x86_64 image in a virtual machine and boots the result. Desktop and agent integration tests require a configured machine and are run separately.
+The current development baseline is **NixOS 26.05 with sway 1.12**. The repository includes unit tests and real-desktop end-to-end suites; automated CI runs Rust formatting, Clippy, builds, and unit tests, and evaluates both images; before a minor release it also installs the x86_64 image in a virtual machine, boots the result and updates it. Desktop and agent integration tests require a configured machine and are run separately.
 
 | Area | Available today | Next steps |
 | --- | --- | --- |
 | Agent interface | Claude Code and Codex adapters; a Claude subscription or an API key of your own (OpenAI or Anthropic format); terminal and desktop prompt; session resume within a running shell. | Conversation history across prompt sessions. |
 | Desktop control | Dedicated agent seat with its own background screen, accessibility-tree elements and actions (AT-SPI2), per-window capture, Unicode input, focus verification, window arrangement, and user-seat fallback. | Ghost cursor, compositor seat filtering, broader app coverage (Qt). |
 | Task controls | Claude Code approval broker and tool audit, task records, memories, btrfs snapshots, scoped undo, and consented root (sudo and polkit ask the person through a dialog). | Codex approval integration, agent identity isolation. |
-| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`, agent setup and a tutorial at installation and first login. | Image testing on real hardware, software updates. |
+| Distribution | NixOS module, desktop profile, application suite, settings app, SlateOS system commands, live/installer image (`nix build .#iso`) with a graphical installer and `slateos-install`, agent setup and a tutorial at installation and first login, software update with a trial start and a way back. | Image testing on real hardware, a downloadable image, a binary cache for updates. |
 
 **Application compatibility matters.** The agent seat has been verified with foot, Firefox, GTK3 (Thunar), and GTK4/libadwaita applications when the seat exists before the application starts. Electron and Chromium applications bind a single seat: the agent's when it opens them in the background, yours otherwise, where element actions or the user-seat fallback remain. Flatpak applications behave as their toolkit does. Applications without an accessibility tree (WeChat) are driven through screenshots and the pointer. Qt is untested. The current desktop integration targets sway and its required Wayland protocols; it is not a drop-in GNOME, KDE, or X11 integration.
 
@@ -234,6 +235,7 @@ Changes affecting the shell, daemon, or desktop also need the [end-to-end tests]
 | --- | --- |
 | [NixOS setup](distro/README.md) | Installation, module options, desktop configuration, and system tools. |
 | [Connecting the agent](docs/agent-connection.md) | A subscription or an API key of your own, the provider file, and what differs. |
+| [Software update](docs/software-update.md) | How an installed system moves to a new release, the trial start, going back. |
 | [Shell reference](crates/slash/README.md) | Backend configuration, shell escapes, and session behavior. |
 | [Desktop reference](crates/slate-desktop/README.md) | MCP tools, Wayland requirements, and toolkit compatibility. |
 | [Policy reference](docs/policy.md) | Approval tiers and rule overrides. |
