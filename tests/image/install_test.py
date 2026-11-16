@@ -445,6 +445,8 @@ def boot(args):
         log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")
+        if args.live_agent:
+            add_programs(vm)
         if args.update:
             update(vm, args)
         vm.stop()
@@ -455,6 +457,19 @@ def boot(args):
             pass
         vm.stop()
         raise
+
+
+def add_programs(vm):
+    """What the welcome and Settings do on a system that lacks an agent program: this
+    one was installed with Claude Code alone, and now has a network. The rebuild
+    downloads Codex and keeps Claude Code."""
+    log("boot: adding the missing agent program, as Settings does")
+    started = time.monotonic()
+    status, out = as_root(vm, "add-programs", ["slateos-settings set agents all 2>&1 | tail -n 25"], 2400)
+    _, now = vm.run("echo now=$(tr -d ' \\n' < /etc/slateos/settings.json):$(codex --version | tr ' ' _):$(claude --version | tr ' ' _)", 120, prefix="!")
+    if not re.search(r'now=\{"agents":\["claude-code","codex"\]\}:codex\S*[0-9]:[0-9.]+_\(Claude_Code\)', now):
+        raise Failure(f"slateos-settings set agents all did not leave both agent programs installed and running:\n{out[-2500:]}\n{now[-600:]}")
+    log(f"boot: both agent programs are installed, {int(time.monotonic() - started)} s after asking")
 
 
 def next_version(version):
