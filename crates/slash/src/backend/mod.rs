@@ -88,6 +88,20 @@ pub trait Backend {
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()>;
 }
 
+/// Why the agent's program did not start, in words that say what to do about it. A
+/// SlateOS image holds none of these programs: a system whose agent was not set up
+/// yet does not have one, and that is the usual reason.
+pub(crate) fn launch_error(err: std::io::Error, bin: &str, program: &str) -> anyhow::Error {
+    if err.kind() == std::io::ErrorKind::NotFound {
+        anyhow::anyhow!(
+            "{program} is not installed (no `{bin}` on this system), so there is no agent yet. \
+             On SlateOS, Settings, AI downloads it and connects it; in a terminal: slate-welcome --agent"
+        )
+    } else {
+        anyhow::Error::new(err).context(format!("launching {bin}"))
+    }
+}
+
 pub fn by_name(name: &str, cfg: &crate::config::Config) -> Option<Box<dyn Backend>> {
     match name {
         "claude" | "claude-code" => Some(Box::new(claude::ClaudeCode::new(
@@ -161,6 +175,23 @@ fn short_id(s: &str) -> &str {
 /// Tools that only load other tools' definitions: not worth a line.
 pub(crate) fn is_plumbing(name: &str) -> bool {
     name == "ToolSearch"
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_program_says_where_to_get_it() {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let text = launch_error(missing, "claude", "Claude Code").to_string();
+        assert!(text.contains("Claude Code is not installed"), "{text}");
+        assert!(text.contains("Settings, AI"), "{text}");
+
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let text = format!("{:#}", launch_error(denied, "codex", "Codex"));
+        assert!(text.starts_with("launching codex"), "{text}");
+    }
 }
 
 #[cfg(test)]

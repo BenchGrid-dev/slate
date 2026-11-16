@@ -170,7 +170,7 @@ impl Backend for ClaudeCode {
         let mut child = self
             .command(&req)
             .spawn()
-            .with_context(|| format!("launching {} (is Claude Code installed?)", self.cfg.bin))?;
+            .map_err(|err| super::launch_error(err, &self.cfg.bin, "Claude Code"))?;
         super::CURRENT_CHILD.store(child.id(), std::sync::atomic::Ordering::SeqCst);
 
         {

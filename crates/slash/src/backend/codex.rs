@@ -110,7 +110,7 @@ impl Backend for Codex {
         let mut child = self
             .command(&req)
             .spawn()
-            .with_context(|| format!("launching {} (is Codex installed?)", self.cfg.bin))?;
+            .map_err(|err| super::launch_error(err, &self.cfg.bin, "Codex"))?;
         super::CURRENT_CHILD.store(child.id(), std::sync::atomic::Ordering::SeqCst);
 
         let stdout = child.stdout.take().context("no stdout")?;
