@@ -34,7 +34,9 @@ for the system:
 for making a release:
   slateos-update keygen FILE        write a new signing key to FILE and print its public half
   slateos-update public-key FILE    print the public half of the key in FILE
-  slateos-update sign KEYFILE FILE  print the signature line of FILE (for FILE.sig)",
+  slateos-update sign KEYFILE FILE  print the signature line of FILE (for FILE.sig)
+  slateos-update verify FILE KEY…   succeeds when FILE.sig holds a signature of FILE by one of
+                                    the public keys",
         env!("CARGO_PKG_VERSION")
     );
     std::process::exit(2)
@@ -207,6 +209,19 @@ fn main() -> Result<()> {
             let secret = std::fs::read_to_string(key).with_context(|| format!("reading {key}"))?;
             let message = std::fs::read(file).with_context(|| format!("reading {file}"))?;
             println!("{}", manifest::sign(&secret, &message)?);
+            return Ok(());
+        }
+        "verify" => {
+            let (file, keys) = match words[1..] {
+                [file, ref keys @ ..] if !keys.is_empty() => (file, keys),
+                _ => usage(),
+            };
+            let message = std::fs::read(file).with_context(|| format!("reading {file}"))?;
+            let signatures = std::fs::read_to_string(format!("{file}.sig"))
+                .with_context(|| format!("reading {file}.sig"))?;
+            let keys: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+            manifest::verify(&message, &signatures, &keys)?;
+            println!("{file} is signed with a key named here");
             return Ok(());
         }
         "pinned-nixpkgs" => {
