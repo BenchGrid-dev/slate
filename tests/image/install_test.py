@@ -295,9 +295,11 @@ def install(args):
         log(f"install: live system: {out.strip().splitlines()[0]}; target disk {disk}")
         # The image holds no agent program: Claude Code is not SlateOS's to hand on. It
         # names them (which version, where from) and an installation downloads them.
-        status, out = vm.run("slateos-live-agents --status; ls /nix/store | grep -E -- '-(claude-code|codex)-[0-9.]+$'; echo listed", 60)
+        # (The store path itself: its recipe, a .drv, and the stand-in that holds its
+        # build tools, "inputDerivation-claude-code-…", are on the image on purpose.)
+        status, out = vm.run("slateos-live-agents --status; ls /nix/store | grep -E '^[a-z0-9]{32}-(claude-code|codex)-[0-9.]+$'; echo listed", 60)
         states = re.findall(r"^(claude-code|codex) \S+ (here|missing)$", out, re.M)
-        if sorted(states) != [("claude-code", "missing"), ("codex", "missing")] or re.search(r"-(claude-code|codex)-[0-9.]+$", out, re.M):
+        if sorted(states) != [("claude-code", "missing"), ("codex", "missing")] or re.search(r"^[a-z0-9]{32}-(claude-code|codex)-[0-9.]+$", out, re.M):
             raise Failure(f"the image should name the agent programs and hold none of them:\n{out}")
         log("install: the image holds no agent program")
         if args.live_agent:
@@ -305,9 +307,10 @@ def install(args):
             # session. Then the network goes away, and the installation has to take the
             # program from the live session, not from Anthropic a second time.
             started = time.monotonic()
-            status, out = vm.run("slateos-live-agents claude-code 2>&1 | tail -n 5; claude --version; nmcli networking off; sleep 3; "
-                                 "curl -fsS -o /dev/null --max-time 8 https://cache.nixos.org/nix-cache-info && echo STILL-ONLINE", 1800)
-            if status != 0 or "(Claude Code)" not in out or "STILL-ONLINE" in out:
+            status, out = vm.run("slateos-live-agents claude-code > /tmp/live-agents.log 2>&1; echo LIVE-EXIT:$?; tail -n 5 /tmp/live-agents.log; "
+                                 "claude --version; nmcli networking off; sleep 3; "
+                                 "curl -fsS -o /dev/null --max-time 8 https://cache.nixos.org/nix-cache-info && echo STILL-ONLINE; true", 1800)
+            if "LIVE-EXIT:0" not in out or "(Claude Code)" not in out or "STILL-ONLINE" in out:
                 raise Failure(f"the live session did not get Claude Code, or the network did not go away:\n{out[-2000:]}")
             log(f"install: the live session downloaded Claude Code in {int(time.monotonic() - started)} s; the network is off")
         # The agent's connection, the way the graphical installer hands it over: files
