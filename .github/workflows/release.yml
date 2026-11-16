@@ -7,11 +7,13 @@ name: Release
 #   names. An update then copies these instead of compiling them.
 # - The image, in parts (a release asset must stay under 2 GiB), with its checksum, on
 #   a draft release of the tag.
+# - What software update reads: the tag's source archive, the manifest that names it
+#   and the manifest's signature by the release key, on the same draft.
 #
-# A tag starts it. The draft becomes the release when the maintainer adds the signed
-# update manifest and publishes it (docs/releasing.md); nothing here can sign that.
-# By hand (Actions, Release, Run workflow) it builds and checks everything and uploads
-# only when asked to: the cache then, the image never (there is no tag to attach it to).
+# A tag starts it. The draft becomes the release when the maintainer has written its
+# notes and publishes it (docs/releasing.md). By hand (Actions, Release, Run workflow)
+# it builds and checks everything and uploads only when asked to: the cache then, the
+# image and the manifest never (there is no tag to attach them to).
 on:
   push:
     tags: ["v*"]
@@ -124,3 +126,57 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" parts/* --clobber
+
+  # What software update reads. The release key is a secret of the environment
+  # "release", which only a run for a tag v* may use (docs/releasing.md): this job is
+  # the one place it is read, after both architectures are built and the cache is
+  # filled, with nothing but GitHub's checkout and the tag's own source at work. Any
+  # other run makes the same files for the last release with a key of its own, to try
+  # the steps; they go nowhere.
+  update:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags: a run without one signs the last release
+      - name: Build the signer
+        run: cargo build --locked -p slate-update
+      - name: The source archive, the manifest and its signature
+        env:
+          SLATEOS_RELEASE_KEY: ${{ secrets.SLATEOS_RELEASE_KEY }}
+        run: |
+          umask 077
+          signer=target/debug/slateos-update
+          key="$RUNNER_TEMP/release.key"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            if [ -z "$SLATEOS_RELEASE_KEY" ]; then
+              echo "::error::The environment release has no secret SLATEOS_RELEASE_KEY (docs/releasing.md, The release key)."
+              exit 1
+            fi
+            printf '%s' "$SLATEOS_RELEASE_KEY" > "$key"
+            # The keys installed systems trust: the defaults of this tag's module.
+            keys=$(sed -n '/update\.publicKeys = /,/\];/s/^ *"\([A-Za-z0-9+\/]\{43\}=\)"$/\1/p' distro/nixos/module.nix)
+          else
+            version=$(git describe --tags --abbrev=0 --match 'v*')
+            version=${version#v}
+            keys=$("$signer" keygen "$key")
+            echo "No tag: SlateOS $version again, signed with a key made for this run."
+          fi
+          distro/release/make-update.py "$version" --key "$key" --out release --signer "$signer"
+          rm -f "$key"
+          # What goes on the release is what an installed system accepts: a signature
+          # by a key it trusts, and the archive the manifest names.
+          # shellcheck disable=SC2086
+          "$signer" verify release/slateos-update.json $keys
+          (cd release && jq -r '.source.sha256 + "  " + .source.url' slateos-update.json | sha256sum -c)
+          cat release/slateos-update.json
+      - name: Add them to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" release/* --clobber

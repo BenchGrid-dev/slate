@@ -10,10 +10,10 @@ Writes into DIR (default: ./release-VERSION):
     slateos-update.json             the manifest: version, date, summary, the source's checksum
     slateos-update.json.sig         its Ed25519 signature, by the key in FILE
 
-All three are attached to the GitHub release (docs/releasing.md); installed systems read
-releases/latest/download/slateos-update.json. FILE is the release key (`slateos-update
-keygen`), which stays with the maintainer: whoever has it can sign an update every
-SlateOS installation accepts.
+All three are attached to the GitHub release; installed systems read
+releases/latest/download/slateos-update.json. The Release workflow runs this for a tag
+(docs/releasing.md). FILE is the release key (`slateos-update keygen`): whoever has it
+can sign an update every SlateOS installation accepts.
 
 --from names the oldest version that can take this release directly, and --step the
 manifest older systems are sent to first (the release in between). The manifest names
