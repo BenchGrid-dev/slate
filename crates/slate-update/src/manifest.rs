@@ -98,6 +98,18 @@ pub struct Manifest {
     /// The manifest of the release an older system takes first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<String>,
+    /// A binary cache with what this release is made of and cache.nixos.org lacks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<Cache>,
+}
+
+/// Where a release's prebuilt packages are. It is part of the signed manifest, not of
+/// the installed system, so a later release can keep them somewhere else.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Cache {
+    pub url: String,
+    /// The key the cache's store paths are signed with, as Nix writes it: `name:base64`.
+    pub key: String,
 }
 
 /// The Slate source of the release: a gzipped tar with one directory at its top.
@@ -123,6 +135,15 @@ impl Manifest {
         manifest.version()?;
         if let Some(from) = &manifest.from {
             Version::from_str(from)?;
+        }
+        if let Some(cache) = &manifest.cache {
+            let plain = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_graphic());
+            let scheme = ["https://", "http://", "file://"]
+                .iter()
+                .any(|scheme| cache.url.starts_with(scheme));
+            if !scheme || !plain(&cache.url) || !plain(&cache.key) || !cache.key.contains(':') {
+                bail!("the release manifest names a binary cache that is not an address and a key");
+            }
         }
         if manifest.source.sha256.len() != 64
             || !manifest
@@ -494,6 +515,27 @@ mod tests {
         )
         .is_err());
         assert!(Manifest::parse(b"{}").is_err());
+
+        let with_cache = |cache: &str| {
+            manifest("0.3.1").replace("\"later\"", &format!("\"cache\":{cache},\"later\""))
+        };
+        let cached = Manifest::parse(
+            with_cache(r#"{"url":"https://cache.example.org/slateos","key":"slateos-1:AAAA="}"#)
+                .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(cached.cache.unwrap().key, "slateos-1:AAAA=");
+        for bad in [
+            r#"{"url":"cache.example.org","key":"slateos-1:AAAA="}"#,
+            r#"{"url":"https://cache.example.org/a b","key":"slateos-1:AAAA="}"#,
+            r#"{"url":"https://cache.example.org","key":"no-colon"}"#,
+            r#"{"url":"https://cache.example.org","key":""}"#,
+        ] {
+            assert!(
+                Manifest::parse(with_cache(bad).as_bytes()).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     /// A release directory on disk: manifests signed with `secret`.

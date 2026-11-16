@@ -242,6 +242,22 @@ impl Machine {
         self.publish_as(version, version, None);
     }
 
+    /// A release that names a binary cache of its own.
+    fn publish_with_cache(&self, version: &str) {
+        self.publish(version);
+        let path = self.path("release/slateos-update.json");
+        let manifest = std::fs::read_to_string(&path).unwrap().replace(
+            "\"notes\"",
+            "\"cache\":{\"url\":\"https://cache.example.org/slateos\",\"key\":\"slateos-1:AAAA=\"},\"notes\"",
+        );
+        std::fs::write(&path, &manifest).unwrap();
+        std::fs::write(
+            self.path("release/slateos-update.json.sig"),
+            sign(&self.secret, manifest.as_bytes()).unwrap(),
+        )
+        .unwrap();
+    }
+
     fn publish_as(&self, version: &str, claims: &str, wrong_hash: Option<&str>) {
         let archive = tarball(version, claims);
         let name = format!("slateos-{version}-source.tar.gz");
@@ -488,6 +504,28 @@ fn an_update_is_started_once_and_becomes_the_default_when_it_runs() {
     assert_eq!(machine.restart(true), 2);
     assert_eq!(machine.updater().boot().unwrap(), None);
     assert!(install(&machine, Asked::Person).unwrap().is_none());
+}
+
+#[test]
+fn a_release_brings_its_binary_cache_along() {
+    let machine = Machine::new();
+    machine.publish("0.3.1");
+    install(&machine, Asked::Person).unwrap().unwrap();
+    assert!(!machine.calls().contains("extra-substituters"));
+
+    let machine = Machine::new();
+    machine.publish_with_cache("0.3.1");
+    install(&machine, Asked::Person).unwrap().unwrap();
+    let calls = machine.calls();
+    // Asked for the estimate and for the build, with the key its paths are signed with.
+    let with_cache = calls
+        .lines()
+        .filter(|l| {
+            l.contains("--option extra-substituters https://cache.example.org/slateos")
+                && l.contains("--option extra-trusted-public-keys slateos-1:AAAA=")
+        })
+        .count();
+    assert_eq!(with_cache, 2, "{calls}");
 }
 
 #[test]

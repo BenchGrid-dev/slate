@@ -1,0 +1,123 @@
+name: Release
+
+# What a release publishes besides its source, for both architectures:
+#
+# - SlateOS's binary cache: what an installed system is made of and cache.nixos.org
+#   lacks (Slate, the patched packages), signed, on the storage distro/release/cache.json
+#   names. An update then copies these instead of compiling them.
+# - The image, in parts (a release asset must stay under 2 GiB), with its checksum, on
+#   a draft release of the tag.
+#
+# A tag starts it. The draft becomes the release when the maintainer adds the signed
+# update manifest and publishes it (docs/releasing.md); nothing here can sign that.
+# By hand (Actions, Release, Run workflow) it builds and checks everything and uploads
+# only when asked to: the cache then, the image never (there is no tag to attach it to).
+on:
+  push:
+    tags: ["v*"]
+    # While software update is being built: a push to its branch tries the workflow
+    # (nothing is uploaded). To be removed when the branch is merged.
+    branches: ["feat/software-update"]
+    paths: [".github/workflows/release.yml", "distro/release/**", "distro/iso/reference.nix"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload what was built to the binary cache
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: A draft release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 ||
+            gh release create "$TAG" --draft --verify-tag --title "SlateOS ${TAG#v}" \
+              --notes "Being prepared: the images are attached by the Release workflow, the notes and the update manifest by the maintainer."
+
+  build:
+    needs: draft
+    # Also without the draft job, which a run by hand skips.
+    if: always() && (needs.draft.result == 'success' || needs.draft.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish == true }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+      - uses: cachix/install-nix-action@v31
+      - name: Build the image
+        run: |
+          nix build .#iso --out-link image
+          ls -l image/iso/
+      - name: Build the reference systems
+        run: |
+          nix build .#reference-minimal .#reference-full --no-link --print-out-paths | tee systems
+          df -h /
+      - name: Fill the cache
+        env:
+          SLATEOS_CACHE_KEY: ${{ secrets.SLATEOS_CACHE_KEY }}
+        run: |
+          umask 077
+          if [ -n "$SLATEOS_CACHE_KEY" ]; then
+            printf '%s' "$SLATEOS_CACHE_KEY" > "$RUNNER_TEMP/cache.key"
+            jq -r .key distro/release/cache.json > "$RUNNER_TEMP/cache.pub"
+          else
+            echo "No SLATEOS_CACHE_KEY: signing with a key made for this run; nothing is uploaded."
+            nix-store --generate-binary-cache-key slateos-dry-run-1 "$RUNNER_TEMP/cache.key" "$RUNNER_TEMP/cache.pub"
+            echo "PUBLISH=false" >> "$GITHUB_ENV"
+          fi
+          # shellcheck disable=SC2046
+          NIX_CACHE_KEY_FILE="$RUNNER_TEMP/cache.key" distro/release/fill-cache.sh "$RUNNER_TEMP/cache" $(cat systems)
+      - name: Check the cache
+        run: |
+          # Every path in it must be one Nix accepts with the public key alone.
+          key=$(cat "$RUNNER_TEMP/cache.pub")
+          paths=$(sed -n 's/^StorePath: //p' "$RUNNER_TEMP"/cache/*.narinfo)
+          # shellcheck disable=SC2086
+          nix store verify --store "file://$RUNNER_TEMP/cache" --trusted-public-keys "$key" --sigs-needed 1 --no-contents $paths
+          echo "$(wc -l <<<"$paths") paths are signed with $key"
+          rm -f "$RUNNER_TEMP/cache.key"
+      - name: Upload the cache
+        if: env.PUBLISH == 'true'
+        env:
+          AZURE_STORAGE_SAS: ${{ secrets.AZURE_STORAGE_SAS }}
+        run: distro/release/upload-cache.sh "$RUNNER_TEMP/cache" "$(jq -r .url distro/release/cache.json)"
+      - name: The image in parts, and its checksum
+        run: |
+          mkdir parts
+          iso=$(ls image/iso/*.iso)
+          name=$(basename "$iso")
+          (cd image/iso && sha256sum "$name") > "parts/$name.sha256"
+          split -b 1900M --numeric-suffixes=1 -a 1 "$iso" "parts/$name.part"
+          ls -l parts; cat parts/*.sha256
+          # What a person does with the parts gives the image back.
+          cat parts/"$name".part* | sha256sum | cut -d' ' -f1 | grep -qx "$(cut -d' ' -f1 "parts/$name.sha256")"
+      - name: Attach the image to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" parts/* --clobber

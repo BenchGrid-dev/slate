@@ -253,7 +253,8 @@ impl Updater {
         self.progress(state, "Preparing", 0, 0);
         let nixpkgs = sys.pinned_nixpkgs(&self.source())?;
         let drv = sys.instantiate(&nixpkgs, &self.configuration())?;
-        let plan = sys.plan(&drv)?;
+        let cache = offer.manifest.cache.as_ref();
+        let plan = sys.plan(&drv, cache)?;
         if let Some(free) = sys.free_bytes() {
             if free < plan.unpacked_bytes + (1 << 30) {
                 bail!(
@@ -277,7 +278,7 @@ impl Updater {
 
         let mut done = 0u64;
         let mut shown = std::time::Instant::now();
-        let system = sys.realise(&drv, &mut |line| {
+        let system = sys.realise(&drv, cache, &mut |line| {
             if line.starts_with("copying path '") || line.starts_with("building '") {
                 done += 1;
                 // The state file is what Settings draws its bar from; twice a second is plenty.

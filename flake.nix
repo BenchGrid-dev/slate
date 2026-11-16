@@ -38,6 +38,16 @@
         };
         default = slate;
         iso = self.nixosConfigurations."iso-${pkgs.stdenv.hostPlatform.system}".config.system.build.isoImage;
+        # An installed SlateOS with placeholder answers, with either application set:
+        # what a release's binary cache is filled from (distro/iso/reference.nix).
+        reference-minimal = (import ./distro/iso/reference.nix { inherit self nixpkgs; } {
+          inherit (pkgs.stdenv.hostPlatform) system;
+          apps = "minimal";
+        }).config.system.build.toplevel;
+        reference-full = (import ./distro/iso/reference.nix { inherit self nixpkgs; } {
+          inherit (pkgs.stdenv.hostPlatform) system;
+          apps = "full";
+        }).config.system.build.toplevel;
       });
 
       nixosModules.default = import ./distro/nixos/module.nix { inherit self; };

@@ -55,49 +55,16 @@ let
       grub-mkfont -s $size -o $out/inter-$size.pf2 ${pkgs.inter}/share/fonts/truetype/InterVariable.ttf
     done
   '';
-  # The system an installation builds, with placeholder answers: template.nix, and the
-  # hardware configuration nixos-generate-config writes for an encrypted btrfs disk.
-  # It is never booted. Its closure goes on the image (system.extraDependencies below),
-  # so that an installation finds there what the installed system is made of and the
-  # live system does not happen to run: the boot loader's installer, wpa_supplicant's
+  # The system an installation builds, with placeholder answers (reference.nix). It is
+  # never booted. Its closure goes on the image (system.extraDependencies below), so
+  # that an installation finds there what the installed system is made of and the live
+  # system does not happen to run: the boot loader's installer, wpa_supplicant's
   # service, the pieces of an encrypted initrd. What remains to build on the person's
-  # machine are the few files with their names in them. Keep it in step with
-  # template.nix; the image test's installation without a network notices when it is not.
-  installed = import (nixpkgs + "/nixos/lib/eval-config.nix") {
+  # machine are the few files with their names in them. The image test's installation
+  # without a network notices when it falls out of step with template.nix.
+  installed = import ./reference.nix { inherit self nixpkgs; } {
     inherit (pkgs.stdenv.hostPlatform) system;
-    modules = [
-      self.nixosModules.default
-      ({ modulesPath, ... }: {
-        imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
-        services.slate = {
-          enable = true;
-          desktop.enable = true;
-          desktop.apps = "minimal";
-          desktop.autologinUser = "user";
-          loginShellUsers = [ "user" ];
-          update.enable = true;
-        };
-        users.users.user = {
-          isNormalUser = true;
-          extraGroups = [ "wheel" "networkmanager" "video" "audio" ];
-        };
-        networking.hostName = "slateos";
-        networking.networkmanager.enable = true;
-        time.timeZone = "UTC";
-        i18n.defaultLocale = "en_US.UTF-8";
-        boot.loader.systemd-boot.enable = true;
-        boot.loader.efi.canTouchEfiVariables = true;
-        boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "nvme" "usbhid" "usb_storage" "sd_mod" "virtio_pci" "virtio_blk" ];
-        boot.initrd.luks.devices.slateos = { device = "/dev/disk/by-label/slateos-luks"; allowDiscards = true; };
-        fileSystems."/" = { device = "/dev/mapper/slateos"; fsType = "btrfs"; options = [ "subvol=@" ]; };
-        fileSystems."/nix" = { device = "/dev/mapper/slateos"; fsType = "btrfs"; options = [ "subvol=@nix" ]; };
-        fileSystems."/home" = { device = "/dev/mapper/slateos"; fsType = "btrfs"; options = [ "subvol=@home" ]; };
-        fileSystems."/boot" = { device = "/dev/disk/by-label/BOOT"; fsType = "vfat"; };
-        nixpkgs.config.allowUnfree = true;
-        nix.settings.experimental-features = [ "nix-command" "flakes" ];
-        system.stateVersion = "26.05";
-      })
-    ];
+    apps = "minimal";
   };
 in
 {

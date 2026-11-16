@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """make-update: what a release publishes for software update.
 
-    distro/release/make-update.py VERSION --key FILE [--out DIR] [--from VERSION] [--step URL]
+    distro/release/make-update.py VERSION --key FILE [--out DIR] [--no-cache]
+                                  [--from VERSION] [--step URL]
 
 Writes into DIR (default: ./release-VERSION):
 
@@ -15,7 +16,9 @@ keygen`), which stays with the maintainer: whoever has it can sign an update eve
 SlateOS installation accepts.
 
 --from names the oldest version that can take this release directly, and --step the
-manifest older systems are sent to first (the release in between).
+manifest older systems are sent to first (the release in between). The manifest names
+the binary cache the Release workflow filled for this version (distro/release/cache.json;
+--cache-url and --cache-key for another, --no-cache for none).
 """
 import argparse
 import hashlib
@@ -49,6 +52,9 @@ def main():
     ap.add_argument("--out", help="output directory (default ./release-VERSION)")
     ap.add_argument("--from", dest="from_version", help="oldest version that can update to this one directly")
     ap.add_argument("--step", help="manifest address for systems older than --from")
+    ap.add_argument("--cache-url", help="the binary cache with this release's prebuilt packages (default: distro/release/cache.json)")
+    ap.add_argument("--cache-key", help="the public key that cache's store paths are signed with (name:base64)")
+    ap.add_argument("--no-cache", action="store_true", help="name no binary cache: updates build Slate on the person's computer")
     ap.add_argument("--signer", help="the slateos-update program (default: cargo run -p slate-update)")
     args = ap.parse_args()
 
@@ -82,6 +88,14 @@ def main():
         manifest["from"] = args.from_version
     if args.step:
         manifest["step"] = args.step
+    if bool(args.cache_url) != bool(args.cache_key):
+        sys.exit("--cache-url and --cache-key go together")
+    if args.cache_url:
+        manifest["cache"] = {"url": args.cache_url, "key": args.cache_key}
+    elif not args.no_cache:
+        # Where the Release workflow put this version's packages.
+        with open(os.path.join(REPO, "distro", "release", "cache.json"), encoding="utf-8") as f:
+            manifest["cache"] = json.load(f)
     path = os.path.join(out, "slateos-update.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)

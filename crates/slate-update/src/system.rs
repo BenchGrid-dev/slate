@@ -2,6 +2,7 @@
 //! boot loader, and what tells a working system from one that did not come up.
 
 use crate::config::{Health, Paths};
+use crate::manifest::Cache;
 use anyhow::{anyhow, bail, Context, Result};
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
@@ -146,12 +147,44 @@ impl<'a> Sys<'a> {
         Ok(drv)
     }
 
+    /// What Nix is told for a build: what the caches lack is built here, what they hold
+    /// is copied even where NixOS marks a small file as "always build", and the
+    /// release's own cache is asked next to the ones the system knows.
+    fn build_options(cache: Option<&Cache>) -> Vec<String> {
+        let mut options: Vec<String> = ["--option", "fallback", "true"]
+            .iter()
+            .chain(["--option", "always-allow-substitutes", "true"].iter())
+            .map(|s| s.to_string())
+            .collect();
+        if let Some(cache) = cache {
+            options.extend(
+                [
+                    "--option",
+                    "extra-substituters",
+                    &cache.url,
+                    "--option",
+                    "extra-trusted-public-keys",
+                    &cache.key,
+                ]
+                .map(String::from),
+            );
+        }
+        options
+    }
+
     /// What building `drv` will download and build, without doing it.
-    pub fn plan(&self, drv: &str) -> Result<Plan> {
+    pub fn plan(&self, drv: &str, cache: Option<&Cache>) -> Result<Plan> {
         let name = self.tool("nix-store");
-        self.log(&format!("$ nix-store --realise --dry-run {drv}"));
+        let mut args = vec![
+            "--realise".to_string(),
+            "--dry-run".to_string(),
+            drv.to_string(),
+        ];
+        args.extend(Self::build_options(cache));
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.log(&format!("$ nix-store {}", args.join(" ")));
         let output = self
-            .command(&name, &["--realise", "--dry-run", drv])
+            .command(&name, &args)
             .output()
             .context("could not run nix-store")?;
         let text = format!(
@@ -166,24 +199,22 @@ impl<'a> Sys<'a> {
     }
 
     /// Downloads and builds `drv`; the system's store path. `line` hears what Nix prints.
-    pub fn realise(&self, drv: &str, line: &mut dyn FnMut(&str)) -> Result<String> {
+    pub fn realise(
+        &self,
+        drv: &str,
+        cache: Option<&Cache>,
+        line: &mut dyn FnMut(&str),
+    ) -> Result<String> {
         let root = self.paths.built_root();
         let _ = std::fs::remove_file(&root);
-        let root_text = root.to_string_lossy().to_string();
-        let args = [
-            "--realise",
-            drv,
-            "--add-root",
-            &root_text,
-            // What the caches lack is built here; what they hold is copied even where
-            // NixOS marks a small file as "always build".
-            "--option",
-            "fallback",
-            "true",
-            "--option",
-            "always-allow-substitutes",
-            "true",
+        let mut args = vec![
+            "--realise".to_string(),
+            drv.to_string(),
+            "--add-root".to_string(),
+            root.to_string_lossy().to_string(),
         ];
+        args.extend(Self::build_options(cache));
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
         self.log(&format!("$ nix-store {}", args.join(" ")));
         let mut child = self
             .command(self.tool("nix-store"), &args)

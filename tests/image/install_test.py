@@ -458,6 +458,10 @@ class Release:
             self.cache_key = f.read().strip()
         nix("copy", "--to", f"file://{www}/cache?secret-key={secret}", package)
 
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietFiles, directory=www))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.address = f"http://10.0.2.2:{self.server.server_address[1]}"
+
         archive = os.path.join(www, "release", f"slateos-{self.version}-source.tar.gz")
         with tarfile.open(archive, "w:gz") as tar:
             tar.add(tree, arcname=f"slateos-{self.version}")
@@ -467,15 +471,14 @@ class Release:
         with open(manifest, "w", encoding="utf-8") as f:
             json.dump({"format": 1, "version": self.version, "released": time.strftime("%Y-%m-%d"),
                        "summary": "A release made by the image test.", "notes": "",
-                       "source": {"url": os.path.basename(archive), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}}, f)
+                       "source": {"url": os.path.basename(archive), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)},
+                       # The release's own binary cache, as its manifest names it.
+                       "cache": {"url": f"{self.address}/cache", "key": self.cache_key}}, f)
         key = os.path.join(work, "release.key")
         self.release_key = subprocess.run([updater, "keygen", key], check=True, capture_output=True, text=True).stdout.strip()
         with open(manifest + ".sig", "w", encoding="utf-8") as f:
             f.write(subprocess.run([updater, "sign", key, manifest], check=True, capture_output=True, text=True).stdout)
 
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietFiles, directory=www))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        self.address = f"http://10.0.2.2:{self.server.server_address[1]}"
         log(f"update: release {self.version} is served at {self.address} (the guest's view)")
 
     @staticmethod
@@ -558,12 +561,7 @@ def update(vm, args):
     config = {"version": old, "url": f"{release.address}/release/slateos-update.json", "keys": [release.release_key],
               "config": "/etc/slateos", "trial": True, "health": {"user": USER, "processes": ["slate-desktop"]}}
     vm.run(f"printf '%s\\n' '{json.dumps(config)}' > /tmp/update.json", 60, prefix="!")
-    install = [
-        # The test's cache next to cache.nixos.org, for this command alone.
-        f'export NIX_CONFIG="extra-substituters = {release.address}/cache',
-        f'extra-trusted-public-keys = {release.cache_key}"',
-        "slateos-update --config /tmp/update.json install",
-    ]
+    install = ["slateos-update --config /tmp/update.json install"]
 
     def install_update(attempt):
         log(f"update: installing {new} ({attempt})")
