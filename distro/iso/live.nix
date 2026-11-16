@@ -5,8 +5,34 @@
 let
   installer = pkgs.writeShellApplication {
     name = "slateos-install";
-    runtimeInputs = with pkgs; [ parted btrfs-progs dosfstools util-linux coreutils gnused mkpasswd cryptsetup ];
+    runtimeInputs = with pkgs; [ parted btrfs-progs dosfstools util-linux coreutils gnused mkpasswd cryptsetup jq curl ];
     text = builtins.readFile ./slateos-install.sh;
+  };
+  # The agent programs are not on the image: Claude Code is not SlateOS's to hand on.
+  # An installation downloads them to the disk; the live session, where a sign-in
+  # needs one before that, gets it with slateos-live-agents. A program that is not
+  # free is not in cache.nixos.org either: the computer fetches it from its maker and
+  # puts it together itself, with what that takes already on the image (below).
+  agentPrograms = config.services.slate.agentPrograms;
+  assembledHere = p: !(lib.all (l: l.free or true) (lib.toList (p.meta.license or [ ])));
+  agentList = lib.mapAttrs (_: p: {
+    inherit (p) version;
+    # As text: naming the program must not bring it onto the image.
+    out = builtins.unsafeDiscardStringContext p.outPath;
+    # What to ask before a download, to say plainly when it cannot be reached.
+    check =
+      if assembledHere p then p.src.url
+      else "https://cache.nixos.org/${builtins.substring 11 32 (builtins.unsafeDiscardStringContext p.outPath)}.narinfo";
+  } // lib.optionalAttrs (assembledHere p) {
+    # The recipe (a small file, with the recipes it rests on) is on the image; what
+    # it makes is not.
+    drv = builtins.unsafeDiscardOutputDependency p.drvPath;
+    src = builtins.unsafeDiscardStringContext p.src.outPath;
+  }) agentPrograms;
+  liveAgents = pkgs.writeShellApplication {
+    name = "slateos-live-agents";
+    runtimeInputs = with pkgs; [ jq curl coreutils gawk gnused config.nix.package ];
+    text = builtins.readFile ./slateos-live-agents.sh;
   };
   # The graphical front end: the welcome (try or install) and the install steps.
   installerApp = pkgs.stdenv.mkDerivation {
@@ -112,6 +138,8 @@ in
     # The installer asks how the agent connects; the live session itself needs no welcome.
     desktop.welcome = false;
     loginShellUsers = [ "slate" ];
+    # None on the image (see agentPrograms above).
+    agents = [ ];
   };
   users.users.slate = {
     isNormalUser = true;
@@ -129,7 +157,9 @@ in
 
   # hiPrio: the system tools have a slateos-install too (the front end for nixos-install
   # on an already prepared /mnt); on the image the name means this disk installer.
-  environment.systemPackages = [ (lib.hiPrio installer) installerApp pkgs.gparted pkgs.git ];
+  environment.systemPackages = [ (lib.hiPrio installer) installerApp liveAgents pkgs.gparted pkgs.git ];
+  # The agent programs an installation and the live session can download.
+  environment.etc."slateos/agents.json".text = builtins.toJSON agentList;
   # Like other live systems: at login, a window offers to try SlateOS or install it, and
   # the dock keeps Install SlateOS at hand.
   environment.etc."slate/sway.d/live-installer.conf".text = ''
@@ -149,10 +179,18 @@ in
     # path's info directory, the initrd's tools, …); for the small ones, the tools a
     # dry run of an installation asked a binary cache for.
     ++ (with installed.config.system; [ build.toplevel.inputDerivation path.inputDerivation build.etc.inputDerivation build.initialRamdisk.inputDerivation ])
-    ++ (with pkgs; [ lndir makeShellWrapper findXMLCatalogs kmod.dev nukeReferences remarshal libxslt.bin ]);
+    ++ (with pkgs; [ lndir makeShellWrapper findXMLCatalogs kmod.dev nukeReferences remarshal libxslt.bin ])
+    # And what putting an agent program together takes besides the program itself
+    # (the tools of its recipe, and of the download's), so that only the one file
+    # comes over the network.
+    ++ lib.concatMap (p: lib.optionals (assembledHere p) [
+      (p.overrideAttrs (_: { src = null; })).inputDerivation
+      p.src.inputDerivation
+    ]) (lib.attrValues agentPrograms);
   environment.etc."slateos/template.nix".source = ./template.nix;
 
-  # The agent CLIs (Claude Code, Codex) are unfree packages.
+  # Claude Code is an unfree package. The image names it (its version, where it comes
+  # from) and does not contain it.
   nixpkgs.config.allowUnfree = true;
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];

@@ -425,6 +425,14 @@ let
     hangul = pkgs.fcitx5-hangul;
   };
   inputMethods = lib.unique cfg.desktop.inputMethods;
+  # The agent programs the installer and Settings can add, by name. SlateOS's image
+  # holds neither: Claude Code is not SlateOS's to hand on, so every computer gets
+  # them from where their makers publish them (nixpkgs' packages: Claude Code from
+  # Anthropic's download server, Codex from cache.nixos.org).
+  agentPrograms = {
+    claude-code = pkgs.claude-code;
+    codex = pkgs.codex;
+  };
   # What Settings chose for the whole system (see settingsFile).
   settingsFromFile =
     if cfg.settingsFile != null && builtins.pathExists cfg.settingsFile
@@ -702,9 +710,10 @@ in
       '';
       description = ''
         The JSON file where Settings (through `slateos-settings`) keeps the system-wide
-        choices it makes for the person: today `inputMethods`, the default of
-        `desktop.inputMethods`. A value the configuration sets wins. A flake in
-        /etc/slateos can set this to `./settings.json`.
+        choices it makes for the person: `inputMethods`, the default of
+        `desktop.inputMethods`, and `agents`, the default of `agents`. A value the
+        configuration sets wins. A flake in /etc/slateos can set this to
+        `./settings.json`.
       '';
     };
 
@@ -799,8 +808,24 @@ in
 
     agents = lib.mkOption {
       type = lib.types.listOf lib.types.package;
-      default = [ pkgs.claude-code ];
-      description = "Agent backends to install. Slate drives them through their official CLIs only.";
+      default = map (name: agentPrograms.${name})
+        (lib.filter (name: agentPrograms ? ${name}) (settingsFromFile.agents or [ "claude-code" ]));
+      defaultText = lib.literalMD "the `agents` of `settingsFile` (`claude-code`, `codex`), else `[ pkgs.claude-code ]`";
+      description = ''
+        The agent programs to install. Slate drives them through their official CLIs
+        only. The installer and Settings choose them through `agents` in settings.json
+        (`slateos-settings set agents`); an empty list is a system whose agent is not
+        set up yet. Claude Code is unfree: a configuration that installs it allows
+        that (`nixpkgs.config.allowUnfree`, or a predicate that names it).
+      '';
+    };
+
+    agentPrograms = lib.mkOption {
+      type = lib.types.attrsOf lib.types.package;
+      default = agentPrograms;
+      readOnly = true;
+      internal = true;
+      description = "The agent programs settings.json can name (the live image downloads these).";
     };
   };
 
@@ -1042,6 +1067,12 @@ in
         # file does not exist yet (`./settings.json` on a new installation).
         file = if cfg.settingsFile == null then null else toString cfg.settingsFile;
         inputMethods = { available = builtins.attrNames inputMethodAddons; enabled = inputMethods; };
+        # The agent programs `slateos-settings set agents` can install (with the
+        # version this release brings), and the ones this system has.
+        agents = {
+          available = lib.mapAttrs (_: p: p.version) agentPrograms;
+          installed = map lib.getName cfg.agents;
+        };
         # Null: settings.json decides at run time (slate-desktop, slate-idle).
         agent = {
           whileLocked = cfg.desktop.agentWhileLocked;

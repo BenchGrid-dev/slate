@@ -19,6 +19,9 @@ import (nixpkgs + "/nixos/lib/eval-config.nix") {
         desktop.autologinUser = "user";
         loginShellUsers = [ "user" ];
         update.enable = true;
+        # No agent programs: the image carries this system's closure and must not
+        # carry Claude Code. An installation adds them from the network.
+        agents = [ ];
       };
       users.users.user = {
         isNormalUser = true;

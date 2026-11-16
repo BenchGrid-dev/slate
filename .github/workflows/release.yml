@@ -18,7 +18,7 @@ on:
     # While software update is being built: a push to its branch tries the workflow
     # (nothing is uploaded). To be removed when the branch is merged.
     branches: ["feat/software-update"]
-    paths: [".github/workflows/release.yml", "distro/release/**", "distro/iso/reference.nix"]
+    paths: [".github/workflows/release.yml", "distro/release/**", "distro/iso/**"]
   workflow_dispatch:
     inputs:
       publish:
@@ -72,6 +72,9 @@ jobs:
         run: |
           nix build .#iso --out-link image
           ls -l image/iso/
+      # Claude Code is not SlateOS's to hand on: the image names it and does not hold it.
+      - name: No agent program on the image
+        run: distro/release/check-image.sh ${{ matrix.system }}
       - name: Build the reference systems
         run: |
           nix build .#reference-minimal .#reference-full --no-link --print-out-paths | tee systems

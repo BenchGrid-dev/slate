@@ -5,6 +5,8 @@
     slateos-settings get KEY                     the value in effect (agent-while-locked, lock-while-agent-works,
                                                  automatic-updates)
     slateos-settings set input-methods NAME,...  install these input methods ("none": no input method)
+    slateos-settings set agents NAME,...         install these agent programs: claude-code, codex ("all": every
+                                                 one this release offers; "none": remove them)
     slateos-settings set agent-while-locked pause|elements|continue
                                                  what the agent may do in windows while the screen is locked
     slateos-settings set lock-while-agent-works yes|no
@@ -15,10 +17,12 @@
 
 The choices live in settings.json next to the system configuration (/etc/slateos, or
 /etc/nixos where there is no /etc/slateos), and the configuration itself wins where it
-sets the same option. Input methods are built into the system (services.slate.settingsFile):
-`set` rebuilds it, and puts the file back the way it was if the rebuild fails. The
-agent's choices are read while the session runs and take effect at once. `set` runs as
-root, so only someone with the password changes what the agent may do.
+sets the same option. Input methods and the agent programs are built into the system
+(services.slate.settingsFile): `set` rebuilds it, and puts the file back the way it was
+if the rebuild fails. The agent programs are not part of SlateOS's image; the rebuild
+downloads them (Claude Code from Anthropic, Codex from cache.nixos.org), so it needs
+a network. The agent's choices are read while the session runs and take effect at once.
+`set` runs as root, so only someone with the password changes what the agent may do.
 """
 import json
 import os
@@ -142,12 +146,43 @@ def set_input_methods(value):
     if len(set(names)) != len(names):
         fail("an input method is named twice", 2)
 
+    rebuild_with("inputMethods", names, f"input methods {', '.join(names) or 'none'}")
+    enabled = system().get("inputMethods", {}).get("enabled")
+    if enabled != names:
+        fail(f"the system has input methods {', '.join(enabled or []) or 'none'}: the configuration sets "
+             "services.slate.desktop.inputMethods itself, or does not read settings.json "
+             "(services.slate.settingsFile)", 3)
+    print("Done.")
+
+
+def set_agents(value):
+    offered = list(system().get("agents", {}).get("available", {}))
+    if not offered:
+        fail("this system does not offer agent programs through Settings (a SlateOS before 0.3, or without the module)", 2)
+    names = [] if value == "none" else offered if value == "all" else [n for n in value.split(",") if n]
+    unknown = [n for n in names if n not in offered]
+    if unknown:
+        fail(f"unknown agent program {', '.join(unknown)} (this system offers {', '.join(offered)})", 2)
+    if len(set(names)) != len(names):
+        fail("an agent program is named twice", 2)
+
+    rebuild_with("agents", names, f"agent programs {', '.join(names) or 'none'}")
+    installed = system().get("agents", {}).get("installed")
+    if sorted(installed or []) != sorted(names):
+        fail(f"the system has the agent programs {', '.join(installed or []) or 'none'}: the configuration sets "
+             "services.slate.agents itself, or does not read settings.json (services.slate.settingsFile)", 3)
+    print("Done.")
+
+
+def rebuild_with(key, value, what):
+    """Write one choice the system is built from, and build the system with it; a
+    rebuild that fails leaves settings.json as it was."""
     path = settings_path()
     before, current = read_settings(path)
-    current["inputMethods"] = names
+    current[key] = value
     write_settings(path, current)
 
-    print(f"Updating the system ({path}: input methods {', '.join(names) or 'none'})", flush=True)
+    print(f"Updating the system ({path}: {what})", flush=True)
     # (slateos-rebuild refuses while an update waits for its restart, and says so.)
     if subprocess.run([REBUILD, "switch"]).returncode != 0:
         if before is None:
@@ -158,13 +193,6 @@ def set_input_methods(value):
                 f.write(before)
             os.replace(tmp, path)
         fail("the rebuild failed; the settings are as they were")
-
-    enabled = system().get("inputMethods", {}).get("enabled")
-    if enabled != names:
-        fail(f"the system has input methods {', '.join(enabled or []) or 'none'}: the configuration sets "
-             "services.slate.desktop.inputMethods itself, or does not read settings.json "
-             "(services.slate.settingsFile)", 3)
-    print("Done.")
 
 
 def main():
@@ -183,11 +211,13 @@ def main():
     if args[0] == "get" and len(args) == 2 and args[1] in AGENT:
         print(agent_get(args[1])[0])
         return
-    if args[0] == "set" and len(args) == 3 and (args[1] in ("input-methods", "automatic-updates") or args[1] in AGENT):
+    if args[0] == "set" and len(args) == 3 and (args[1] in ("input-methods", "agents", "automatic-updates") or args[1] in AGENT):
         if os.geteuid() != 0:
             fail("needs root: sudo slateos-settings set ...")
         if args[1] == "input-methods":
             set_input_methods(args[2])
+        elif args[1] == "agents":
+            set_agents(args[2])
         elif args[1] == "automatic-updates":
             updates_set(args[2])
         else:

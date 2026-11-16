@@ -293,6 +293,23 @@ def install(args):
         if status != 0 or not disk.startswith("/dev/"):
             raise Failure(f"the live system does not see the target disk:\n{out}")
         log(f"install: live system: {out.strip().splitlines()[0]}; target disk {disk}")
+        # The image holds no agent program: Claude Code is not SlateOS's to hand on. It
+        # names them (which version, where from) and an installation downloads them.
+        status, out = vm.run("slateos-live-agents --status; ls /nix/store | grep -E -- '-(claude-code|codex)-[0-9.]+$'; echo listed", 60)
+        states = re.findall(r"^(claude-code|codex) \S+ (here|missing)$", out, re.M)
+        if sorted(states) != [("claude-code", "missing"), ("codex", "missing")] or re.search(r"-(claude-code|codex)-[0-9.]+$", out, re.M):
+            raise Failure(f"the image should name the agent programs and hold none of them:\n{out}")
+        log("install: the image holds no agent program")
+        if args.live_agent:
+            # What a sign-in in the installer does: Claude Code comes into the live
+            # session. Then the network goes away, and the installation has to take the
+            # program from the live session, not from Anthropic a second time.
+            started = time.monotonic()
+            status, out = vm.run("slateos-live-agents claude-code 2>&1 | tail -n 5; claude --version; nmcli networking off; sleep 3; "
+                                 "curl -fsS -o /dev/null --max-time 8 https://cache.nixos.org/nix-cache-info && echo STILL-ONLINE", 1800)
+            if status != 0 or "(Claude Code)" not in out or "STILL-ONLINE" in out:
+                raise Failure(f"the live session did not get Claude Code, or the network did not go away:\n{out[-2000:]}")
+            log(f"install: the live session downloaded Claude Code in {int(time.monotonic() - started)} s; the network is off")
         # The agent's connection, the way the graphical installer hands it over: files
         # for the new home directory, the key readable by its owner alone.
         vm.run("mkdir -p /tmp/agent-home/.config/slate && chmod -R 700 /tmp/agent-home && "
@@ -308,13 +325,27 @@ def install(args):
         status, out = vm.run(f"slateos-install {options} 2>&1", 3000)
         if status != 0:
             raise Failure(f"slateos-install exited with {status}. Its last output:\n{out[-3000:]}")
-        log(f"install: installed in {int(time.monotonic() - started)} s; powering off")
+        programs = re.findall(r"^Agent programs: (.*)$", out, re.M)
+        if not programs or programs[-1].split() != (expected_programs(args) or ["none"]):
+            raise Failure(f"slateos-install should have installed the agent programs {expected_programs(args) or 'none'}; it says {programs}. "
+                          f"Its last output:\n{out[-3000:]}")
+        if args.live_agent and re.search(r"building '/nix/store/[a-z0-9]+-claude(-code-[^']*)?\.drv'", out):
+            raise Failure("the installation built Claude Code again instead of copying it from the live session")
+        log(f"install: installed in {int(time.monotonic() - started)} s, agent programs: {programs[-1]}; powering off")
         vm.run("sync", 120)
         vm.send("poweroff\n")
         vm.stop(180)
     except BaseException:
         vm.stop()
         raise
+
+
+def expected_programs(args):
+    """The agent programs an installation ends up with: none without a network, the one
+    the live session held when the network went away, else every one."""
+    if args.offline:
+        return []
+    return ["claude-code"] if args.live_agent else ["claude-code", "codex"]
 
 
 def unlock(vm):
@@ -375,8 +406,15 @@ def boot(args):
             "systemctl --user is-active slate-desktop slate-dock slate-panel slated | tr '\\n' ' '; echo; "
             "echo sway=$(pgrep -cx sway); slateos-version; "
             "echo root=$(findmnt -no FSTYPE /); echo disks=$(lsblk -rno TYPE | sort -u | tr '\\n' ,); "
-            "echo provider=$(stat -c %a:%U ~/.config/slate/provider.toml):$(slate provider show | tr -d ' ')"
+            "echo provider=$(stat -c %a:%U ~/.config/slate/provider.toml):$(slate provider show | tr -d ' '); "
+            # The agent programs: the ones the installation downloaded, and they run.
+            "echo programs=$(tr -d ' \\n' < /etc/slateos/settings.json):"
+            "$(command -v claude > /dev/null && claude --version | tr ' ' _):$(command -v codex > /dev/null && codex --version | tr ' ' _)"
         )
+        want = expected_programs(args)
+        programs = (r'programs=\{"agents":\[' + ",".join(f'"{name}"' for name in want) + r"\]\}:"
+                    + (r"[0-9.]+_\(Claude_Code\)" if "claude-code" in want else "") + ":"
+                    + (r"codex\S*[0-9]" if "codex" in want else "$"))
         deadline = time.monotonic() + 300 * args.patience
         while True:
             _, out = vm.run(checks, 120, prefix="!")
@@ -393,12 +431,14 @@ def boot(args):
                 missing.append("an encrypted disk")
             if not re.search(rf'provider=600:{USER}:.*"connection":"api".*"model":"image-test-model"', out):
                 missing.append("the agent's connection in the new home (provider.toml, private, the user's)")
+            if not re.search(programs, out, re.M):
+                missing.append(f"the agent programs {', '.join(want) or 'none (and none on PATH)'}, in settings.json and running")
             if not missing:
                 break
             if time.monotonic() > deadline:
                 raise Failure("boot: the installed system lacks " + "; ".join(missing) + f". The checks printed:\n{out}")
             time.sleep(10 * args.patience)
-        results = [line.strip() for line in out.splitlines() if line.strip()][-6:]  # after the echoed command
+        results = [line.strip() for line in out.splitlines() if line.strip()][-7:]  # after the echoed command
         log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")
@@ -636,6 +676,8 @@ def main():
     parser.add_argument("--disk-size", default="32G")
     parser.add_argument("--encrypt", action="store_true", help="install on an encrypted disk and type its passphrase at boot")
     parser.add_argument("--offline", action="store_true", help="install without a network (the minimal application set promises to need none)")
+    parser.add_argument("--live-agent", action="store_true", help="download Claude Code into the live session first, as a sign-in in the installer "
+                        "does, then turn the network off: the installation takes the program from the live session")
     parser.add_argument("--patience", type=float, help="multiply every wait (default 1, or 8 under emulation)")
     parser.add_argument("--only", choices=["install", "boot"], help="one half: install only, or boot the disk a previous run left in --workdir")
     parser.add_argument("--keep-disk", action="store_true", help="keep the installed disk in --workdir")

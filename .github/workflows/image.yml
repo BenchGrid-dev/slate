@@ -1,9 +1,12 @@
 name: Image
 
 # Builds the x86_64 image, installs it in a virtual machine and boots what was installed
-# (tests/image/install_test.py): once without a network on a plain disk, once on an
-# encrypted one, and once followed by a software update to a release made on the spot
-# (installed on trial, kept from starting, started, gone back from). It takes about 40
+# (tests/image/install_test.py): once without a network on a plain disk (no agent
+# program: the image holds none), once on an encrypted one after Claude Code came into
+# the live session and the network went away (the installation copies it), and once
+# with a network (both agent programs are downloaded to the disk) followed by a
+# software update to a release made on the spot (installed on trial, kept from
+# starting, started, gone back from). It takes about 40
 # minutes, so it runs for minor releases only: on the commit "chore(release): prepare
 # X.Y.0", before that commit is tagged. Patch releases rely on the evaluation in ci.yml.
 # To run it for anything else: Actions, Image, Run workflow (all of it, or one part).
@@ -62,6 +65,9 @@ jobs:
           nix build .#iso --out-link image
           ls -l image/iso/
           df -h /
+      # Claude Code is not SlateOS's to hand on: the image names it and does not hold it.
+      - name: No agent program on the image
+        run: distro/release/check-image.sh
       - name: QEMU and firmware
         run: |
           nix build --inputs-from . nixpkgs#qemu_kvm --out-link qemu
@@ -70,9 +76,9 @@ jobs:
       - name: Install without a network, and boot
         if: inputs.tests != 'update'
         run: python3 tests/image/install_test.py --iso image/iso/*.iso --firmware "$OVMF_FV/OVMF.fd" --workdir "$RUNNER_TEMP/plain" --offline
-      - name: Install and boot, encrypted disk
+      - name: Install and boot, encrypted disk, Claude Code from the live session
         if: inputs.tests != 'update'
-        run: python3 tests/image/install_test.py --iso image/iso/*.iso --firmware "$OVMF_FV/OVMF.fd" --workdir "$RUNNER_TEMP/encrypted" --encrypt
+        run: python3 tests/image/install_test.py --iso image/iso/*.iso --firmware "$OVMF_FV/OVMF.fd" --workdir "$RUNNER_TEMP/encrypted" --encrypt --live-agent
       # With the firmware's variable store, as computers have one: the trial start of an
       # update is a variable the boot loader reads at the next start.
       - name: Install, boot, update, a version that does not start, the way back

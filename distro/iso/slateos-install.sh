@@ -5,14 +5,21 @@
 #   --apps minimal|full    the application set (default full; minimal for small disks)
 #   --home-files DIR       copy DIR's content into the new user's home directory (the
 #                          graphical installer passes the agent's connection this way)
+#   --agents LIST          the agent programs to install: claude-code,codex, or none
+#                          (default: every one that can be downloaded now)
 #   options for scripted use: --yes, --password-hash HASH, --passphrase-file FILE, --dry-run
+#
+# The image holds no agent program (Claude Code is not SlateOS's to hand on): the
+# installation downloads them to the disk, Claude Code from Anthropic and Codex from
+# cache.nixos.org. Without a network, or when that fails, SlateOS is installed without
+# them and offers the download at the first login.
 #
 # Layout: GPT, 512 MiB EFI system partition, the rest btrfs (inside LUKS2 with --encrypt)
 # with subvolumes @ (root), @nix, @home, and @home/<user> owned by the user, which is
 # what Slate's snapshots and undo need. Everything on the disk is erased.
 set -euo pipefail
 
-disk="" user="" host="slateos" tz="UTC" dry=0 yes=0 hash="" encrypt=0 passfile="" apps="full" homefiles=""
+disk="" user="" host="slateos" tz="UTC" dry=0 yes=0 hash="" encrypt=0 passfile="" apps="full" homefiles="" agents="auto"
 while [ $# -gt 0 ]; do
   case "$1" in
     --disk) disk="$2"; shift 2 ;;
@@ -24,13 +31,14 @@ while [ $# -gt 0 ]; do
     --passphrase-file) encrypt=1; passfile="$2"; shift 2 ;;  # scripted; otherwise asked
     --password-hash) hash="$2"; shift 2 ;;   # for scripted installs; otherwise asked
     --home-files) homefiles="$2"; shift 2 ;;
+    --agents) agents="$2"; shift 2 ;;
     --yes) yes=1; shift ;;                   # skip the disk confirmation (scripted installs)
     --dry-run) dry=1; shift ;;               # partition, subvolumes and configuration only
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '/^# slateos-install:/,/^[^#]/{/^#/p;}' "$0"; exit 0 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$disk" ] && [ -n "$user" ] || { echo "usage: slateos-install --disk DEV --user NAME [--host NAME] [--tz ZONE] [--encrypt] [--apps minimal|full]" >&2; exit 2; }
+[ -n "$disk" ] && [ -n "$user" ] || { echo "usage: slateos-install --disk DEV --user NAME [--host NAME] [--tz ZONE] [--encrypt] [--apps minimal|full] [--agents LIST|none]" >&2; exit 2; }
 case "$apps" in minimal|full) ;; *) echo "--apps is minimal or full" >&2; exit 2 ;; esac
 [ "$(id -u)" = 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
 [ -b "$disk" ] || { echo "$disk is not a block device" >&2; exit 1; }
@@ -122,15 +130,51 @@ sed -e "s|@USER@|$user|g" -e "s|@HOST@|$host|g" -e "s|@TZ@|$tz|g" -e "s|@HASH@|$
   "$template" > /mnt/etc/slateos/configuration.nix
 ln -sfn /etc/slateos /mnt/etc/nixos
 
+# The agent programs: the ones the live session holds already are copied; the others
+# are downloaded, when the place they come from answers. Asking first is quick; a
+# download that cannot start would keep Nix waiting for minutes.
+list=${SLATEOS_AGENTS:-/etc/slateos/agents.json}
+want=()
+case "$agents" in
+  none) ;;
+  auto) if [ -r "$list" ]; then mapfile -t want < <(jq -r 'keys[]' "$list"); fi ;;
+  *) IFS=, read -r -a want <<< "$agents" ;;
+esac
+programs=() downloads=0
+for name in "${want[@]}"; do
+  out="" check=""
+  if [ -r "$list" ]; then
+    out=$(jq -r --arg n "$name" '.[$n].out // empty' "$list")
+    check=$(jq -r --arg n "$name" '.[$n].check // empty' "$list")
+  fi
+  if [ -n "$out" ] && nix-store --check-validity "$out" 2>/dev/null; then
+    programs+=("$name")   # the live session downloaded it
+  elif [ -z "$check" ] || curl -fsS -o /dev/null --head --max-time 15 "$check"; then
+    programs+=("$name")
+    downloads=1
+  else
+    host=${check#*://}
+    echo "$name cannot be downloaded now (${host%%/*} does not answer): installing without it"
+  fi
+done
+# settings.json: what Settings chooses for the whole system, the agent programs first.
+write_settings() { jq -n '{agents: $ARGS.positional}' --args "$@" > /mnt/etc/slateos/settings.json; }
+write_settings "${programs[@]}"
+
 if [ "$dry" = 1 ]; then
   echo "== dry run: stopping before nixos-install; the target is mounted under /mnt"
   findmnt -R /mnt | head -8
   btrfs subvolume list /mnt
   sed -n '1,30p' /mnt/etc/slateos/configuration.nix
+  cat /mnt/etc/slateos/settings.json
   exit 0
 fi
 
-echo "== installing (this copies the system from the live image; no network needed)"
+if [ ${#programs[@]} -gt 0 ]; then
+  echo "== installing (this copies the system from the live image and downloads the agent programs: ${programs[*]})"
+else
+  echo "== installing (this copies the system from the live image; no network needed)"
+fi
 # nixos-install finds the configuration through NIXOS_CONFIG: /mnt/etc/nixos points at
 # /etc/slateos, which on the live system is the image's own directory, and the -I option
 # no longer counts. From /, because it first looks for a default.nix in the directory it
@@ -142,8 +186,24 @@ cd /
 # (environments, wrappers, units) as "always build here", which would make this machine
 # build some three hundred of them again and want a compiler for a few. What cannot be
 # copied (no network, or not there) is built (fallback).
-NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd \
-  --option flake-registry "" --option always-allow-substitutes true --option fallback true
+build() {
+  NIXOS_CONFIG=/mnt/etc/slateos/configuration.nix nixos-install --root /mnt --no-root-passwd \
+    --option flake-registry "" --option always-allow-substitutes true --option fallback "$1"
+}
+# While an agent program is to be downloaded, a download that fails ends the attempt:
+# with fallback, Nix would go on to build the program from its source (Codex: the Rust
+# toolchain and an hour). Without a download, fallback is what lets an installation
+# without a network build what it cannot copy.
+if [ "$downloads" = 1 ]; then fallback=false; else fallback=true; fi
+if ! build "$fallback"; then
+  [ ${#programs[@]} -gt 0 ] || exit 1
+  # A download that broke off must not cost the installation: everything else is on
+  # the image, and the programs can come later.
+  echo "== the installation with the agent programs did not finish; installing without them"
+  programs=()
+  write_settings
+  build true
+fi
 if [ -n "$homefiles" ] && [ -d "$homefiles" ]; then
   # Modes are kept (the agent's key is readable by its owner alone); the owner is set below.
   cp -a "$homefiles"/. "/mnt/home/$user/"
@@ -156,8 +216,15 @@ chown -R 1000:100 "/mnt/home/$user" || true
 
 echo
 echo "SlateOS is installed. Remove the medium and reboot; the desktop logs in as $user."
-if [ -n "$homefiles" ]; then
-  echo "The agent is connected: press Super+s and ask."
+# (The graphical installer reads this line.)
+if [ ${#programs[@]} -gt 0 ]; then
+  echo "Agent programs: ${programs[*]}"
 else
+  echo "Agent programs: none"
+  echo "SlateOS has no agent yet: at the first login it offers to download the agent programs (that needs the internet)."
+fi
+if [ -n "$homefiles" ] && [ ${#programs[@]} -gt 0 ]; then
+  echo "The agent is connected: press Super+s and ask."
+elif [ -z "$homefiles" ]; then
   echo "At the first login a welcome asks how the agent reaches a model (a subscription or an API key)."
 fi
