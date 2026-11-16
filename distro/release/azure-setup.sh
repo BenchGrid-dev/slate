@@ -32,19 +32,33 @@ az storage account update -n "$account" -g "$group" --allow-blob-public-access t
   --query "{account:name, publicContainersAllowed:allowBlobPublicAccess}" -o json
 
 step "2. container $container, blobs readable by anyone"
-az storage container create --name "$container" --account-name "$account" --public-access blob --auth-mode key -o none
-az storage container show --name "$container" --account-name "$account" --auth-mode key \
-  --query "{container:name, access:properties.publicAccess}" -o json
+# Through the resource manager, which fails when it fails: `az storage container create`
+# reports a container the service refused as "not created" and succeeds. And more than
+# once: the permission of step 1 takes up to a minute to reach the storage service,
+# which refuses a public container until then.
+for attempt in 1 2 3 4 5 6 7 8 9; do
+  if access=$(az storage container-rm create --storage-account "$account" -g "$group" --name "$container" \
+    --public-access blob --query publicAccess -o tsv) && [ "$access" = Blob ]; then
+    echo "container $container: blobs are public"
+    break
+  fi
+  [ "$attempt" -lt 9 ] || { echo "The container could not be made public (see above)." >&2; exit 1; }
+  echo "Not yet (the permission of step 1 takes a moment to arrive); again in 10 s."
+  sleep 10
+done
 
 step "3. access policy ci-upload: create and write, until $expiry"
+# --only-show-errors: without it every command says that it looks the account's key up.
 az storage container policy create --container-name "$container" --account-name "$account" \
-  --name ci-upload --permissions cw --expiry "$expiry" --auth-mode key -o none ||
+  --name ci-upload --permissions cw --expiry "$expiry" --auth-mode key --only-show-errors -o none ||
   az storage container policy update --container-name "$container" --account-name "$account" \
-    --name ci-upload --permissions cw --expiry "$expiry" --auth-mode key -o none
+    --name ci-upload --permissions cw --expiry "$expiry" --auth-mode key --only-show-errors -o none
+az storage container policy show --container-name "$container" --account-name "$account" \
+  --name ci-upload --auth-mode key --only-show-errors -o json
 
 step "4. repository secrets of $repo (the values are not shown)"
 az storage container generate-sas --name "$container" --account-name "$account" --policy-name ci-upload \
-  --https-only --auth-mode key -o tsv | gh secret set AZURE_STORAGE_SAS --repo "$repo"
+  --https-only --auth-mode key --only-show-errors -o tsv | gh secret set AZURE_STORAGE_SAS --repo "$repo"
 gh secret set SLATEOS_CACHE_KEY --repo "$repo" < "$key_file"
 gh secret list --repo "$repo"
 
@@ -68,5 +82,14 @@ az rest --method put -o none --body "$body" \
   echo "The budget could not be set from here (sponsored subscriptions do not always allow it): set one under Cost Management, Budgets, in the portal."
 
 step "done"
-echo "The cache's address: https://$account.blob.core.windows.net/$container/cache"
+url="https://$account.blob.core.windows.net/$container/cache"
+# Asked without an account, as an installed system asks. An empty public container
+# says "BlobNotFound"; one that is not public (yet) hides behind "ResourceNotFound".
+body=$(curl -s "$url/nix-cache-info" || true)
+case "$body" in
+  *StoreDir*|*BlobNotFound*) echo "Anyone can read the container (asked without an account)." ;;
+  *) echo "Asked without an account, the container does not answer yet ($(sed -n 's/.*<Code>\([^<]*\)<\/Code>.*/\1/p' <<<"$body"))."
+     echo "The settings above take up to a minute to arrive; ask again: curl $url/nix-cache-info" ;;
+esac
+echo "The cache's address: $url"
 echo "It is what distro/release/cache.json names: $(grep -o '"url": "[^"]*"' "$(dirname "$0")/cache.json")"
