@@ -299,6 +299,7 @@ impl Machine {
             health: None,
             trial: true,
             free_gib: 0,
+            release_cache: true,
         };
         let mut updater = Updater::with(Paths::under(&self.root), config);
         updater.settle = Duration::from_millis(10);
@@ -526,6 +527,17 @@ fn a_release_brings_its_binary_cache_along() {
         })
         .count();
     assert_eq!(with_cache, 2, "{calls}");
+
+    // A system that builds what its own caches lack leaves the release's alone.
+    let machine = Machine::new();
+    machine.publish_with_cache("0.3.1");
+    let mut updater = machine.updater();
+    updater.config.release_cache = false;
+    updater
+        .install(Asked::Person, &mut |_| {})
+        .unwrap()
+        .unwrap();
+    assert!(!machine.calls().contains("extra-substituters"));
 }
 
 #[test]

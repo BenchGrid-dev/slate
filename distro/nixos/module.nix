@@ -763,6 +763,18 @@ in
       '';
     };
 
+    update.releaseCache = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Take prebuilt packages from the binary cache a release's signed manifest names
+        (Slate itself and the packages SlateOS patches). That cache is filled and signed
+        by SlateOS's build service. Off: an update takes only what the caches this
+        system is configured with hold, and builds the rest here from the release's
+        source, which takes longer and trusts nothing but the release key.
+      '';
+    };
+
     update.cache = lib.mkOption {
       type = lib.types.nullOr (lib.types.submodule {
         options.url = lib.mkOption { type = lib.types.str; description = "The binary cache's address."; };
@@ -770,9 +782,8 @@ in
       });
       default = null;
       description = ''
-        A binary cache with what a SlateOS release is made of and cache.nixos.org does
-        not have: Slate itself and the packages SlateOS patches. Without one an update
-        builds those on this computer.
+        A binary cache this system always asks, besides the one a release names: for
+        a fork or a company that keeps its own builds of what a release is made of.
       '';
     };
 
@@ -1248,6 +1259,7 @@ in
       keys = cfg.update.publicKeys;
       config = "/etc/slateos";
       trial = cfg.update.trial;
+      release_cache = cfg.update.releaseCache;
       # A new version counts as working once the session the desktop logs into by
       # itself stays up. slate-desktop needs the compositor and is restarted when it
       # fails, so the same process twenty seconds later is a desktop that runs.

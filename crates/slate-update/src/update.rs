@@ -253,7 +253,11 @@ impl Updater {
         self.progress(state, "Preparing", 0, 0);
         let nixpkgs = sys.pinned_nixpkgs(&self.source())?;
         let drv = sys.instantiate(&nixpkgs, &self.configuration())?;
-        let cache = offer.manifest.cache.as_ref();
+        let cache = offer
+            .manifest
+            .cache
+            .as_ref()
+            .filter(|_| self.config.release_cache);
         let plan = sys.plan(&drv, cache)?;
         if let Some(free) = sys.free_bytes() {
             if free < plan.unpacked_bytes + (1 << 30) {

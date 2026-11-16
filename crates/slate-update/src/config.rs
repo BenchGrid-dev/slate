@@ -107,6 +107,10 @@ pub struct Config {
     /// Free space on /nix an update wants at least, in GiB.
     #[serde(default = "default_free")]
     pub free_gib: u64,
+    /// Take prebuilt packages from the binary cache a release names. Off: only from
+    /// the caches the system is configured with, and the rest is built here.
+    #[serde(default = "yes")]
+    pub release_cache: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -53,7 +53,8 @@ The trial needs systemd-boot (what the installer sets up) and firmware that keep
 - A release is the Slate source at a tag. Its `flake.lock` names the nixpkgs revision the release was built and tested on, so a SlateOS version is one fixed set of packages, not "Slate plus whatever NixOS has today".
 - Each release publishes a small manifest (`slateos-update.json`): the version, the date, a summary, where the source archive is and its SHA-256. The manifest is signed with SlateOS's release key (Ed25519). Your system holds the public half (`services.slate.update.publicKeys`) and reads no manifest that is not signed with it; the source archive is checked against the manifest's checksum. So neither the server the files come from nor the network in between can make your computer install something else.
 - A version is never replaced by an older one this way.
-- The installed system keeps the Slate source next to its configuration, in `/etc/slateos/slate`. An update puts the new source there (the old one is kept as `slate.previous`), evaluates `/etc/slateos/configuration.nix` against the release's nixpkgs, and builds the system. What cache.nixos.org and SlateOS's own cache hold is downloaded; the rest, mostly the small files with your computer's names in them, is built on your machine.
+- The installed system keeps the Slate source next to its configuration, in `/etc/slateos/slate`. An update puts the new source there (the old one is kept as `slate.previous`), evaluates `/etc/slateos/configuration.nix` against the release's nixpkgs, and builds the system. What cache.nixos.org holds is downloaded, and so is what the release's own binary cache holds: Slate itself and the packages SlateOS patches, built for both architectures when the release was made. The rest, mostly the small files with your computer's names in them, is built on your machine.
+- The release's cache is named in the signed manifest, with the key its packages are signed with, so it can move without installed systems having to learn a new address. It is filled and signed by SlateOS's build service, not on the maintainer's machine as the manifest is. A system that would rather compile than rely on that sets `services.slate.update.releaseCache = false`; the update then takes longer and rests on the release key alone.
 - `slateos-rebuild` evaluates against the same nixpkgs, so a rebuild between updates (an input method from Settings, a package you added) does not move the system to other package versions. `nix-shell -p` and `nix shell nixpkgs#…` use that revision too.
 
 The state is in `/var/lib/slateos-update/state.json`, readable by everyone; `log` next to it holds the last installation's output.
@@ -66,11 +67,10 @@ A fork, or a company with its own releases, points the updater at them in the co
 services.slate.update = {
   url = "https://example.org/releases/slateos-update.json";
   publicKeys = [ "…base64…" ];                 # slateos-update keygen FILE prints it
-  cache = { url = "https://cache.example.org"; publicKey = "example-1:…"; };
 };
 ```
 
-`distro/release/make-update.py` writes a release's three files; [releasing](releasing.md) has the steps.
+`distro/release/make-update.py` writes a release's three files, the manifest with the binary cache it names (`distro/release/cache.json`); [releasing](releasing.md) has the steps. `services.slate.update.cache` adds a cache the system always asks.
 
 ## Limits
 

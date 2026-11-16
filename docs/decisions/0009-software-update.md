@@ -19,7 +19,7 @@ Three things are particular to SlateOS:
 
 **A release is the Slate source at a tag, and it fixes the whole system.** The flake lock names the nixpkgs revision the release was tested on. An installed system is evaluated against that revision, by the updater and by `slateos-rebuild` alike, and no longer against a channel.
 
-**An update replaces the source and builds the configuration again.** `slateos-update` downloads the release's source, puts it in place of `/etc/slateos/slate` (keeping the old one), evaluates the person's configuration against the release's nixpkgs and builds it. Prebuilt packages come from cache.nixos.org and from a binary cache of SlateOS's own for what that one lacks; what carries the machine's names is built on the machine. This is the same work an installation does.
+**An update replaces the source and builds the configuration again.** `slateos-update` downloads the release's source, puts it in place of `/etc/slateos/slate` (keeping the old one), evaluates the person's configuration against the release's nixpkgs and builds it. Prebuilt packages come from cache.nixos.org and from a binary cache of SlateOS's own for what that one lacks; what carries the machine's names is built on the machine. This is the same work an installation does. The manifest names that cache and its key, so where a release's packages are kept is the release's business and can change.
 
 **The release is named by a signed manifest.** A small JSON file on the release page gives the version, the source archive's address and its SHA-256. It is signed with Ed25519; installed systems hold the public keys and read nothing else. The key stays with the maintainer and is not a secret of the build service.
 
@@ -36,6 +36,7 @@ Three things are particular to SlateOS:
 - The trial needs systemd-boot and firmware that keeps its variables. Where either is missing the new version becomes the default at once, and recovery is the boot menu, as on any NixOS. The updater sees firmware that forgets variables from the boot entry the installation wrote, and does not promise a trial there.
 - "Came up" is judged by the session of the person the desktop logs in by itself. A system with a login screen counts as up when it has finished starting.
 - Between the installation and the restart, the source on disk is already the new release's. `slateos-rebuild` refuses to switch in that window, because what it built would be the new release and the default, past the trial.
+- The binary cache is filled and signed by the build service, for two architectures no single machine of the maintainer's builds. Its key is therefore a secret of that service, and whoever controls the service could put a wrong binary under a right name. The manifest's signature does not cover that. It is the trust every distribution places in its build farm; a system that will not place it turns the release's cache off and compiles.
 - The release key decides what every installation runs. Two public keys ship: the one releases are signed with and a second kept apart from it, so that losing the first does not strand installed systems.
 - Systems installed before this (0.2) have no updater and take one manual step to 0.3.0.
 - The manifest can name a release older systems must take first (`from`, `step`), so a later change to this mechanism can go through an intermediate release.
