@@ -57,10 +57,13 @@ for name in "${names[@]}"; do
       "Install SlateOS without it: the installation downloads it to the disk." >&2
     exit 3
   fi
-  drv=$(field "$name" drv)
-  if [ -n "$drv" ]; then
+  attr=$(field "$name" attr)
+  if [ -n "$attr" ]; then
     # Not in a binary cache: the file comes from its maker and is put together here,
-    # with tools the image holds.
+    # by nixpkgs' recipe and with tools the image holds. The recipe is made from the
+    # nixpkgs the image was built from, so it gives the very program the image names
+    # and an installation asks for.
+    drv=$(nix-instantiate "${SLATEOS_NIXPKGS:-<nixpkgs>}" -A "$attr" --arg config '{ allowUnfree = true; }' 2>/dev/null)
     nix-store --realise "$drv" >/dev/null
     # The downloaded file is in the program now; its own copy only takes memory.
     src=$(field "$name" src)
@@ -68,7 +71,10 @@ for name in "${names[@]}"; do
   else
     nix-store --realise "$out" >/dev/null
   fi
-  nix-store --check-validity "$out"
+  if ! nix-store --check-validity "$out" 2>/dev/null; then
+    echo "$name was built, but not as the program this image names ($out)" >&2
+    exit 1
+  fi
   got+=("$out")
 done
 

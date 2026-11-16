@@ -15,7 +15,7 @@ let
   # puts it together itself, with what that takes already on the image (below).
   agentPrograms = config.services.slate.agentPrograms;
   assembledHere = p: !(lib.all (l: l.free or true) (lib.toList (p.meta.license or [ ])));
-  agentList = lib.mapAttrs (_: p: {
+  agentList = lib.mapAttrs (name: p: {
     inherit (p) version;
     # As text: naming the program must not bring it onto the image.
     out = builtins.unsafeDiscardStringContext p.outPath;
@@ -24,14 +24,17 @@ let
       if assembledHere p then p.src.url
       else "https://cache.nixos.org/${builtins.substring 11 32 (builtins.unsafeDiscardStringContext p.outPath)}.narinfo";
   } // lib.optionalAttrs (assembledHere p) {
-    # The recipe (a small file, with the recipes it rests on) is on the image; what
-    # it makes is not.
-    drv = builtins.unsafeDiscardOutputDependency p.drvPath;
+    # Its name in nixpkgs: the live session makes the recipe from the nixpkgs the image
+    # holds. (The recipe itself cannot be on the image: Nix takes a recipe in an
+    # image's store as a wish for everything it makes and is made from.)
+    attr = name;
     src = builtins.unsafeDiscardStringContext p.src.outPath;
   }) agentPrograms;
   liveAgents = pkgs.writeShellApplication {
     name = "slateos-live-agents";
     runtimeInputs = with pkgs; [ jq curl coreutils gawk gnused config.nix.package ];
+    # The nixpkgs this image was built from (on the image, see extraDependencies).
+    runtimeEnv.SLATEOS_NIXPKGS = nixpkgs.outPath;
     text = builtins.readFile ./slateos-live-agents.sh;
   };
   # The graphical front end: the welcome (try or install) and the install steps.

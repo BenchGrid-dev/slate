@@ -295,8 +295,8 @@ def install(args):
         log(f"install: live system: {out.strip().splitlines()[0]}; target disk {disk}")
         # The image holds no agent program: Claude Code is not SlateOS's to hand on. It
         # names them (which version, where from) and an installation downloads them.
-        # (The store path itself: its recipe, a .drv, and the stand-in that holds its
-        # build tools, "inputDerivation-claude-code-…", are on the image on purpose.)
+        # (The store path itself: the stand-in that holds its build tools,
+        # "inputDerivation-claude-code-…", is on the image on purpose.)
         status, out = vm.run("slateos-live-agents --status; ls /nix/store | grep -E '^[a-z0-9]{32}-(claude-code|codex)-[0-9.]+$'; echo listed", 60)
         states = re.findall(r"^(claude-code|codex) \S+ (here|missing)$", out, re.M)
         if sorted(states) != [("claude-code", "missing"), ("codex", "missing")] or re.search(r"^[a-z0-9]{32}-(claude-code|codex)-[0-9.]+$", out, re.M):
