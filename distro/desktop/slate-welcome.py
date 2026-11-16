@@ -9,8 +9,10 @@ that has not happened yet, then shows the short tutorial.
     slate-welcome --agent      the connection alone (Settings, AI opens it)
 
 The agent's connection is required: the first-run welcome comes back at every login
-until the agent can reach a model, because without one SlateOS is a desktop that
-does not answer.
+until the agent can work, because without one SlateOS is a desktop that does not
+answer. That takes the agent's program (Claude Code or Codex; SlateOS's image holds
+neither, so the form downloads them where they are missing) and a way to a model.
+Skip leaves it for later, after saying what that costs.
 """
 import os
 import subprocess
@@ -45,9 +47,13 @@ class Welcome(Adw.ApplicationWindow):
         self.back.connect("clicked", lambda *_: self.go(-1))
         self.next = Gtk.Button(label="Continue", css_classes=["suggested-action"])
         self.next.connect("clicked", lambda *_: self.go(1))
+        # On the agent's page of the whole welcome, while it is not complete.
+        self.skip = Gtk.Button(label="Skip…", visible=False)
+        self.skip.connect("clicked", lambda *_: A.confirm_without_agent(self, lambda: self.go(1, save=False)))
         bar = Gtk.Box(spacing=8, margin_top=10, margin_bottom=12, margin_start=16, margin_end=16)
         bar.append(self.back)
         bar.append(Gtk.Box(hexpand=True))
+        bar.append(self.skip)
         bar.append(self.next)
         view = Adw.ToolbarView()
         view.add_top_bar(header)
@@ -88,6 +94,7 @@ class Welcome(Adw.ApplicationWindow):
             return
         first = self.pages.index(name) == 0
         self.back.set_visible(not first or (name == "tour" and self.tour.position() > 0))
+        self.skip.set_visible(name == "agent" and self.only is None and not self.agent.complete)
         if name == "hello":
             self.next.set_label("Get Started")
             self.next.set_sensitive(True)
@@ -98,13 +105,13 @@ class Welcome(Adw.ApplicationWindow):
             self.next.set_label("Start Using SlateOS" if self.tour.at_end() else "Next")
             self.next.set_sensitive(True)
 
-    def go(self, delta):
+    def go(self, delta, save=True):
         name = self.page()
         if name == "tour" and ((delta > 0 and not self.tour.at_end()) or (delta < 0 and self.tour.position() > 0)):
             self.tour.turn(delta)
             GLib.timeout_add(350, lambda: (self.update(), False)[1])
             return
-        if delta > 0 and name == "agent":
+        if delta > 0 and name == "agent" and save:
             self.agent.save()
             restart_prompt()
         i = self.pages.index(name) + delta

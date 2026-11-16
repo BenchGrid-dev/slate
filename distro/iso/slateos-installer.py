@@ -6,12 +6,17 @@
                                  live session opens it at login
 
 It asks where (a whole disk, which is erased), who (user name, password, computer
-name), how the agent reaches a model (a Claude subscription or an API key: a required
-step, because SlateOS without an agent does not answer) and how (time zone,
-applications, disk encryption), then runs slateos-install with those answers and
-follows its progress, with the short tutorial to read meanwhile. The password reaches
-slateos-install as a hash only; the disk passphrase and the agent's key go through
-files only the person and root can read.
+name), how the agent reaches a model (a Claude or ChatGPT subscription, or an API
+key) and how (time zone, applications, disk encryption), then runs slateos-install
+with those answers and follows its progress, with the short tutorial to read
+meanwhile. The password reaches slateos-install as a hash only; the disk passphrase
+and the agent's key go through files only the person and root can read.
+
+The agent's step is required, because SlateOS without an agent does not answer:
+Continue waits for a connection. Skip is there for someone who cannot connect now
+(no network, no account yet) and says what it costs before it goes on. The agent's
+programs are not on the image; slateos-install downloads them to the disk, and the
+form downloads the one a sign-in needs into the live session.
 
 For development: --dry-run passes --dry-run on (partitions and writes the
 configuration, then stops), --disk PATH offers PATH (a loop device) besides the real
@@ -179,9 +184,13 @@ class Installer(Adw.ApplicationWindow):
         self.back.connect("clicked", lambda *_: self.go(-1))
         self.next = Gtk.Button(label="Continue", css_classes=["suggested-action"])
         self.next.connect("clicked", lambda *_: self.go(1))
+        # Only on the agent's step, and only while it is not complete.
+        self.skip = Gtk.Button(label="Skip…", visible=False)
+        self.skip.connect("clicked", lambda *_: slate_agent.confirm_without_agent(self, lambda: self.show("setup")))
         bar = Gtk.Box(spacing=8, margin_top=10, margin_bottom=12, margin_start=16, margin_end=16)
         bar.append(self.back)
         bar.append(Gtk.Box(hexpand=True))
+        bar.append(self.skip)
         bar.append(self.next)
 
         self.toolbar = Adw.ToolbarView()
@@ -196,7 +205,9 @@ class Installer(Adw.ApplicationWindow):
         self.stack.add_named(self.disk_page(), "disk")
         self.stack.add_named(self.account_page(), "account")
         self.home_files = None
-        self.agent = slate_agent.AgentSetup(on_change=self.update_next, window=self)
+        self.programs = None         # the agent programs slateos-install put on the disk, once it says
+        self.connected = False       # whether the agent's step was completed when the installation started
+        self.agent = slate_agent.AgentSetup(on_change=self.update_next, window=self, installing=True)
         self.stack.add_named(self.agent, "agent")
         self.stack.add_named(self.setup_page(), "setup")
         self.review_group = Adw.PreferencesGroup(title="Ready to install")
@@ -358,13 +369,10 @@ class Installer(Adw.ApplicationWindow):
         return box
 
     def done_page(self):
-        page = Adw.StatusPage(
+        page = self.done = Adw.StatusPage(
             # In Adwaita too: at login the window can open before the icon theme applies.
             icon_name="object-select-symbolic",
             title="SlateOS is installed",
-            description="Remove the installation medium, then restart. In a virtual machine, eject the "
-            "ISO image first (UTM: the CD/DVD button in the toolbar, then Clear).\n"
-            "After the restart your agent is connected: press Super+S and ask.",
         )
         box = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, css_classes=["welcome-buttons"])
         keep = Gtk.Button(label="Keep Trying", css_classes=["pill"])
@@ -465,6 +473,7 @@ class Installer(Adw.ApplicationWindow):
         elif name == "setup":
             ok = self.setup_problem() is None
         self.next.set_sensitive(ok)
+        self.skip.set_visible(name == "agent" and not ok)
 
     def zone(self):
         return self.zones[self.zone_row.get_selected()]
@@ -479,7 +488,8 @@ class Installer(Adw.ApplicationWindow):
             ("Disk (erased)", self.disk() or ""),
             ("User", self.user_row.get_text().strip()),
             ("Computer name", self.host_row.get_text().strip()),
-            ("Agent", self.agent.summary()),
+            ("Agent", self.agent.summary() if self.agent.complete
+             else "Not connected. SlateOS cannot answer until you connect an agent, in the welcome at the first start or in Settings, AI."),
             ("Time zone", self.zone()),
             ("Applications", "Everyday apps (needs the internet)" if self.apps() == "full" else "Minimal"),
             ("Disk encryption", "On" if self.encrypt_row.get_active() else "Off"),
@@ -532,12 +542,16 @@ class Installer(Adw.ApplicationWindow):
             with os.fdopen(fd, "w") as f:
                 f.write(self.pass_row.get_text())
             cmd += ["--passphrase-file", self.passfile]
-        # The agent's connection, as files for the new home directory: the key, or
-        # Claude Code's sign-in from this session.
-        self.home_files = tempfile.mkdtemp(prefix="slateos-home-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
-        for rel, text in self.agent.files().items():
-            slate_agent.write_private(os.path.join(self.home_files, rel), text)
-        cmd += ["--home-files", self.home_files]
+        # The agent's connection, as files for the new home directory: the key, or the
+        # program's sign-in from this session. Nothing for a step that was skipped: the
+        # welcome asks at the first start.
+        self.connected = self.agent.complete
+        self.programs = None
+        if self.connected:
+            self.home_files = tempfile.mkdtemp(prefix="slateos-home-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
+            for rel, text in self.agent.files().items():
+                slate_agent.write_private(os.path.join(self.home_files, rel), text)
+            cmd += ["--home-files", self.home_files]
         if self.dry_run:
             cmd.append("--dry-run")
         self.expected_paths = self.count_store_paths()
@@ -584,6 +598,13 @@ class Installer(Adw.ApplicationWindow):
             if low.startswith(marker) or (not marker.startswith("==") and marker in low):
                 self.bar.set_fraction(max(self.bar.get_fraction(), fraction))
                 self.stage.set_text(text)
+        if low.startswith("== installing") and "agent programs" in low:
+            self.stage.set_text("Copying SlateOS to the disk and downloading the agent's programs")
+        elif low.startswith("== the installation with the agent programs"):
+            self.stage.set_text("Installing without the agent's programs")
+        if low.startswith("agent programs:"):
+            names = line.split(":", 1)[1].split()
+            self.programs = [] if names == ["none"] else names
         if low.startswith("copying path"):
             self.copied += 1
             frac = 0.12 + 0.82 * min(1.0, self.copied / self.expected_paths)
@@ -632,10 +653,23 @@ class Installer(Adw.ApplicationWindow):
             self.home_files = None
         if ok:
             self.bar.set_fraction(1.0)
+            self.done.set_description(self.done_text())
             self.show("done")
         else:
             self.failed.set_description(f"The last message was:\n{last}" if last else "")
             self.show("failed")
+
+    def done_text(self):
+        text = ("Remove the installation medium, then restart. In a virtual machine, eject the "
+                "ISO image first (UTM: the CD/DVD button in the toolbar, then Clear).\n")
+        need = self.agent.needed()
+        if self.programs is not None and need not in self.programs:
+            # No network during the installation, or the download broke off.
+            return text + (f"{slate_agent.PROGRAMS[need][0]} could not be downloaded, so SlateOS has no agent yet. "
+                           "After the restart it offers the download again: connect to the internet first.")
+        if not self.connected:
+            return text + "After the restart SlateOS asks you to connect your agent. Until then it cannot answer."
+        return text + "After the restart your agent is connected: press Super+S and ask."
 
     def save_log(self, *_):
         path = os.path.expanduser("~/slateos-install.log")

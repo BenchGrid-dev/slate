@@ -18,7 +18,6 @@ import subprocess
 import sys
 import threading
 import time
-import tomllib
 
 import gi
 
@@ -317,41 +316,10 @@ class SlatePage(Gtk.Box):
             self.mem_group.add(row)
 
 
-SLASH_CONFIG = os.path.expanduser("~/.config/slate/slash.toml")
-
-
-def load_slash_config():
-    try:
-        with open(SLASH_CONFIG, "rb") as f:
-            return tomllib.load(f)
-    except Exception:  # noqa: BLE001
-        return {}
-
-
-def toml_value(v):
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, list):
-        return "[" + ", ".join(toml_value(x) for x in v) + "]"
-    return json.dumps(str(v))
-
-
-def save_slash_config(cfg):
-    """slash.toml is small and flat (scalars at the top, one level of tables): write it by hand."""
-    os.makedirs(os.path.dirname(SLASH_CONFIG), exist_ok=True)
-    lines = ["# written by Slate Settings; slash reads this at start"]
-    for k, v in cfg.items():
-        if not isinstance(v, dict):
-            lines.append(f"{k} = {toml_value(v)}")
-    for k, v in cfg.items():
-        if isinstance(v, dict):
-            lines.append(f"\n[{k}]")
-            for k2, v2 in v.items():
-                lines.append(f"{k2} = {toml_value(v2)}")
-    with open(SLASH_CONFIG, "w") as f:
-        f.write("\n".join(lines) + "\n")
+# slash.toml, which the agent's form writes too (the program that is the agent).
+SLASH_CONFIG = slate_agent.SLASH_CONFIG
+load_slash_config = slate_agent.load_slash_config
+save_slash_config = slate_agent.save_slash_config
 
 
 class AppearancePage(Gtk.Box):
@@ -552,14 +520,22 @@ class AIPage(Page):
         page = self.page
 
         connection = Adw.PreferencesGroup(
-            title="Connection",
-            description="How the agent reaches a model: your Claude subscription, or an API key of your own (OpenAI or Anthropic format).")
+            title="Your Agent",
+            description="How the agent reaches a model: a Claude or ChatGPT subscription, or an API key of your own (OpenAI or Anthropic "
+                        "format). Its programs, Claude Code and Codex, are not shipped with SlateOS: this computer downloads them.")
         page.add(connection)
         self.connection_row = Adw.ActionRow(title="Connected through", subtitle="Checking…")
-        change = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
-        change.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--agent"]))
-        self.connection_row.add_suffix(change)
+        self.connection_warning = Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["error"], visible=False)
+        self.connection_row.add_prefix(self.connection_warning)
+        self.connection_button = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
+        self.connection_button.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--agent"]))
+        self.connection_row.add_suffix(self.connection_button)
         connection.add(self.connection_row)
+        self.programs_row = Adw.ActionRow(title="Agent programs", subtitle="Checking…")
+        self.programs_button = Gtk.Button(label="Download…", valign=Gtk.Align.CENTER, visible=False)
+        self.programs_button.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--agent"]))
+        self.programs_row.add_suffix(self.programs_button)
+        connection.add(self.programs_row)
         tour = Adw.ActionRow(title="How to work with the agent", subtitle="The short tutorial from the welcome")
         show = Gtk.Button(label="Show", valign=Gtk.Align.CENTER)
         show.connect("clicked", lambda *_: subprocess.Popen(["slate-welcome", "--tour"]))
@@ -740,7 +716,27 @@ class AIPage(Page):
         save_slash_config(self.cfg)
 
     def refresh_connection(self):
-        in_thread(slate_agent.describe, lambda text: self.connection_row.set_subtitle(text if isinstance(text, str) else "Unknown"))
+        def work():
+            return slate_agent.describe(), slate_agent.programs_summary(), all(slate_agent.has_program(n) for n in slate_agent.PROGRAMS)
+
+        def done(result):
+            if isinstance(result, Exception):
+                self.connection_row.set_subtitle("Unknown")
+                return
+            text, programs, all_here = result
+            # (Every line that tells of a missing piece starts with "Not".)
+            connected = not text.startswith("Not ")
+            self.connection_row.set_title("Connected through" if connected else "The agent is not set up")
+            self.connection_row.set_subtitle(text if connected else f"{text}. Until it is, SlateOS cannot answer.")
+            self.connection_button.set_label("Change…" if connected else "Set Up…")
+            self.connection_warning.set_visible(not connected)
+            if connected:
+                self.connection_button.remove_css_class("suggested-action")
+            else:
+                self.connection_button.add_css_class("suggested-action")
+            self.programs_row.set_subtitle(programs)
+            self.programs_button.set_visible(not all_here)
+        in_thread(work, done)
 
     def add_auth_buttons(self, row, login_cmd, logout_cmd):
         login = Gtk.Button(label="Sign in…", valign=Gtk.Align.CENTER)
@@ -757,15 +753,17 @@ class AIPage(Page):
 
     def refresh_auth(self):
         def work():
-            claude = run(["claude", "auth", "status"])
-            try:
-                st = json.loads(claude)
-                who = st.get("email") or st.get("account") or st.get("authMethod") or ""
-                claude_text = f"Signed in ({who})" if st.get("loggedIn") else "Not signed in"
-            except Exception:  # noqa: BLE001
-                claude_text = "claude not installed" if not claude else claude.splitlines()[0]
-            codex = run(["codex", "login", "status"])
-            codex_text = codex.splitlines()[0] if codex else "codex not installed"
+            # (The programs are downloaded, not shipped: a system can be without them.)
+            missing = "Not installed. Your Agent, above, downloads it."
+            if not slate_agent.has_program("claude-code"):
+                claude_text = missing
+            else:
+                who = slate_agent.claude_account()
+                claude_text = "Not signed in" if who is None else "Signed in" + (f" ({who})" if who else "")
+            if not slate_agent.has_program("codex"):
+                codex_text = missing
+            else:
+                codex_text = "Signed in" if slate_agent.codex_account() is not None else "Not signed in"
             GLib.idle_add(self.claude_row.set_subtitle, claude_text)
             GLib.idle_add(self.codex_row.set_subtitle, codex_text)
 
