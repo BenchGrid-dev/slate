@@ -11,6 +11,7 @@ put() {
   file=$1 name=${1#"$dir"/}
   if curl -sf -o /dev/null -I "$url/$name"; then echo "have $name"; return; fi
   curl -sf --retry 3 -X PUT -H "x-ms-blob-type: BlockBlob" -H "x-ms-version: 2021-08-06" \
+    -H "Content-Type: application/octet-stream" \
     --data-binary "@$file" "$url/$name?$sas" -o /dev/null || { echo "FAILED $name" >&2; return 1; }
   echo "put  $name"
 }
