@@ -45,7 +45,7 @@ Agent 通过独立的 Wayland seat 获得自己的指针、键盘和焦点，并
 
 ### 你选择的 Agent，系统级的集成
 
-Slate 启动官方 **Claude Code** 或 **Codex** CLI，通过其无头运行接口和可用扩展点集成。使用订阅时，认证与模型访问由所选后端负责。你也可以接入**自己的 API 密钥**，支持 OpenAI 和 Anthropic 两种格式（接口地址、密钥、模型名）：此时 Claude Code 连接的是本机上的一个网关，由网关保管密钥并访问你的服务，审批、审计和撤销照常工作。安装器和首次登录时会询问使用哪种方式，之后可在「设置 → AI」中修改。详见[连接 agent](docs/agent-connection.md)。
+Slate 启动官方 **Claude Code** 或 **Codex** CLI，通过其无头运行接口和可用扩展点集成。使用订阅时，认证与模型访问由所选后端负责。你也可以接入**自己的 API 密钥**，支持 OpenAI 和 Anthropic 两种格式（接口地址、密钥、模型名）：此时 Claude Code 连接的是本机上的一个网关，由网关保管密钥并访问你的服务，审批、审计和撤销照常工作。安装器和首次登录时会询问使用哪种方式，之后可在「设置 → AI」中修改。SlateOS 的镜像不包含这两个 CLI：每台电脑在安装时自行下载，也可以之后在「设置 → AI」中下载。详见[连接 agent](docs/agent-connection.md)。
 
 ### 同时理解意图与命令的 shell
 
@@ -123,7 +123,7 @@ slate.nixosModules.default
 }
 ```
 
-按原有 NixOS 流程重新构建系统，然后登录 sway 会话。这会启用 SlateOS 桌面配置，安装运行时与默认的 Claude Code 后端，启动用户服务，并将指定用户的登录 shell 设为 `slash`。在「设置 → AI」中登录后端，即可按 **Super+s** 开始使用。
+按原有 NixOS 流程重新构建系统，然后登录 sway 会话。这会启用 SlateOS 桌面配置，安装运行时与默认的 Claude Code 后端（它是非自由软件包：需要在配置中允许，或自行设置 `services.slate.agents`），启动用户服务，并将指定用户的登录 shell 设为 `slash`。在「设置 → AI」中登录后端，即可按 **Super+s** 开始使用。
 
 该模块会在每次登录和每次升级后，为 Claude Code 链接随附的 OS Skills（`slate-skills` 用户服务），并根据当前机器的工具和发行版选择适用的 Skills。不使用该模块时，可在 `slash` 中手动安装：
 

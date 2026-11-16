@@ -32,9 +32,12 @@ slateos-settings show                                      # what the system off
 sudo slateos-settings set input-methods pinyin             # Chinese Pinyin; also rime, mozc (Japanese), hangul (Korean)
 sudo slateos-settings set input-methods pinyin,mozc        # several, in this order
 sudo slateos-settings set input-methods none
+sudo slateos-settings set agents all                       # download and install the agent programs (claude-code, codex)
 ```
 
 Tier: confirm (a rebuild that downloads the input method, a minute or more). After it, the person switches with Ctrl+Space; apps opened before may need reopening. Settings, Keyboard does the same for the person.
+
+The agent programs (Claude Code, Codex) are not part of SlateOS's image; each system downloads them, and `slateos-settings show` lists which it has (`agents`). `set agents all` adds the missing one: a rebuild that downloads a few hundred megabytes, tier confirm. `set agents none` would remove the program you are running as; leave that to the person.
 
 Two more choices govern you, and they are the person's alone: what you may do in windows while the screen is locked (`agent-while-locked`: `pause`, `elements`, `continue`) and whether the screen locks while you work (`lock-while-agent-works`: `yes`, `no`). `slateos-settings get agent-while-locked` reads one (tier: observe). Never change them on your own initiative, and never suggest loosening them to finish a task; when the person asks, point them to Settings, AI, which explains what each choice allows, or run `sudo slateos-settings set agent-while-locked pause` and the like for them (they type their password).
 

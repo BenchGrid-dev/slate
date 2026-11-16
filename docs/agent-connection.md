@@ -1,17 +1,41 @@
 # Connecting the agent
 
-SlateOS works through an AI agent, and the agent needs a model. There are two ways to give it one. The installer asks which, the welcome at first login asks again if the answer is still missing, and Settings, AI changes it later.
+SlateOS works through an AI agent. The agent is a program, Claude Code or Codex, and it needs a model. The installer asks how it gets one, the welcome at first login asks again if the answer is still missing, and Settings, AI changes it later.
 
 | | What you need | What runs |
 |---|---|---|
 | **Claude subscription** | A Claude account (Pro or Max) | Claude Code, signed in as you, talking to Anthropic by itself |
+| **ChatGPT subscription** | A ChatGPT account (Plus or Pro) | Codex, signed in as you, talking to OpenAI by itself |
 | **An API key of your own** | An address, a key and a model name, from any service in OpenAI's or Anthropic's format | Claude Code, talking to a gateway on this computer, which holds the key and reaches the service |
 
-Either way the agent is Claude Code, so approvals, the audit log and undo work the same. Codex, where it is installed, keeps its own sign-in (Settings, AI); it runs without Slate's approvals.
+With Claude Code, approvals, the audit log and undo work the same whichever way it reaches a model. Codex works in its own sandbox: SlateOS records its tasks, and does not ask before its actions or undo them.
+
+## The agent's programs
+
+SlateOS's image contains neither Claude Code nor Codex. Claude Code is Anthropic's, under a licence that does not let SlateOS hand it on, so every computer gets the programs itself: Claude Code from Anthropic's download server, Codex from the NixOS package cache. Together they are a few hundred megabytes, and getting them needs the internet.
+
+| When | What happens |
+|---|---|
+| Installing, with a network | The installation downloads both to the disk. A sign-in in the installer needs its program earlier: **Download** fetches that one into the live session, and the installation copies it from there |
+| Installing, without a network | SlateOS is installed without them. So it is when a download breaks off: the installation finishes without the programs rather than fail |
+| At the first login | The welcome sees that the program is missing and offers **Download** (the internet, your password, a few minutes), then goes on to the connection |
+| Later | Settings, AI, Your Agent shows which programs are installed and opens the same form |
+
+From a terminal: `sudo slateos-settings set agents all` installs them, `sudo slateos-settings set agents none` removes them (the names are `claude-code` and `codex`). A system that uses the SlateOS module in a configuration of its own chooses with `services.slate.agents`, as before.
+
+A new SlateOS release brings the versions of both it was tested with; a software update downloads them the same way.
+
+## Going on without an agent
+
+The installer's step and the welcome have **Skip**. It asks first, because it is a bad idea: without an agent the prompt (Super+S) and the terminal do not answer, and what is left is a bare desktop. It is there for a computer that has no network yet, or a person who has no account yet. The welcome comes back at every login until the agent works, and Settings, AI says in its first row what is missing.
 
 ## A Claude subscription
 
 Choose **Claude subscription** and press **Sign In**. A terminal opens with Claude Code's own sign-in: it shows a link, the browser asks for your account, and the terminal says when it is done. SlateOS does not see the password. From the installer, the sign-in of the live session is carried over to the installed system.
+
+## A ChatGPT subscription
+
+Choose **ChatGPT subscription** and press **Sign In**: the same, with Codex's own sign-in. Choosing it makes Codex the agent (`backend = "codex"` in `~/.config/slate/slash.toml`; Settings, AI, Backend shows it), and choosing one of the other two makes it Claude Code again.
 
 ## An API key
 
@@ -25,7 +49,7 @@ Choose **An API key of your own** and fill in:
 | API key | The key the service gave you (`sk-…`) |
 | Model | The model's name as the service spells it. The list button asks the service for its models. For Anthropic's own API it may stay empty: Claude Code then chooses (sonnet, opus, haiku) |
 
-**Test** sends one short request through the same path the agent's requests take, and says who answered or what was refused. The step is complete when the test passes. Without a network yet, **Use It Anyway** keeps what you typed; try it again later in Settings, AI.
+**Test** sends one short request through the same path the agent's requests take, and says who answered or what was refused. The step is complete when the test passes. Without a network yet, **Use It Anyway** keeps what you typed; try it again later in Settings, AI. The test needs no agent program, so in the installer an API key is complete before Claude Code is there; on an installed system the form asks for the program first.
 
 A service on your own network works too: `http://` addresses are accepted, and a server that wants no key takes any text as one.
 
@@ -66,4 +90,4 @@ The key stays in slash. Claude Code is given the gateway's address on 127.0.0.1 
 - **Reasoning** that a service streams (`reasoning_content`) is not shown.
 - **Parameters a service refuses** (`max_tokens` limits, `temperature`, `stream_options`) are learnt from its error message and left out from then on, so a first request may take one try more.
 
-How this is built, and why: [decision 0008](decisions/0008-api-connections.md).
+How this is built, and why: [decision 0008](decisions/0008-api-connections.md) for API connections, [decision 0010](decisions/0010-agent-programs-are-downloaded.md) for the programs.

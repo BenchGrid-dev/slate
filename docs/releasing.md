@@ -7,7 +7,7 @@ Versions are small and frequent. A patch release is a snapshot the maintainer ca
 2. Bump `version` in the workspace `Cargo.toml` and in `flake.nix`; run `cargo build` so `Cargo.lock` follows.
 3. Commit as `chore(release): prepare X.Y.Z` (see the [commit conventions](../CONTRIBUTING.md#commit-messages)) and push it.
 4. Wait for CI. For a minor release (`X.Y.0`) the commit also starts the Image workflow, which builds the x86_64 image, installs it in a virtual machine, boots the result and updates it to a release made on the spot (about 40 minutes, see [tests/image](../tests/image/README.md)); do not tag before it passes. A patch release does not run it; start it by hand (Actions, Image, Run workflow) when the installer, the image or software update changed.
-5. Tag `vX.Y.Z` and push the tag. The Release workflow starts: for both architectures it builds the image and the reference installed systems, puts what cache.nixos.org lacks of them into SlateOS's binary cache, and attaches each image, in two parts with its checksum, to a draft release of the tag (about half an hour). Wait for it.
+5. Tag `vX.Y.Z` and push the tag. The Release workflow starts: for both architectures it builds the image, checks that it holds no agent program (`distro/release/check-image.sh`: Claude Code is not SlateOS's to hand on, [decision 0010](decisions/0010-agent-programs-are-downloaded.md)), builds the reference installed systems, puts what cache.nixos.org lacks of them into SlateOS's binary cache, and attaches each image, in two parts with its checksum, to a draft release of the tag (about half an hour). Wait for it.
 6. Make what software update reads, add it to the draft, and publish:
 
    ```

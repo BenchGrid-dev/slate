@@ -45,7 +45,7 @@ For applications that require the user's seat, Slate provides an explicit fallba
 
 ### Your agent, integrated into the system
 
-Slate launches the official **Claude Code** or **Codex** CLI and integrates through their headless interfaces and available extension points. With a subscription, authentication and model access remain with your chosen backend. You can also connect **an API key of your own**, in OpenAI's or Anthropic's format (an address, a key, a model): Claude Code then talks to a gateway on your machine, which holds the key and reaches your service, and approvals, audit and undo work the same. The installer and the first login ask which; Settings → AI changes it. See [connecting the agent](docs/agent-connection.md).
+Slate launches the official **Claude Code** or **Codex** CLI and integrates through their headless interfaces and available extension points. With a subscription, authentication and model access remain with your chosen backend. You can also connect **an API key of your own**, in OpenAI's or Anthropic's format (an address, a key, a model): Claude Code then talks to a gateway on your machine, which holds the key and reaches your service, and approvals, audit and undo work the same. The installer and the first login ask which; Settings → AI changes it. SlateOS's image contains neither CLI: each computer downloads them when it is installed, or later from Settings → AI. See [connecting the agent](docs/agent-connection.md).
 
 ### A shell for both intent and commands
 
@@ -123,7 +123,7 @@ slate.nixosModules.default
 }
 ```
 
-Rebuild using your usual NixOS workflow and log in to the sway session. This enables the SlateOS desktop profile, installs the runtime and default Claude Code backend, starts the user services, and sets `slash` as the selected user's login shell. Sign in to the backend from **Settings → AI**, then press **Super+s**.
+Rebuild using your usual NixOS workflow and log in to the sway session. This enables the SlateOS desktop profile, installs the runtime and the default Claude Code backend (an unfree package: your configuration allows it, or sets `services.slate.agents`), starts the user services, and sets `slash` as the selected user's login shell. Sign in to the backend from **Settings → AI**, then press **Super+s**.
 
 The module links the bundled OS Skills for Claude Code at every login and again after each upgrade (the `slate-skills` user service), selected according to the tools and distribution available on the machine. Outside the module, link them from within `slash`:
 
