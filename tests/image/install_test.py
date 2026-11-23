@@ -409,6 +409,10 @@ def boot(args):
             "systemctl --user is-active slate-desktop slate-dock slate-panel slated | tr '\\n' ' '; echo; "
             "echo sway=$(pgrep -cx sway); slateos-version; "
             "echo root=$(findmnt -no FSTYPE /); echo disks=$(lsblk -rno TYPE | sort -u | tr '\\n' ,); "
+            # Old snapshots can go: slated has no complaint, and the person may do what it
+            # does (a snapshot of the home, made writable, deleted).
+            "echo old=$(slate status | grep -c 'not removed'):$(btrfs subvolume snapshot -r ~ ~/.probe > /dev/null"
+            " && btrfs property set -ts ~/.probe ro false && btrfs subvolume delete ~/.probe > /dev/null && echo gone); "
             "echo provider=$(stat -c %a:%U ~/.config/slate/provider.toml):$(slate provider show | tr -d ' '); "
             # The agent programs: the ones the installation downloaded, and they run.
             "echo programs=$(tr -d ' \\n' < /etc/slateos/settings.json):"
@@ -432,6 +436,8 @@ def boot(args):
                 missing.append("a btrfs root")
             if args.encrypt and not re.search(r"disks=\S*crypt", out):
                 missing.append("an encrypted disk")
+            if "old=0:gone" not in out:
+                missing.append("a home whose old snapshots the person can remove (user_subvol_rm_allowed)")
             if not re.search(rf'provider=600:{USER}:.*"connection":"api".*"model":"image-test-model"', out):
                 missing.append("the agent's connection in the new home (provider.toml, private, the user's)")
             if not re.search(programs, out, re.M):
@@ -441,7 +447,7 @@ def boot(args):
             if time.monotonic() > deadline:
                 raise Failure("boot: the installed system lacks " + "; ".join(missing) + f". The checks printed:\n{out}")
             time.sleep(10 * args.patience)
-        results = [line.strip() for line in out.splitlines() if line.strip()][-7:]  # after the echoed command
+        results = [line.strip() for line in out.splitlines() if line.strip()][-8:]  # after the echoed command
         log("boot: the desktop runs: " + " | ".join(results))
         time.sleep(10 * args.patience)
         vm.screenshot("desktop.png")

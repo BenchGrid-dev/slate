@@ -429,6 +429,9 @@ let
     hangul = pkgs.fcitx5-hangul;
   };
   inputMethods = lib.unique cfg.desktop.inputMethods;
+  # Where slated takes snapshots: what was named, and every person's home.
+  snapshotHomes = lib.unique (lib.optional (cfg.snapshotRoot != null) cfg.snapshotRoot
+    ++ map (u: u.home) (lib.filter (u: u.isNormalUser) (builtins.attrValues config.users.users)));
   # The agent programs the installer and Settings can add, by name. SlateOS's image
   # holds neither: Claude Code is not SlateOS's to hand on, so every computer gets
   # them from where their makers publish them (nixpkgs' packages: Claude Code from
@@ -807,6 +810,18 @@ in
       description = ''
         A user-owned btrfs subvolume slated snapshots for undo. Defaults to the user's home,
         which must itself be a subvolume owned by the user. Set this when home is not one.
+      '';
+    };
+
+    snapshotRemoval = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Mount the btrfs filesystem that holds the homes (and `snapshotRoot`) with
+        `user_subvol_rm_allowed`, at every start. slated keeps the last 30 snapshots and
+        removes older ones as the user, which btrfs allows only with this option; without
+        it they pile up. The option is the whole filesystem's: any user may then delete a
+        subvolume they own in a directory they may write to.
       '';
     };
 
@@ -1279,8 +1294,39 @@ in
       };
     };
 
-    # Nothing here touches the filesystem layout. For undo to work, each user's home must
-    # be a btrfs subvolume they own (see docs/decisions/0006-privilege-free-snapshots.md);
+    # Old snapshots: slated removes them itself, as the user, and btrfs lets a user delete
+    # a subvolume only on a filesystem mounted with user_subvol_rm_allowed
+    # (docs/decisions/0013-users-remove-their-own-snapshots.md). The option is the whole
+    # filesystem's and a remount adds it, so this needs to know nothing of the layout, and
+    # hardware-configuration.nix stays as nixos-generate-config wrote it: systems installed
+    # before this get it with the update.
+    systemd.services.slate-snapshot-removal = lib.mkIf cfg.snapshotRemoval {
+      description = "Let users remove their own btrfs snapshots (slated's old ones)";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "local-fs.target" ];
+      path = [ pkgs.util-linux ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        for dir in ${lib.escapeShellArgs snapshotHomes}; do
+          [ -d "$dir" ] || continue
+          [ "$(findmnt -n -o FSTYPE --target "$dir")" = btrfs ] || continue
+          case ",$(findmnt -n -o OPTIONS --target "$dir")," in
+            *,user_subvol_rm_allowed,*) ;;
+            *)
+              mount=$(findmnt -n -o TARGET --target "$dir")
+              mount -o remount,user_subvol_rm_allowed "$mount"
+              echo "$mount: users may remove their own snapshots"
+              ;;
+          esac
+        done
+      '';
+    };
+
+    # Nothing else here touches the filesystem layout. For undo to work, each user's home
+    # must be a btrfs subvolume they own (see docs/decisions/0006-privilege-free-snapshots.md);
     # the installer is responsible for that.
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
   }

@@ -66,6 +66,7 @@ Agent tool calls run without a terminal, so `sudo` could never ask for a passwor
 |---|---|---|
 | `fallbackShell` | bash | The POSIX shell slash uses for `!` lines and non-interactive invocations |
 | `snapshotRoot` | the user's home | A user-owned btrfs subvolume slated snapshots for undo; set it when home is not one |
+| `snapshotRemoval` | true | Mounts the btrfs filesystem that holds the homes with `user_subvol_rm_allowed` at every start, so that slated can remove old snapshots (it keeps 30); without it they pile up ([0013](../docs/decisions/0013-users-remove-their-own-snapshots.md)) |
 | `desktop.apps` | `"full"` | `"full"` or `"minimal"` application set (see above) |
 | `desktop.inputMethods` | from `settingsFile`, else none | Any of `"pinyin"`, `"rime"`, `"mozc"`, `"hangul"`; Ctrl+Space switches |
 | `desktop.agentWhileLocked` | null (Settings decides; else `"pause"`) | `"pause"`, `"elements"` or `"continue"` (with `effects`): what the agent may do in windows while the screen is locked |
