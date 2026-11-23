@@ -299,6 +299,13 @@ impl App {
             }
         );
         let mut notes = vec![backend_note.as_str(), slated_note];
+        // Asked for in Settings, and not given here: see backend::codex::sandbox_for.
+        if self.backend.name() == "codex"
+            && self.cfg.codex.sandbox == backend::codex::NO_SANDBOX
+            && (self.daemon.is_none() || !guarded)
+        {
+            notes.push("Codex stays in its sandbox (Slate cannot see what it does here)");
+        }
         if self.desktop_bin.is_some() {
             notes.push("desktop: on");
         }

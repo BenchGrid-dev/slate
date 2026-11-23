@@ -31,6 +31,22 @@ pub fn hooks_installed() -> bool {
     std::fs::read_to_string(file).is_ok_and(|text| text.contains("hook codex-pre-tool-use"))
 }
 
+/// `[codex] sandbox` when the person has let Codex out of its sandbox (Settings, AI).
+pub const NO_SANDBOX: &str = "danger-full-access";
+
+/// The sandbox Codex gets for a turn. Outside its sandbox Slate's hook is all that
+/// stands between Codex and the machine, so the sandbox is only lifted where that
+/// hook works: the system holds it and slated follows the task (`guarded`). A turn
+/// slated does not follow has no task, and the hook would take it for Codex used by
+/// itself and let everything through.
+pub fn sandbox_for(configured: &str, guarded: bool) -> &str {
+    if configured == NO_SANDBOX && !guarded {
+        "workspace-write"
+    } else {
+        configured
+    }
+}
+
 pub struct Codex {
     cfg: CodexConfig,
     thread_id: Option<String>,
@@ -50,7 +66,10 @@ impl Codex {
             .arg("--json")
             .arg("--skip-git-repo-check")
             .arg("--sandbox")
-            .arg(&self.cfg.sandbox)
+            .arg(sandbox_for(
+                &self.cfg.sandbox,
+                req.task_id.is_some() && hooks_installed(),
+            ))
             .arg("-C")
             .arg(req.cwd);
         if let Some(m) = &self.cfg.model {
@@ -342,6 +361,14 @@ mod tests {
                 detail: "a\n".into()
             }]
         );
+    }
+
+    #[test]
+    fn codex_leaves_its_sandbox_only_where_slate_sees_it() {
+        assert_eq!(sandbox_for(NO_SANDBOX, true), NO_SANDBOX);
+        assert_eq!(sandbox_for(NO_SANDBOX, false), "workspace-write");
+        assert_eq!(sandbox_for("workspace-write", true), "workspace-write");
+        assert_eq!(sandbox_for("read-only", false), "read-only");
     }
 
     #[test]
