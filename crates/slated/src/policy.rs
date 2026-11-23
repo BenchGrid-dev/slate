@@ -403,9 +403,16 @@ const READ_ONLY_SUBCMDS: &[(&str, &[&str])] = &[
         &[
             "subvolume list",
             "subvolume show",
-            "filesystem",
+            "filesystem df",
+            "filesystem du",
+            "filesystem show",
+            "filesystem usage",
             "device stats",
             "qgroup show",
+            "version",
+            "help",
+            "--version",
+            "--help",
         ],
     ),
     ("wpctl", &["status", "get-volume", "inspect"]),
@@ -587,6 +594,15 @@ fn dangerous_reason(cmd: &str) -> Option<String> {
         // Names that only sudo-like wrappers hide, e.g. "sudo -u root rm".
         if base == "sudo" || base == "doas" {
             return Some(format!("runs {base}"));
+        }
+        // Whatever btrfs does that is not looking: a subvolume deleted (a snapshot undo
+        // reads is one, and the user may delete their own: decisions/0013), a snapshot
+        // made writable. btrfs takes any abbreviation ("sub del"), so the rule is the
+        // other way round: what is not known to be a listing.
+        if base == "btrfs" && !segment_is_read_only(&seg) {
+            return Some(
+                "changes subvolumes or snapshots with btrfs, which undo cannot bring back".into(),
+            );
         }
     }
     None
@@ -918,6 +934,33 @@ pub(crate) mod tests {
 
     fn tier(cmd: &str) -> Tier {
         classify_shell(cmd).tier
+    }
+
+    #[test]
+    fn what_btrfs_changes_is_asked_about() {
+        // The user may delete their own snapshots (decisions/0013), so the agent could:
+        // not without a word. Looking stays free.
+        install_test_policy();
+        for cmd in [
+            "btrfs subvolume delete ~/.local/state/slate/snapshots/19a00000000-1-0",
+            "btrfs sub del x",
+            "btrfs property set -ts x ro false",
+            "ls && btrfs subvolume snapshot ~ ~/copy",
+            "btrfs filesystem defragment -r ~",
+            "/run/current-system/sw/bin/btrfs subvolume delete x",
+        ] {
+            assert_eq!(tier(cmd), Tier::Confirm, "{cmd}");
+        }
+        for cmd in [
+            "btrfs subvolume list ~",
+            "btrfs filesystem usage /",
+            "btrfs filesystem df / | head",
+            "btrfs --version",
+        ] {
+            assert_eq!(tier(cmd), Tier::Observe, "{cmd}");
+        }
+        assert!(is_dangerous_command("btrfs subvolume delete x"));
+        assert!(!is_dangerous_command("btrfs subvolume list /"));
     }
 
     #[test]
