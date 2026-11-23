@@ -133,6 +133,21 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
             let cmd = input.get("command").and_then(Value::as_str).unwrap_or("");
             classify_shell(cmd)
         }
+        // Codex edits files with one patch, which names every file it adds, changes
+        // or deletes. (Its shell commands arrive as "Bash", like Claude Code's.)
+        "apply_patch" => {
+            let patch = input.get("command").and_then(Value::as_str).unwrap_or("");
+            let files = slate_proto::patch_files(patch);
+            if files.is_empty() {
+                v(Tier::Confirm, "a patch that names no file")
+            } else if files.iter().any(|(_, path)| is_sensitive_path(path)) {
+                v(Tier::Confirm, "writes a sensitive path")
+            } else {
+                v(Tier::Reversible, "file edit (snapshotted)")
+            }
+        }
+        // Codex's own bookkeeping.
+        "update_plan" | "view_image" => v(Tier::Observe, "agent-internal or read-only tool"),
         name if name.starts_with("mcp__slate__") => v(Tier::Observe, "slate's own tool"),
         "mcp__desktop__desktop_windows"
         | "mcp__desktop__desktop_seats"

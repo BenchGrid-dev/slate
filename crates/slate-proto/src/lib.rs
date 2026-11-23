@@ -315,11 +315,55 @@ pub fn state_dir() -> PathBuf {
     home.join(".local").join("state").join("slate")
 }
 
+/// What a Codex patch does to one file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatchChange {
+    Add,
+    Update,
+    Delete,
+}
+
+/// The files a Codex patch (the `apply_patch` tool's `command`) names, as written and
+/// in order: `*** Add File: PATH`, `*** Update File: PATH`, `*** Delete File: PATH`,
+/// and `*** Move to: PATH` after an update, which is where that file goes.
+pub fn patch_files(patch: &str) -> Vec<(PatchChange, String)> {
+    let mut out = vec![];
+    for line in patch.lines() {
+        let found = [
+            ("*** Add File: ", PatchChange::Add),
+            ("*** Update File: ", PatchChange::Update),
+            ("*** Delete File: ", PatchChange::Delete),
+            ("*** Move to: ", PatchChange::Add),
+        ]
+        .into_iter()
+        .find_map(|(head, change)| line.strip_prefix(head).map(|path| (change, path.trim())));
+        if let Some((change, path)) = found {
+            if !path.is_empty() {
+                out.push((change, path.to_string()));
+            }
+        }
+    }
+    out
+}
+
 /// One-line human summary of a tool call, shared by every UI.
 pub fn summarize_tool(tool_name: &str, input: &serde_json::Value) -> String {
     let get = |k: &str| input.get(k).and_then(|v| v.as_str()).map(str::to_string);
     let s = match tool_name {
         "Bash" => get("command").unwrap_or_default(),
+        // Codex's file edit: what it does to which files, not the patch's first line.
+        "apply_patch" => patch_files(&get("command").unwrap_or_default())
+            .iter()
+            .map(|(change, path)| {
+                let verb = match change {
+                    PatchChange::Add => "add",
+                    PatchChange::Update => "change",
+                    PatchChange::Delete => "delete",
+                };
+                format!("{verb} {path}")
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
         "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
             get("file_path").unwrap_or_default()
         }
@@ -348,6 +392,27 @@ pub fn now_millis() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_patch_names_its_files() {
+        let patch = "*** Begin Patch\n*** Add File: notes/new.txt\n+hello\n*** Update File: /home/a/b.rs\n*** Move to: /home/a/c.rs\n@@\n-x\n+y\n*** Delete File: old.txt\n*** End Patch";
+        assert_eq!(
+            patch_files(patch),
+            vec![
+                (PatchChange::Add, "notes/new.txt".to_string()),
+                (PatchChange::Update, "/home/a/b.rs".to_string()),
+                (PatchChange::Add, "/home/a/c.rs".to_string()),
+                (PatchChange::Delete, "old.txt".to_string()),
+            ]
+        );
+        // A line of a file's content that looks like a header is not one: content
+        // lines start with +, - or a space.
+        assert!(patch_files("*** Begin Patch\n+*** Delete File: x\n*** End Patch").is_empty());
+        assert_eq!(
+            summarize_tool("apply_patch", &serde_json::json!({"command": patch})),
+            "add notes/new.txt, change /home/a/b.rs, add /home/a/c.rs, delete old.txt"
+        );
+    }
 
     #[test]
     fn envelope_round_trips() {

@@ -96,13 +96,23 @@ impl State {
         cwd: Option<&Path>,
     ) -> policy::Verdict {
         let verdict = policy::classify(tool_name, input);
-        if verdict.tier != Tier::Reversible || tool_name != "Bash" {
+        if verdict.tier != Tier::Reversible {
             return verdict;
         }
         let Some(cmd) = input.get("command").and_then(|v| v.as_str()) else {
             return verdict;
         };
-        let targets = policy::deletion_targets(cmd);
+        // What the call deletes: a shell command's operands, or the files a Codex
+        // patch says it deletes.
+        let targets: Vec<String> = match tool_name {
+            "Bash" => policy::deletion_targets(cmd),
+            "apply_patch" => slate_proto::patch_files(cmd)
+                .into_iter()
+                .filter(|(change, _)| *change == slate_proto::PatchChange::Delete)
+                .map(|(_, path)| path)
+                .collect(),
+            _ => return verdict,
+        };
         if targets.is_empty() {
             return verdict;
         }
@@ -239,6 +249,17 @@ fn touched_paths(
     if tool_name == "Bash" {
         if let Some(c) = cwd {
             out.push(c.clone());
+        }
+    }
+    if tool_name == "apply_patch" {
+        let patch = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        for (_, path) in slate_proto::patch_files(patch) {
+            let path = PathBuf::from(path);
+            if path.is_absolute() {
+                out.push(path);
+            } else if let Some(c) = cwd {
+                out.push(c.join(path));
+            }
         }
     }
     out
@@ -917,6 +938,53 @@ mod tests {
         assert_eq!(tier(&st, "rm Downloads/a.pdf", "/home/u"), Tier::Reversible);
         // Other writes keep their tier.
         assert_eq!(tier(&st, "echo hi > /tmp/x", "/home/u"), Tier::Reversible);
+    }
+
+    #[test]
+    fn a_patch_that_deletes_is_judged_like_rm() {
+        let (st, _d) = state(Some(Path::new("/home/u/work")));
+        let patch = |text: &str| {
+            st.verdict(
+                "apply_patch",
+                &json!({ "command": format!("*** Begin Patch\n{text}\n*** End Patch") }),
+                Some(Path::new("/home/u/work")),
+            )
+            .tier
+        };
+        assert_eq!(patch("*** Add File: notes/new.txt\n+hi"), Tier::Reversible);
+        assert_eq!(patch("*** Delete File: notes/old.txt"), Tier::Reversible);
+        assert_eq!(
+            patch("*** Delete File: /home/u/Downloads/a.pdf"),
+            Tier::Confirm
+        );
+        assert_eq!(
+            patch("*** Update File: /home/u/.ssh/config\n@@\n-a\n+b"),
+            Tier::Confirm
+        );
+        assert_eq!(patch("+no file named"), Tier::Confirm);
+        let (st, _d) = state(None);
+        assert_eq!(
+            st.verdict(
+                "apply_patch",
+                &json!({ "command": "*** Begin Patch\n*** Delete File: a.txt\n*** End Patch" }),
+                Some(Path::new("/home/u")),
+            )
+            .tier,
+            Tier::Confirm
+        );
+    }
+
+    #[test]
+    fn a_patch_touches_the_files_it_names() {
+        let cwd = PathBuf::from("/w/p");
+        assert_eq!(
+            touched_paths(
+                "apply_patch",
+                &json!({ "command": "*** Begin Patch\n*** Add File: a.txt\n+x\n*** Update File: /etc/b\n*** End Patch" }),
+                Some(&cwd),
+            ),
+            vec![PathBuf::from("/w/p/a.txt"), PathBuf::from("/etc/b")]
+        );
     }
 
     #[test]
