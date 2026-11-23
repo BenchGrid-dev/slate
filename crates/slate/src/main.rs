@@ -27,6 +27,10 @@ usage:
   slate provider serve [FILE]  run the gateway for it and print its address (for testing)
   slate hook pre-tool-use      Claude Code PreToolUse hook (reads stdin)
   slate hook post-tool-use     Claude Code PostToolUse hook (reads stdin)
+  slate hook codex-pre-tool-use, codex-post-tool-use
+                               the same for Codex, from /etc/codex/hooks.json
+  slate hook codex-config      print that file (SlateOS installs it; elsewhere, as root:
+                               slate hook codex-config > /etc/codex/hooks.json)
   slate mcp                    MCP server exposing the approval tool",
         slate_proto::VERSION
     );
@@ -241,6 +245,9 @@ fn main() -> Result<()> {
         "hook" => match args.get(1).map(String::as_str) {
             Some("pre-tool-use") => hook::pre_tool_use()?,
             Some("post-tool-use") => hook::post_tool_use()?,
+            Some("codex-pre-tool-use") => hook::codex_pre_tool_use()?,
+            Some("codex-post-tool-use") => hook::codex_post_tool_use()?,
+            Some("codex-config") => hook::codex_config()?,
             _ => usage(),
         },
         "mcp" => mcp::serve()?,

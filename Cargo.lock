@@ -988,6 +988,7 @@ dependencies = [
  "serde_json",
  "slate-gateway",
  "slate-proto",
+ "tempfile",
  "toml",
 ]
 
