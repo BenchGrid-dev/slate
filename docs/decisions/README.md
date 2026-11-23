@@ -9,10 +9,11 @@ Architecture decision records. Short, dated, and never edited after the fact; a 
 | 0003 | slash prefix grammar: bare, `/`, `!`, `@` | accepted |
 | 0004 | Base distribution | open |
 | 0005 | Rust for all first-party components | accepted |
-| 0006 | Privilege-free snapshots: each user's home is a user-owned btrfs subvolume | accepted |
+| 0006 | Privilege-free snapshots: each user's home is a user-owned btrfs subvolume | accepted, amended by 0013 |
 | 0007 | Toolkits that only bind the first seat: user-seat fallback now, compositor global filtering later | accepted |
 | 0008 | API connections: the person's own key and endpoint, through a gateway of Slate's own | accepted |
 | 0009 | Software update: a release replaces the source, the system is built again and started once on trial | accepted |
 | 0010 | The agent's programs are downloaded by each computer, not shipped on the image | accepted |
 | 0011 | Codex's tool calls reach Slate through the system's hooks; its sandbox is the person's choice | accepted |
 | 0012 | The choices that lower a guard are the system's, behind the person's password | accepted |
+| 0013 | Old snapshots are removed by the user: the filesystem is mounted to allow it | accepted |

@@ -145,6 +145,9 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
         taken = os.path.join(state, "slate", "snapshots")
         left = [os.path.join(taken, d) for d in sorted(os.listdir(taken))] if os.path.isdir(taken) else []
+        # As slated removes them: writable first, then deleted.
+        for d in left:
+            subprocess.run(["btrfs", "property", "set", "-ts", d, "ro", "false"], capture_output=True)
         left = [d for d in left if subprocess.run(["btrfs", "subvolume", "delete", d], capture_output=True).returncode != 0]
         if left:
             # A mount without user_subvol_rm_allowed lets only root delete them.
