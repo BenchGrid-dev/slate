@@ -36,7 +36,7 @@ backend = "claude"            # or "codex"
 fallback_shell = "/bin/zsh"   # default: $SHELL unless that is slash
 shell_interactive = false     # true: run ! lines with -i so aliases/functions load (slower)
 context_commands = 20         # manual commands kept as agent context
-auto_approve = false          # true: start every session as /auto on (audited, undoable)
+auto_approve = false          # true: start every session as /auto on (audited, undoable); on SlateOS see below
 verbose = false               # true: start in /verbose mode
 
 [claude]
@@ -67,9 +67,11 @@ When `slated` is reachable (slash starts it if needed), every agent turn is a ta
 - `/audit` and `/tasks` show what happened.
 - `/remember <text>` stores a memory; the agent also has `remember` / `recall` / `forget` tools. Memories are shown to the agent at the start of every task.
 
-Codex goes the same way when Slate's hooks are the system's (`/etc/codex/hooks.json`; SlateOS installs it, elsewhere `slate hook codex-config` prints it): the hook asks slated before every command, file patch and MCP tool, and waits for your answer where one is needed. Without that file slash says so at start, and Codex runs under its own sandbox alone. Codex also has a sandbox of its own (`[codex] sandbox`, `workspace-write` by default): no network, no root, writes only under the current directory. `danger-full-access` (in SlateOS: Settings, AI) lifts it, and slash honours that only where slated follows the task and the hooks are in place. Changes to the files in `~/.config/slate` are Confirm-tier for either agent.
+Codex goes the same way when Slate's hooks are the system's (`/etc/codex/hooks.json`; SlateOS installs it, elsewhere `slate hook codex-config` prints it): the hook asks slated before every command, file patch and MCP tool, and waits for your answer where one is needed. Without that file slash says so at start, and Codex runs under its own sandbox alone. Codex also has a sandbox of its own (`[codex] sandbox`, `workspace-write` by default): no network, no root, writes only under the current directory. `danger-full-access` lifts it (on SlateOS the choice is Settings, AI, Safeguards, not this file), and slash honours that only where slated follows the task and the hooks are in place. Changes to the files in `~/.config/slate` are Confirm-tier for either agent.
 
-The settings app's AI page writes this file (backend, models, verbose, auto_approve).
+The settings app's AI page writes this file (backend, models, verbose).
+
+On SlateOS two of its values are not used: `auto_approve` and `sandbox = "danger-full-access"`. Whether approvals are bypassed and whether Codex leaves its sandbox are the system's choices there (`slateos-settings`; Settings, AI, Safeguards), changed with the person's password, because this file is one the agent can write. slash says at start when the file asks for one of them.
 
 ## What it does not do yet
 

@@ -41,6 +41,8 @@ The agent programs (Claude Code, Codex) are not part of SlateOS's image; each sy
 
 Two more choices govern you, and they are the person's alone: what you may do in windows while the screen is locked (`agent-while-locked`: `pause`, `elements`, `continue`) and whether the screen locks while you work (`lock-while-agent-works`: `yes`, `no`). `slateos-settings get agent-while-locked` reads one (tier: observe). Never change them on your own initiative, and never suggest loosening them to finish a task; when the person asks, point them to Settings, AI, which explains what each choice allows, or run `sudo slateos-settings set agent-while-locked pause` and the like for them (they type their password).
 
+Three more of the same kind, also behind the person's password and not yours to change for yourself: whether your actions are asked about (`bypass-approvals`: `no`, `yes`), whether Codex keeps its sandbox (`codex-sandbox`: `keep`, `lift`), and when the screen locks (`lock-after`: seconds, `0` never). `slateos-settings get NAME` shows each. Editing `~/.config/slate/slash.toml` does not change them. If the person asks for one, say what it gives up and point them to Settings (AI, Safeguards; Power), or run `sudo slateos-settings set NAME VALUE` and let them type their password.
+
 Desktop applications (chat, office, browsers) come from Flathub for the person instead: see the apps-flatpak skill.
 
 ## A new SlateOS version

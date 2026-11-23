@@ -33,9 +33,11 @@ Tier: reversible (the person unlocks it with their password). While the screen i
 
 ## When the screen locks and turns off
 
-`~/.config/slate/idle.json` holds `{"lock_after": SECONDS, "screen_off_after": SECONDS}` (0: never; defaults 600 and 900). Counted from the person's last input; what the agent does does not count. After writing it: `systemctl --user restart slate-idle`. The screen also locks before the computer sleeps. Settings, Power shows the same.
+When the screens turn off: `~/.config/slate/idle.json` holds `{"screen_off_after": SECONDS}` (0: never; default 900). After writing it: `systemctl --user restart slate-idle`. Tier: confirm (a file of Slate's own settings). Undo: write the previous value back.
 
-Tier: reversible. Undo: write the previous values back.
+When the screen locks is the person's choice alone, behind their password: `slateos-settings get lock-after` shows it (seconds; 0: never; default 600), and Settings, Power changes it. Do not change it for yourself. When the person asks you to, `sudo slateos-settings set lock-after SECONDS` (tier: confirm; they type their password), then `systemctl --user restart slate-idle`.
+
+Both are counted from the person's last input; what the agent does does not count. The screen also locks before the computer sleeps.
 
 ## Verify
 

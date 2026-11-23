@@ -26,7 +26,7 @@ Codex has hooks of the same shape now. Tried against Codex 0.146, the version Sl
 
 **The hook does nothing when Codex is not working for slash.** It is the system's, so it also starts when someone runs Codex themselves. Without a Slate task it exits at once.
 
-**Codex starts in its sandbox, and the person can let it out.** `[codex] sandbox` in slash.toml stays `workspace-write` by default: commands write under the folder Codex works in, reach no network and cannot become root, whatever Slate would allow. Settings, AI has the switch (it writes `danger-full-access`), behind a question that says what is given up. Claude Code runs without a sandbox on SlateOS; a person who chose Codex can have the same.
+**Codex starts in its sandbox, and the person can let it out.** `[codex] sandbox` in slash.toml stays `workspace-write` by default: commands write under the folder Codex works in, reach no network and cannot become root, whatever Slate would allow. Settings, AI has the switch, behind a question that says what is given up and the person's password: on SlateOS the choice is the system's (`slateos-settings set codex-sandbox`, 0012), and `danger-full-access` in slash.toml alone does nothing there. Claude Code runs without a sandbox on SlateOS; a person who chose Codex can have the same.
 
 **The sandbox is lifted only where the hooks work.** Outside it the hook is the only guard, so slash keeps Codex in `workspace-write`, whatever the setting, when the system's hooks file is missing or slated does not follow the task (a turn without a Slate task looks to the hook like Codex used by itself, and passes). slash's first line says so.
 
@@ -36,7 +36,6 @@ Codex has hooks of the same shape now. Tried against Codex 0.146, the version Sl
 
 - With Codex, approvals, the audit log and undo now work as with Claude Code for what Codex can do: files under the folder it works in, and the desktop, whose tools run outside the sandbox and were allowed wholesale before.
 - Until the person lets it out, Codex on SlateOS does less than Claude Code. It cannot install software, change system settings (sudo does not work inside the sandbox) or fetch anything from a command. Let out, it can; Slate's hooks are then the only guard, and Codex's documentation calls hooks a guardrail, not a complete enforcement boundary: tools it runs on OpenAI's side, web search among them, do not pass them. Claude Code's permissions are a gate every call goes through. The question in Settings says this.
-- The switch is a click, like "Bypass approvals by default" beside it. An agent that drives the desktop could make that click on its own screen; the choices about what the agent may do while the person is away are behind the password for that reason, and these two are not.
 - With Claude Code too, changing `slash.toml` or `policy.toml` for the person ("use the other model") now asks first.
 - The file is the system's, so a system without it (Slate from source on another distribution) runs Codex as before, and slash's first line says that nothing is asked or undone there.
 - A tool of Codex's that the policy does not know is asked about (the policy's rule for unknown tools), which may be more often than it deserves until the policy learns its name.
