@@ -4,6 +4,15 @@
 //! (thread.started, turn.*, item.*). Sessions continue with `codex exec resume <id>`.
 //! Codex has no system-prompt flag in exec mode, so session context is prepended
 //! to the prompt in a delimited block.
+//!
+//! Permissions: Codex calls a hook before every shell command, file patch and MCP
+//! tool. Slate's (`slate hook codex-pre-tool-use`) has slated classify the call, take
+//! the snapshot and, for Confirm-tier calls, ask the person and wait. Codex only runs
+//! hooks the person has reviewed, or the system's: SlateOS installs Slate's in
+//! /etc/codex/hooks.json. slash cannot hand them over for one run. The one way Codex
+//! offers (`--dangerously-bypass-hook-trust`) also runs whatever hooks lie in the
+//! folder the person happens to be in, unreviewed and outside the sandbox. Without the
+//! system's file Codex works under its own sandbox alone, and slash says so.
 
 use super::{pump_lines, Backend, Event, TurnRequest};
 use crate::config::CodexConfig;
@@ -11,6 +20,16 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::io::{BufReader, Read};
 use std::process::{Command, Stdio};
+
+/// Where Codex reads the system's hooks, which it runs without asking the person to
+/// review them first.
+const SYSTEM_HOOKS: &str = "/etc/codex/hooks.json";
+
+/// Whether Slate's hook is among the system's: Codex's tool calls then reach slated.
+pub fn hooks_installed() -> bool {
+    let file = std::env::var("SLATE_CODEX_HOOKS").unwrap_or_else(|_| SYSTEM_HOOKS.into());
+    std::fs::read_to_string(file).is_ok_and(|text| text.contains("hook codex-pre-tool-use"))
+}
 
 pub struct Codex {
     cfg: CodexConfig,
@@ -106,6 +125,10 @@ impl Backend for Codex {
         self.cfg.model = model;
     }
 
+    fn guarded(&self) -> bool {
+        hooks_installed()
+    }
+
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()> {
         let mut child = self
             .command(&req)
@@ -156,6 +179,25 @@ impl Backend for Codex {
             });
         }
         Ok(())
+    }
+}
+
+/// Codex reports a command as it starts it, inside a login shell
+/// (`/nix/store/…/bin/bash -lc 'ls -la'`). What the person reads is the command.
+fn command_itself(reported: &str) -> String {
+    let Some((shell, rest)) = reported.split_once(" -lc ") else {
+        return reported.to_string();
+    };
+    let is_shell =
+        !shell.contains(' ') && matches!(shell.rsplit('/').next(), Some("bash" | "sh" | "zsh"));
+    let rest = rest.trim();
+    if !is_shell || rest.len() < 2 {
+        return reported.to_string();
+    }
+    match (rest.as_bytes()[0], rest.as_bytes()[rest.len() - 1]) {
+        (b'\'', b'\'') => rest[1..rest.len() - 1].replace("'\\''", "'"),
+        (b'"', b'"') => rest[1..rest.len() - 1].replace("\\\"", "\""),
+        _ => rest.to_string(),
     }
 }
 
@@ -210,7 +252,7 @@ pub fn parse_line(line: &str) -> Vec<Event> {
             .unwrap_or_default(),
         ("item.started", "command_execution") => vec![Event::ToolStart {
             name: "shell".into(),
-            detail: s("command").unwrap_or_default(),
+            detail: command_itself(&s("command").unwrap_or_default()),
         }],
         ("item.completed", "command_execution") => {
             let code = item
@@ -300,6 +342,35 @@ mod tests {
                 detail: "a\n".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_command_is_shown_without_the_shell_around_it() {
+        assert_eq!(
+            command_itself("/run/current-system/sw/bin/bash -lc 'ls -la .'"),
+            "ls -la ."
+        );
+        assert_eq!(
+            command_itself(r#"/nix/store/x-bash-5.3/bin/bash -lc 'echo '\''hi'\'' > a'"#),
+            "echo 'hi' > a"
+        );
+        assert_eq!(command_itself(r#"bash -lc "echo \"x\"""#), r#"echo "x""#);
+        assert_eq!(command_itself("git commit -lc 'x'"), "git commit -lc 'x'");
+        assert_eq!(command_itself("ls"), "ls");
+        assert_eq!(
+            parse_line(
+                r#"{"type":"item.started","item":{"id":"i","type":"command_execution","command":"/bin/bash -lc 'cat a.txt'","status":"in_progress"}}"#
+            ),
+            vec![Event::ToolStart {
+                name: "shell".into(),
+                detail: "cat a.txt".into()
+            }]
+        );
+        // What the trust-bypass notice and other item errors look like: not an answer.
+        assert!(parse_line(
+            r#"{"type":"item.completed","item":{"id":"i","type":"error","message":"x"}}"#
+        )
+        .is_empty());
     }
 
     #[test]

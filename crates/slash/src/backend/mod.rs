@@ -84,6 +84,11 @@ pub trait Backend {
     fn endpoint(&self) -> Option<String> {
         None
     }
+    /// Whether the agent's tool calls reach slated (approvals, snapshots, the audit
+    /// log's entries for them). False when the program's hooks are not in place.
+    fn guarded(&self) -> bool {
+        true
+    }
     /// Run one turn, calling `on_event` as events arrive.
     fn run_turn(&mut self, req: TurnRequest<'_>, on_event: &mut dyn FnMut(Event)) -> Result<()>;
 }

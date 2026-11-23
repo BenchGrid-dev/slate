@@ -270,6 +270,10 @@ fn ask_user(tool_name: &str, summary: &str, tier: &str, reason: &str) -> (bool, 
     match line.trim().to_ascii_lowercase().as_str() {
         "y" | "yes" => (true, false),
         "a" | "always" => (true, true),
+        "n" | "no" => {
+            println!("  {}", red("denied"));
+            (false, false)
+        }
         other => {
             println!(
                 "  {} {}",

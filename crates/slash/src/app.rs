@@ -272,7 +272,13 @@ impl App {
 
     pub fn run(&mut self) -> Result<i32> {
         self.set_title("· ready");
+        let guarded = self.backend.guarded();
         let slated_note = match self.daemon.as_mut() {
+            // The agent's program does not show Slate what it does (Codex without the
+            // system's hooks): tasks are recorded, their actions are not.
+            Some(_) if !guarded => {
+                "slated: tasks only (no approvals or undo: Codex's hooks are not installed)"
+            }
             Some(d) => {
                 if d.snapshots_enabled() {
                     "slated: approvals, audit, undo"
