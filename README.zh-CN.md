@@ -183,7 +183,7 @@ Terminal                         Desktop prompt
 | **Reversible · 可逆** | 尝试创建任务快照，然后允许执行。 |
 | **Confirm · 确认** | 执行前请求审批，已获批准或显式跳过审批的情况除外。 |
 
-规则可在 `~/.config/slate/policy.toml` 中自定义；未知工具默认归为 Confirm。工具检查和执行结果通过 Agent 的 hooks 记录：Claude Code 的 hooks 在每次运行时传入，Codex 的 hooks 安装在系统级（`/etc/codex/hooks.json`，由 SlateOS 写入）。Codex 另外始终运行在它自己的沙箱里，因此能做的更少：不能联网、不能获得 root，只能写入当前目录之下。
+规则可在 `~/.config/slate/policy.toml` 中自定义；未知工具默认归为 Confirm。工具检查和执行结果通过 Agent 的 hooks 记录：Claude Code 的 hooks 在每次运行时传入，Codex 的 hooks 安装在系统级（`/etc/codex/hooks.json`，由 SlateOS 写入）。Codex 另外默认运行在它自己的沙箱里（不能联网、不能获得 root，只能写入当前目录之下）；可以在 设置 → AI 里关闭。
 
 **Undo 恢复的是已记录任务范围内的本地文件。** 它依赖用户拥有的 btrfs 子卷及成功创建的快照，默认根目录为用户主目录，也可通过 `SLATE_SNAPSHOT_ROOT` 指定。它不能撤回远程操作、消息或任意应用状态。恢复时会比较任务范围内的目录与快照，因此这些目录中的后续编辑也可能出现在恢复计划中；请先使用 `/undo --preview`。
 

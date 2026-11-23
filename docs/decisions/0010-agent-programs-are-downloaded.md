@@ -21,7 +21,7 @@ The image holds no agent program. It names them: which version this release was 
 - **The step stays required.** The installer's Continue still waits for a connection. Skip is new, for a computer without a network or a person without an account yet; it says first what a system without an agent cannot do, and the welcome returns at every login until the agent works.
 - **A check keeps it so.** The Release and Image workflows fail when the image's store contains a program it names (`distro/release/check-image.sh`), and the image test asks the live system the same.
 
-Both programs are downloaded, although Codex could legally be on the image. One rule for both is simpler to explain and to check; and with Codex alone on the image, the agent an installation without a network ends with would be the one that does less on SlateOS (0011).
+Both programs are downloaded, although Codex could legally be on the image. One rule for both is simpler to explain and to check; and with Codex alone on the image, the agent an installation without a network ends with would be the one that does less on SlateOS until its sandbox is lifted (0011).
 
 ## Consequences
 
@@ -31,7 +31,7 @@ Both programs are downloaded, although Codex could legally be on the image. One 
 - Where Anthropic's download server cannot be reached, Claude Code cannot be installed, also for someone whose model is served elsewhere. The installation then goes on with what it can get.
 - The installed system's programs are part of its closure and of the release's pin, as before: a release brings the versions it was tested with, software update downloads them the same way, and going back to an older version brings the older programs back.
 - Existing configurations keep Claude Code: without `agents` in `settings.json` the default of `services.slate.agents` is unchanged.
-- A ChatGPT subscription is a choice in the form now, since Codex is downloaded beside Claude Code. It makes Codex the agent. Approvals and undo work with it too (0011); it stays inside its own sandbox, so it does less than Claude Code.
+- A ChatGPT subscription is a choice in the form now, since Codex is downloaded beside Claude Code. It makes Codex the agent. Approvals and undo work with it too (0011); it starts inside its own sandbox, where it does less than Claude Code, until the person lets it out.
 
 ## Alternatives considered
 

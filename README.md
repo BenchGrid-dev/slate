@@ -183,7 +183,7 @@ With Claude Code and `slated` connected, tool calls are classified into three po
 | **Reversible** | Attempt a task snapshot, then allow the operation. |
 | **Confirm** | Request approval before proceeding, unless approval has already been granted or bypassed. |
 
-Rules can be customized in `~/.config/slate/policy.toml`; unknown tools default to Confirm. Tool checks and results are recorded through the agent's hooks: Claude Code's, given for each run, and Codex's, installed for the system (`/etc/codex/hooks.json`, which SlateOS writes). Codex additionally stays inside its own sandbox, so it does less: no network, no root, and writes only under the current directory.
+Rules can be customized in `~/.config/slate/policy.toml`; unknown tools default to Confirm. Tool checks and results are recorded through the agent's hooks: Claude Code's, given for each run, and Codex's, installed for the system (`/etc/codex/hooks.json`, which SlateOS writes). Codex additionally starts inside its own sandbox (no network, no root, writes only under the current directory); Settings, AI lifts it.
 
 **Undo restores local files within a recorded task's scope.** It requires a successful snapshot of a user-owned btrfs subvolume, normally the home directory or `SLATE_SNAPSHOT_ROOT`. It does not reverse remote actions, messages, or arbitrary application state. Recovery compares scoped directories with the snapshot, so later edits in those directories may also appear in the plan; use `/undo --preview` first.
 

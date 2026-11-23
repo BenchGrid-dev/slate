@@ -14,4 +14,4 @@ Architecture decision records. Short, dated, and never edited after the fact; a 
 | 0008 | API connections: the person's own key and endpoint, through a gateway of Slate's own | accepted |
 | 0009 | Software update: a release replaces the source, the system is built again and started once on trial | accepted |
 | 0010 | The agent's programs are downloaded by each computer, not shipped on the image | accepted |
-| 0011 | Codex's tool calls reach Slate through the system's hooks, inside Codex's sandbox | accepted |
+| 0011 | Codex's tool calls reach Slate through the system's hooks; its sandbox is the person's choice | accepted |

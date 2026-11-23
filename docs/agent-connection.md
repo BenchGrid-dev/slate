@@ -8,7 +8,7 @@ SlateOS works through an AI agent. The agent is a program, Claude Code or Codex,
 | **ChatGPT subscription** | A ChatGPT account (Plus or Pro) | Codex, signed in as you, talking to OpenAI by itself |
 | **An API key of your own** | An address, a key and a model name, from any service in OpenAI's or Anthropic's format | Claude Code, talking to a gateway on this computer, which holds the key and reaches the service |
 
-Approvals, the audit log and undo work with all three. What differs is how much the agent can do: Codex stays inside its own sandbox ([below](#a-chatgpt-subscription)).
+Approvals, the audit log and undo work with all three. What differs is how much the agent can do at first: Codex starts inside its own sandbox ([below](#a-chatgpt-subscription)).
 
 ## The agent's programs
 
@@ -39,7 +39,9 @@ Choose **ChatGPT subscription** and press **Sign In**: the same, with Codex's ow
 
 SlateOS asks before Codex's actions and undoes them as it does Claude Code's: Codex reports each command, file change and desktop action to SlateOS first (through the hooks in `/etc/codex/hooks.json`, which SlateOS installs), and waits for your answer where one is needed.
 
-Codex also keeps its own sandbox, and that limits what it can do for you. Its commands change files only under the folder you are in, reach no network, and cannot become root. So with Codex the agent works on your files and drives applications on the desktop, and cannot install software, change system settings or download something from a command. Claude Code can, after asking. `sandbox = "danger-full-access"` under `[codex]` in `~/.config/slate/slash.toml` takes Codex's sandbox away; SlateOS's questions are then the only guard, and Codex does not send everything it does past them ([decision 0011](decisions/0011-codex-through-system-hooks.md)).
+Codex also has a sandbox of its own, and SlateOS leaves it on until you say otherwise. Inside it Codex's commands change files only under the folder you are in, reach no network, and cannot become root. So at first the agent works on your files and drives applications on the desktop, and cannot install software, change system settings or download something from a command. Claude Code has no such sandbox: it can do those things, after asking.
+
+**Settings, AI, Keep Codex in its sandbox** is the choice. Turned off, Codex can do what Claude Code can. SlateOS goes on asking before what needs your word, and undo stays; that is then the only guard, where the sandbox would have stopped a mistake at the folder you are in whatever was allowed, and a few of Codex's own tools (searching the web among them) do not pass SlateOS's questions. The switch asks before it turns off, and changing it from the agent's side is asked about like any change to SlateOS's own settings ([decision 0011](decisions/0011-codex-through-system-hooks.md)).
 
 Codex's sign-in can expire without Codex or this form noticing: when the agent answers that the sign-in must be renewed, sign in again in Settings, AI.
 

@@ -67,7 +67,7 @@ When `slated` is reachable (slash starts it if needed), every agent turn is a ta
 - `/audit` and `/tasks` show what happened.
 - `/remember <text>` stores a memory; the agent also has `remember` / `recall` / `forget` tools. Memories are shown to the agent at the start of every task.
 
-Codex goes the same way when Slate's hooks are the system's (`/etc/codex/hooks.json`; SlateOS installs it, elsewhere `slate hook codex-config` prints it): the hook asks slated before every command, file patch and MCP tool, and waits for your answer where one is needed. Without that file slash says so at start, and Codex runs under its own sandbox alone. It keeps that sandbox in both cases (`[codex] sandbox`, `workspace-write` by default): no network, no root, writes only under the current directory.
+Codex goes the same way when Slate's hooks are the system's (`/etc/codex/hooks.json`; SlateOS installs it, elsewhere `slate hook codex-config` prints it): the hook asks slated before every command, file patch and MCP tool, and waits for your answer where one is needed. Without that file slash says so at start, and Codex runs under its own sandbox alone. Codex also has a sandbox of its own (`[codex] sandbox`, `workspace-write` by default): no network, no root, writes only under the current directory. `danger-full-access` (in SlateOS: Settings, AI) lifts it, and slash honours that only where slated follows the task and the hooks are in place. Changes to the files in `~/.config/slate` are Confirm-tier for either agent.
 
 The settings app's AI page writes this file (backend, models, verbose, auto_approve).
 
