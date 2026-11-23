@@ -454,6 +454,36 @@ class Page(Gtk.Box):
     def toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
 
+    def set_protected(self, why, key, value, ok, undo):
+        """Change one of root's choices (`slateos-settings set KEY VALUE`): the ones that
+        lower a guard. It asks for the person's password, every time, with `why` in the
+        dialog. `ok()` once the change is made; `undo()` (put the control back) when the
+        password was not given or the change failed."""
+        env = dict(os.environ, SLATE_ASKPASS_TITLE="Settings needs your password", SLATE_ASKPASS_BODY=why)
+        # -k: always the password, never sudo's cached credentials (which a click by
+        # the agent within minutes of the person's own change would ride on).
+        cmd = ["sudo", "-k", "-A", SLATEOS_SETTINGS, "set", key, value]
+
+        def work():
+            p = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+            return p.returncode, (p.stderr or p.stdout).strip()
+
+        def done(res):
+            code, msg = (1, str(res)) if isinstance(res, Exception) else res
+            if code == 0:
+                ok()
+                self.toast("Saved.")
+                return
+            undo()
+            if all(line.startswith("sudo:") for line in msg.splitlines() if line.strip()):
+                self.toast("Nothing changed: the password was not given.")
+            else:
+                err = Adw.AlertDialog(heading="Nothing was changed", body=msg[-600:])
+                err.add_response("ok", "OK")
+                err.present(self.win)
+
+        in_thread(work, done)
+
     def every(self, seconds, fn):
         """Call fn now and every `seconds` while the page is on screen."""
         self.periodic = (seconds, fn)
@@ -505,7 +535,6 @@ WHILE_LOCKED = [
 KEEP_AWAKE = ("Keep the screen unlocked while the agent works?",
               "While the agent uses the screen, it will not lock or turn off when you are away, and anyone at the computer can use it: "
               "your files, your accounts and the agent itself. It locks a minute after the agent stops. Super+L and sleeping still lock.")
-CODEX_NO_SANDBOX = "danger-full-access"     # [codex] sandbox in slash.toml
 CODEX_OUT = ("Let Codex out of its sandbox?",
              "Codex will then do what Claude Code can: use the network, change files anywhere you can, and become root after your "
              "password. SlateOS goes on asking before what needs your word, and undo stays.\n\n"
@@ -565,13 +594,6 @@ class AIPage(Page):
         self.codex_model.connect("apply", lambda *_: self.set_value(["codex", "model"], self.codex_model.get_text().strip() or None))
         self.codex_model.set_show_apply_button(True)
         agent.add(self.codex_model)
-        self.codex_sandbox = Adw.SwitchRow(
-            title="Keep Codex in its sandbox",
-            subtitle="On: Codex works on your files in the folder you are in and on the desktop; it reaches no network and cannot "
-                     "install software or change system settings. Off: it can, as Claude Code can.")
-        self.codex_sandbox.set_active(self.cfg.get("codex", {}).get("sandbox") != CODEX_NO_SANDBOX)
-        self.codex_sandbox.connect("notify::active", lambda r, *_: self.choose_codex_sandbox(r.get_active()))
-        agent.add(self.codex_sandbox)
 
         signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in with a subscription happens in the agent's own CLI (a terminal opens). Slate never sees those credentials.")
         page.add(signin)
@@ -589,10 +611,6 @@ class AIPage(Page):
         self.verbose.set_active(bool(self.cfg.get("verbose", False)))
         self.verbose.connect("notify::active", lambda *_: self.set_value(["verbose"], self.verbose.get_active()))
         behaviour.add(self.verbose)
-        self.auto = Adw.SwitchRow(title="Bypass approvals by default", subtitle="Start every session as /auto on: actions that would ask for confirmation just run (still audited, still undoable)")
-        self.auto.set_active(bool(self.cfg.get("auto_approve", False)))
-        self.auto.connect("notify::active", lambda *_: self.set_value(["auto_approve"], self.auto.get_active()))
-        behaviour.add(self.auto)
         restart = Adw.ActionRow(title="Restart the Slate prompt", subtitle="Applies the settings above to the prompt in the top-right corner")
         btn = Gtk.Button(label="Restart", valign=Gtk.Align.CENTER)
         btn.connect("clicked", self.restart_prompt)
@@ -600,23 +618,68 @@ class AIPage(Page):
         behaviour.add(restart)
         config_row = Adw.ActionRow(title="Configuration file", subtitle=SLASH_CONFIG)
         behaviour.add(config_row)
+        try:
+            self.effective = json.loads(run([SLATEOS_SETTINGS, "show"]) or "{}").get("effective", {})
+        except ValueError:
+            self.effective = {}
+        self.add_guards(page)
         self.add_away(page)
 
+    # ---- safeguards: root's choices (slateos-settings), behind the password. They were
+    # switches over slash.toml once, which the agent can write and can click.
+
+    def add_guards(self, page):
+        offered = "bypass-approvals" in self.effective and "codex-sandbox" in self.effective
+        note = "Changing them needs your password, so the agent cannot change them itself."
+        if not offered:
+            note = "This system does not offer these choices (it runs without the SlateOS module's desktop, or a version before 0.3)."
+        guards = Adw.PreferencesGroup(title="Safeguards", description="What keeps a mistake of the agent's small. " + note)
+        page.add(guards)
+        self.bypass = self.effective.get("bypass-approvals") == "yes"
+        self.sandboxed = self.effective.get("codex-sandbox", "keep") != "lift"
+        self.auto = Adw.SwitchRow(title="Bypass approvals by default", subtitle="Start every session as /auto on: actions that would ask for confirmation just run (still audited, still undoable)")
+        self.auto.set_active(self.bypass)
+        self.auto.set_sensitive(offered)
+        self.auto.connect("notify::active", lambda r, *_: self.choose_bypass(r.get_active()))
+        guards.add(self.auto)
+        self.codex_sandbox = Adw.SwitchRow(
+            title="Keep Codex in its sandbox",
+            subtitle="On: Codex works on your files in the folder you are in and on the desktop; it reaches no network and cannot "
+                     "install software or change system settings. Off: it can, as Claude Code can.")
+        self.codex_sandbox.set_active(self.sandboxed)
+        self.codex_sandbox.set_sensitive(offered)
+        self.codex_sandbox.connect("notify::active", lambda r, *_: self.choose_codex_sandbox(r.get_active()))
+        guards.add(self.codex_sandbox)
+
+    def choose_bypass(self, bypass):
+        if bypass == self.bypass:
+            return      # the switch going back after a change that was not made
+        self.set_protected(
+            "To let the agent act without asking: what would ask for your confirmation just runs." if bypass
+            else "To have the agent ask again before what needs your word.",
+            "bypass-approvals", "yes" if bypass else "no",
+            ok=lambda: setattr(self, "bypass", bypass),
+            undo=lambda: self.auto.set_active(self.bypass))
+
     def choose_codex_sandbox(self, keep):
-        kept = self.cfg.get("codex", {}).get("sandbox") != CODEX_NO_SANDBOX
-        if keep == kept:
-            return      # the switch going back after Cancel
+        if keep == self.sandboxed:
+            return      # the switch going back after Cancel, or a change that was not made
+
+        def change(why, value):
+            self.set_protected(why, "codex-sandbox", value,
+                               ok=lambda: setattr(self, "sandboxed", keep),
+                               undo=lambda: self.codex_sandbox.set_active(self.sandboxed))
+
         if keep:
-            # Back to Codex's default (workspace-write).
-            self.set_value(["codex", "sandbox"], None)
+            change("To put Codex back into its sandbox.", "keep")
             return
         d = Adw.AlertDialog(heading=CODEX_OUT[0], body=CODEX_OUT[1])
         d.add_response("cancel", "Cancel")
-        d.add_response("ok", "Turn Off")
+        d.add_response("ok", "Turn Off…")
         d.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
         d.set_default_response("cancel")
         d.set_close_response("cancel")
-        d.connect("response", lambda _d, resp: self.set_value(["codex", "sandbox"], CODEX_NO_SANDBOX) if resp == "ok"
+        d.connect("response", lambda _d, resp: change("To let Codex out of its sandbox.", "lift") if resp == "ok"
                   else self.codex_sandbox.set_active(True))
         self.codex_sandbox_dialog = d       # (tests answer it)
         d.present(self.win)
@@ -625,10 +688,7 @@ class AIPage(Page):
 
     def add_away(self, page):
         agent = system_settings().get("agent")
-        try:
-            effective = json.loads(run([SLATEOS_SETTINGS, "show"]) or "{}").get("effective", {})
-        except ValueError:
-            effective = {}
+        effective = self.effective
         self.while_locked = effective.get("agent-while-locked", "pause")
         self.keep_locking = effective.get("lock-while-agent-works", "yes") == "yes"
         offered = (agent or {}).get("whileLockedChoices", [])
@@ -1504,14 +1564,19 @@ class PowerPage(Page):
 
         screen = Adw.PreferencesGroup(title="Screen", description="Counted from your last keystroke or mouse movement; what Slate does on its own screen does not count.")
         self.page.add(screen)
-        conf = self.idle_conf()
-        self.lock_row = Adw.ComboRow(title="Lock the screen after", model=Gtk.StringList.new([t for _, t in DELAYS]))
+        # When the screen locks is root's choice (slateos-settings lock-after): it keeps
+        # others out, so it is not for the agent to put off.
+        self.lock_after = self.system_lock_after()
+        self.lock_row = Adw.ComboRow(title="Lock the screen after", subtitle="Changing it needs your password",
+                                     model=Gtk.StringList.new([t for _, t in DELAYS]))
+        self.lock_row.set_selected(self.delay_index(self.lock_after))
+        self.lock_row.set_sensitive(self.lock_after is not None)
+        self.lock_row.connect("notify::selected", lambda *_: self.choose_lock_after())
+        screen.add(self.lock_row)
         self.off_row = Adw.ComboRow(title="Turn the screen off after", model=Gtk.StringList.new([t for _, t in DELAYS]))
-        for row, key, default in ((self.lock_row, "lock_after", 600), (self.off_row, "screen_off_after", 900)):
-            value = conf.get(key, default)
-            row.set_selected(next((i for i, (s, _) in enumerate(DELAYS) if s == value), len(DELAYS) - 1))
-            row.connect("notify::selected", lambda *_: self.save_idle())
-            screen.add(row)
+        self.off_row.set_selected(self.delay_index(self.idle_conf().get("screen_off_after", 900)))
+        self.off_row.connect("notify::selected", lambda *_: self.save_idle())
+        screen.add(self.off_row)
         lock_note = Adw.ActionRow(title="The screen also locks before the computer sleeps", subtitle="Super+L locks it now")
         screen.add(lock_note)
 
@@ -1524,9 +1589,38 @@ class PowerPage(Page):
         except (OSError, ValueError):
             return {}
 
+    @staticmethod
+    def delay_index(seconds):
+        """The entry of DELAYS that is `seconds`, or the nearest one (a value set from a
+        terminal need not be in the list)."""
+        if not seconds:
+            return len(DELAYS) - 1      # 0, or unknown: Never
+        return min((i for i, (s, _) in enumerate(DELAYS) if s), key=lambda i: abs(DELAYS[i][0] - seconds))
+
+    @staticmethod
+    def system_lock_after():
+        """Seconds, 0 for never; None where the system does not hold this choice."""
+        out = run([SLATEOS_SETTINGS, "get", "lock-after"]).strip()
+        return int(out) if out.isdigit() else None
+
+    def choose_lock_after(self):
+        seconds = DELAYS[self.lock_row.get_selected()][0]
+        if seconds == DELAYS[self.delay_index(self.lock_after)][0]:
+            return      # the row going back after a change that was not made
+
+        def ok():
+            self.lock_after = seconds
+            run(["systemctl", "--user", "restart", "slate-idle.service"])
+
+        self.set_protected(
+            "To never lock the screen by itself." if seconds == 0 else f"To lock the screen after {DELAYS[self.lock_row.get_selected()][1]}.",
+            "lock-after", str(seconds), ok=ok,
+            undo=lambda: self.lock_row.set_selected(self.delay_index(self.lock_after)))
+
     def save_idle(self):
-        conf = {"lock_after": DELAYS[self.lock_row.get_selected()][0],
-                "screen_off_after": DELAYS[self.off_row.get_selected()][0]}
+        # (lock_after was in this file before 0.3; slate-idle no longer reads it.)
+        conf = {k: v for k, v in self.idle_conf().items() if k != "lock_after"}
+        conf["screen_off_after"] = DELAYS[self.off_row.get_selected()][0]
         os.makedirs(os.path.dirname(IDLE_CONF), exist_ok=True)
         with open(IDLE_CONF + ".tmp", "w") as f:
             json.dump(conf, f)
