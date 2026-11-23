@@ -3,7 +3,7 @@
 use crate::audit::Audit;
 use crate::memory::MemoryStore;
 use crate::policy;
-use crate::snapshot::{SnapshotInfo, Snapshotter};
+use crate::snapshot::{self, SnapshotInfo, Snapshotter};
 use crate::tasks::{new_task_id, Task, TaskStore};
 use anyhow::{Context, Result};
 use slate_proto::{
@@ -19,8 +19,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(600);
-/// Snapshots kept on disk; older ones are deleted when a new one is taken.
-const SNAPSHOT_KEEP: usize = 30;
+/// Snapshots kept on disk; older ones are deleted when the daemon starts and when a new
+/// one is taken.
+pub const SNAPSHOT_KEEP: usize = 30;
 
 struct PendingApproval {
     task_id: Option<String>,
@@ -147,9 +148,7 @@ impl State {
         let snap = self.snapshots.as_ref()?;
         match snap.create(task_id) {
             Ok(info) => {
-                for old in snap.prune(SNAPSHOT_KEEP) {
-                    slate_proto::log!("slated: pruned snapshot {}", old.display());
-                }
+                snapshot::prune_in_background(snap, SNAPSHOT_KEEP);
                 let p = info.path.display().to_string();
                 let _ = self.tasks.update(task_id, |t| {
                     t.snapshot = Some(info.path.clone());
@@ -379,6 +378,7 @@ fn dispatch(req: Request, state: &Shared) -> Reply {
             Reply::Pong {
                 version: slate_proto::VERSION.into(),
                 snapshots: st.snapshots.is_some(),
+                snapshots_pile_up: st.snapshots.as_ref().and_then(|s| s.removal_blocked()),
             }
         }
         Request::TaskStart {

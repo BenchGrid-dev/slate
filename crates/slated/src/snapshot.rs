@@ -2,7 +2,9 @@
 //!
 //! The snapshot root (normally $HOME, or `SLATE_SNAPSHOT_ROOT`) must be a btrfs
 //! subvolume the user owns. An unprivileged user can create read-only snapshots
-//! of their own subvolume and delete them again; that is all we need.
+//! of their own subvolume. They can delete them again only where the filesystem
+//! is mounted with `user_subvol_rm_allowed`, and only once the snapshot is
+//! writable, which its owner may make it (docs/decisions/0013).
 //! `find-new` and `subvolume show` need CAP_SYS_ADMIN, so change detection is
 //! done by diffing the snapshot against the live tree inside the directories
 //! the task worked in. Slate's own state and agent caches are never touched.
@@ -57,6 +59,17 @@ const WALK_BUDGET: usize = 200_000;
 
 const BTRFS_SUPER_MAGIC: i64 = 0x9123_683E;
 
+/// The mount option without which the kernel lets only root delete a subvolume.
+pub const REMOVAL_OPTION: &str = "user_subvol_rm_allowed";
+
+/// What a round of pruning did.
+#[derive(Debug, Default)]
+pub struct Pruned {
+    pub removed: Vec<PathBuf>,
+    /// Why it stopped before it was done; the snapshots left stay for the next round.
+    pub failed: Option<String>,
+}
+
 impl Snapshotter {
     pub fn detect(root: PathBuf, dir: PathBuf) -> Result<Self> {
         if !is_subvolume(&root) {
@@ -88,42 +101,69 @@ impl Snapshotter {
         Ok(SnapshotInfo { path })
     }
 
-    /// Remove the oldest snapshots so at most `keep` remain.
-    pub fn prune(&self, keep: usize) -> Vec<PathBuf> {
+    /// Remove the oldest snapshots so at most `keep` remain. Stops at the first one
+    /// that cannot be removed: what stops one stops them all.
+    pub fn prune(&self, keep: usize) -> Pruned {
+        let mut done = Pruned::default();
         let Ok(rd) = std::fs::read_dir(&self.dir) else {
-            return vec![];
+            return done;
         };
-        let mut snaps: Vec<(std::time::SystemTime, PathBuf)> = rd
+        let names = rd
             .flatten()
-            .filter_map(|e| {
-                let p = e.path();
-                let t = e.metadata().and_then(|m| m.modified()).ok()?;
-                Some((t, p))
-            })
-            .collect();
-        snaps.sort();
-        let mut removed = vec![];
-        while snaps.len() > keep {
-            let (_, p) = snaps.remove(0);
-            if self.delete(&p).is_ok() {
-                removed.push(p);
+            .filter_map(|e| e.file_name().into_string().ok());
+        for name in beyond(names, keep) {
+            let path = self.dir.join(name);
+            match self.delete(&path) {
+                Ok(()) => done.removed.push(path),
+                Err(e) => {
+                    done.failed = Some(format!("{e:#}"));
+                    break;
+                }
             }
         }
-        removed
+        done
     }
 
     pub fn delete(&self, snap: &Path) -> Result<()> {
+        if let Some(why) = self.removal_blocked() {
+            bail!(why);
+        }
+        // A user may delete only a subvolume they could write to, and a snapshot is
+        // read-only until its owner says otherwise.
+        set_read_only(snap, false)?;
         let out = Command::new("btrfs")
             .args(["subvolume", "delete"])
             .arg(snap)
-            .output()?;
+            .output()
+            .context("running btrfs")?;
         if !out.status.success() {
+            // Still there: as it was, so nothing writes into what undo reads.
+            let _ = set_read_only(snap, true);
             bail!(
                 "btrfs delete failed: {}",
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }
         Ok(())
+    }
+
+    /// Why old snapshots cannot be removed here, when they cannot: the filesystem is
+    /// mounted without the option that lets a user delete a subvolume.
+    pub fn removal_blocked(&self) -> Option<String> {
+        if unsafe { libc::geteuid() } == 0 {
+            return None;
+        }
+        // Unreadable or unknown: try, and let btrfs say.
+        let mounts = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+        let dir = std::fs::canonicalize(&self.dir).unwrap_or_else(|_| self.dir.clone());
+        match mounted_with(&mounts, &dir, REMOVAL_OPTION)? {
+            (_, true) => None,
+            (mount, false) => Some(format!(
+                "{} is mounted without {REMOVAL_OPTION}, so only root can delete a snapshot \
+                 (SlateOS sets the option when it starts; elsewhere add it to the mount's options)",
+                mount.display()
+            )),
+        }
     }
 
     /// Whether undo could restore `path` (absolute, normalized): inside the root and
@@ -356,6 +396,130 @@ fn is_protected(rel: &Path) -> bool {
         .any(|p| s == *p || s.starts_with(&format!("{p}/")))
 }
 
+/// Prune on a thread of its own: no tool call waits for old snapshots to go. One round
+/// at a time; a call while one runs does nothing, and the next snapshot asks again.
+pub fn prune_in_background(snap: &Snapshotter, keep: usize) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    // What stopped the last round, to say it once and not with every task.
+    static STOPPED_BY: Mutex<Option<String>> = Mutex::new(None);
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let snap = snap.clone();
+    std::thread::spawn(move || {
+        let pruned = snap.prune(keep);
+        for old in &pruned.removed {
+            slate_proto::log!("slated: pruned snapshot {}", old.display());
+        }
+        let mut said = STOPPED_BY.lock().unwrap_or_else(|e| e.into_inner());
+        if *said != pruned.failed {
+            match &pruned.failed {
+                Some(why) => slate_proto::log!("slated: old snapshots are not removed: {why}"),
+                None => slate_proto::log!("slated: old snapshots are removed again"),
+            }
+            *said = pruned.failed;
+        }
+        drop(said);
+        RUNNING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// When the snapshot of this name was taken, in milliseconds. slated names a snapshot
+/// after its task, and a task's id begins with the time it started (`tasks::new_task_id`).
+/// The directory's own times cannot say: a snapshot carries those of what it was taken of.
+fn taken_at(name: &str) -> Option<u64> {
+    let mut parts = name.split('-');
+    let at = u64::from_str_radix(parts.next()?, 16).ok()?;
+    (parts.count() == 2).then_some(at)
+}
+
+/// The snapshots to remove so that the `keep` newest remain, oldest first. A name that
+/// is not a task's is not slated's to remove, and does not count.
+fn beyond(names: impl Iterator<Item = String>, keep: usize) -> Vec<String> {
+    let mut snaps: Vec<(u64, String)> = names
+        .filter_map(|n| taken_at(&n).map(|at| (at, n)))
+        .collect();
+    snaps.sort();
+    let extra = snaps.len().saturating_sub(keep);
+    snaps.into_iter().take(extra).map(|(_, n)| n).collect()
+}
+
+fn set_read_only(snap: &Path, read_only: bool) -> Result<()> {
+    let out = Command::new("btrfs")
+        .args(["property", "set", "-ts"])
+        .arg(snap)
+        .args(["ro", if read_only { "true" } else { "false" }])
+        .output()
+        .context("running btrfs")?;
+    if !out.status.success() {
+        bail!(
+            "btrfs property set failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// The mount that holds `path` (absolute, symlinks resolved) and whether it carries
+/// `option`, from the text of `/proc/self/mountinfo`. None when no line holds the path.
+fn mounted_with(mountinfo: &str, path: &Path, option: &str) -> Option<(PathBuf, bool)> {
+    let mut found: Option<(PathBuf, bool)> = None;
+    for line in mountinfo.lines() {
+        // ID PARENT MAJ:MIN ROOT MOUNT-POINT OPTIONS [TAG…] - TYPE SOURCE SUPER-OPTIONS
+        let Some((mount, fs)) = line.split_once(" - ") else {
+            continue;
+        };
+        let mount: Vec<&str> = mount.split(' ').collect();
+        let (Some(point), Some(options)) = (mount.get(4), mount.get(5)) else {
+            continue;
+        };
+        let point = PathBuf::from(unescape(point));
+        if !path.starts_with(&point) {
+            continue;
+        }
+        // The deepest mount holds the path; of two on one point, the later lies on top.
+        let deeper = found
+            .as_ref()
+            .map(|(p, _)| point.as_os_str().len() >= p.as_os_str().len())
+            .unwrap_or(true);
+        if deeper {
+            let of_the_filesystem = fs.split(' ').nth(2).unwrap_or("");
+            let has = options
+                .split(',')
+                .chain(of_the_filesystem.split(','))
+                .any(|o| o == option);
+            found = Some((point, has));
+        }
+    }
+    found
+}
+
+/// mountinfo writes a space, tab, newline or backslash in a path as `\040` and so on.
+fn unescape(field: &str) -> String {
+    let bytes = field.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let octal = (bytes[i] == b'\\' && i + 3 < bytes.len())
+            .then(|| std::str::from_utf8(&bytes[i + 1..i + 4]).ok())
+            .flatten()
+            .and_then(|d| u8::from_str_radix(d, 8).ok());
+        match octal {
+            Some(byte) => {
+                out.push(byte);
+                i += 4;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn is_subvolume(p: &Path) -> bool {
     // A btrfs subvolume root always has inode 256, on a btrfs filesystem.
     let Ok(md) = std::fs::metadata(p) else {
@@ -483,6 +647,119 @@ mod tests {
         assert!(is_protected(Path::new(".local/state/slate/audit.jsonl")));
         assert!(!is_protected(Path::new("src/main.rs")));
         assert!(!is_protected(Path::new(".claude2/x")));
+    }
+
+    #[test]
+    fn the_oldest_snapshots_go_whatever_their_directories_say() {
+        // Task ids: the time in hex, the daemon's process, a counter.
+        let names = ["19ac0000003-4d2-2", "19ac0000001-4d2-0", "19ac0000002-91-0"];
+        let all = || names.iter().map(|n| n.to_string());
+        assert_eq!(beyond(all(), 3), Vec::<String>::new());
+        assert_eq!(beyond(all(), 2), ["19ac0000001-4d2-0"]);
+        assert_eq!(
+            beyond(all(), 0),
+            ["19ac0000001-4d2-0", "19ac0000002-91-0", "19ac0000003-4d2-2"]
+        );
+        // A longer number is a later time, not an earlier word.
+        let later = ["100000000000-1-0", "fffffffffff-1-0"].map(String::from);
+        assert_eq!(beyond(later.into_iter(), 1), ["fffffffffff-1-0"]);
+    }
+
+    #[test]
+    fn what_slated_did_not_name_is_not_its_to_remove() {
+        let names = [
+            "mine",
+            "19ac0000001-4d2-0",
+            "backup-2026-11-01",
+            "19ac0000002-4d2-1",
+            ".keep",
+        ];
+        let left = beyond(names.iter().map(|n| n.to_string()), 1);
+        assert_eq!(left, ["19ac0000001-4d2-0"]);
+        assert_eq!(taken_at("19ac0000001-4d2-0"), Some(0x19ac0000001));
+        for other in [
+            "",
+            "t1",
+            "19ac0000001",
+            "19ac0000001-4d2",
+            "a-b-c-d",
+            "zz-1-0",
+        ] {
+            assert_eq!(taken_at(other), None, "{other}");
+        }
+    }
+
+    const MOUNTS: &str = "\
+29 1 0:27 /@ / rw,noatime shared:1 - btrfs /dev/mapper/slateos rw,compress=zstd:3,ssd,space_cache=v2,subvolid=256,subvol=/@
+31 29 0:27 /@home /home rw,noatime shared:5 - btrfs /dev/mapper/slateos rw,compress=zstd:3,ssd,user_subvol_rm_allowed,subvolid=258,subvol=/@home
+33 29 0:27 /@nix /nix rw,noatime shared:7 - btrfs /dev/mapper/slateos rw,compress=zstd:3,ssd,space_cache=v2,subvolid=257,subvol=/@nix
+40 29 0:35 / /home/a\\040b rw,relatime shared:9 - btrfs /dev/loop0 rw,ssd,subvolid=5,subvol=/
+41 29 0:36 / /tmp rw,nosuid,nodev - tmpfs tmpfs rw,size=1024k
+42 29 0:37 / /mnt/x rw - btrfs /dev/loop1 rw,ssd,subvolid=5,subvol=/
+43 29 0:38 / /mnt/x rw - btrfs /dev/loop2 rw,ssd,user_subvol_rm_allowed,subvolid=5,subvol=/
+";
+
+    #[test]
+    fn the_mount_that_holds_a_path_says_whether_snapshots_can_go() {
+        let ask = |p: &str| mounted_with(MOUNTS, Path::new(p), REMOVAL_OPTION);
+        let at = |p: &str, has: bool| Some((PathBuf::from(p), has));
+        assert_eq!(
+            ask("/home/alice/.local/state/slate/snapshots"),
+            at("/home", true)
+        );
+        assert_eq!(ask("/var/lib/x"), at("/", false));
+        // "/home/a b" is a mount of its own; "/homework" is not under "/home".
+        assert_eq!(ask("/home/a b/snapshots"), at("/home/a b", false));
+        assert_eq!(ask("/homework"), at("/", false));
+        assert_eq!(ask("/tmp/x"), at("/tmp", false));
+        // Two mounts on one point: the later one is what is there.
+        assert_eq!(ask("/mnt/x/s"), at("/mnt/x", true));
+        assert_eq!(mounted_with("", Path::new("/home"), REMOVAL_OPTION), None);
+        assert_eq!(unescape("a\\040b\\134c\\"), "a b\\c\\");
+    }
+
+    /// The real thing, where there is one: `SLATE_TEST_BTRFS` names a btrfs subvolume
+    /// this user owns. What is expected depends on how its filesystem is mounted.
+    #[test]
+    fn old_snapshots_are_removed_on_btrfs() {
+        let Some(root) = std::env::var_os("SLATE_TEST_BTRFS").map(PathBuf::from) else {
+            eprintln!("skipped: SLATE_TEST_BTRFS is not set");
+            return;
+        };
+        let dir = root.join(format!("snapshots-{}", std::process::id()));
+        let snap = Snapshotter::detect(root.clone(), dir.clone()).unwrap();
+        // The source's own time says "long ago" for every snapshot taken of it.
+        let names: Vec<String> = (0..5).map(|n| format!("19ac000000{n}-1-{n}")).collect();
+        for name in names.iter().rev() {
+            snap.create(name).unwrap();
+        }
+        let listed = || {
+            let mut l: Vec<String> = fs::read_dir(&dir)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect();
+            l.sort();
+            l
+        };
+        let pruned = snap.prune(2);
+        match snap.removal_blocked() {
+            None => {
+                assert_eq!(pruned.failed, None);
+                assert_eq!(pruned.removed.len(), 3);
+                assert_eq!(listed(), names[3..]);
+                assert_eq!(snap.prune(2).removed.len(), 0);
+                assert_eq!(snap.prune(0).removed.len(), 2);
+                fs::remove_dir(&dir).unwrap();
+            }
+            Some(why) => {
+                assert_eq!(pruned.failed.as_deref(), Some(why.as_str()));
+                assert!(pruned.removed.is_empty());
+                assert_eq!(listed(), names);
+                // Left as they were: nothing may write into a snapshot.
+                assert!(fs::write(dir.join(&names[0]).join("x"), "x").is_err());
+                eprintln!("not removed, as expected here: {why}");
+            }
+        }
     }
 
     #[test]

@@ -36,6 +36,8 @@ fn main() -> Result<()> {
         match snapshot::Snapshotter::detect(snap_root.clone(), state_dir.join("snapshots")) {
             Ok(s) => {
                 slate_proto::log!("slated: snapshots enabled for {}", snap_root.display());
+                // What an earlier run could not remove, or left behind.
+                snapshot::prune_in_background(&s, server::SNAPSHOT_KEEP);
                 Some(s)
             }
             Err(e) => {

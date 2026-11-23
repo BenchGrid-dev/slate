@@ -44,7 +44,11 @@ fn main() -> Result<()> {
         "status" => {
             let mut c = Client::connect()?;
             match c.call(Request::Ping)? {
-                Reply::Pong { version, snapshots } => {
+                Reply::Pong {
+                    version,
+                    snapshots,
+                    snapshots_pile_up,
+                } => {
                     println!(
                         "slated {version} at {}",
                         slate_proto::socket_path().display()
@@ -53,6 +57,9 @@ fn main() -> Result<()> {
                         "snapshots: {}",
                         if snapshots { "enabled" } else { "unavailable" }
                     );
+                    if let Some(why) = snapshots_pile_up {
+                        println!("old snapshots are not removed: {why}");
+                    }
                 }
                 other => bail!("unexpected reply: {other:?}"),
             }

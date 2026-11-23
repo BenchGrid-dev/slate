@@ -170,6 +170,9 @@ pub enum Reply {
     Pong {
         version: String,
         snapshots: bool,
+        /// Why old snapshots cannot be removed, where they cannot: they pile up.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snapshots_pile_up: Option<String>,
     },
     Error {
         message: String,
@@ -488,6 +491,12 @@ mod tests {
             Reply::Pong {
                 version: "v".into(),
                 snapshots: false,
+                snapshots_pile_up: None,
+            },
+            Reply::Pong {
+                version: "v".into(),
+                snapshots: true,
+                snapshots_pile_up: Some("why".into()),
             },
         ] {
             let s = serde_json::to_string(&ReplyEnvelope {
