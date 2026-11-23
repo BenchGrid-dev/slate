@@ -140,7 +140,11 @@ pub fn classify(tool_name: &str, input: &Value) -> Verdict {
             let files = slate_proto::patch_files(patch);
             if files.is_empty() {
                 v(Tier::Confirm, "a patch that names no file")
-            } else if files.iter().any(|(_, path)| is_sensitive_path(path)) {
+            } else if files.iter().any(|(_, path)| {
+                // Codex also names files relative to the folder it works in; the
+                // patterns are written for whole paths ("/.ssh/").
+                is_sensitive_path(path) || is_sensitive_path(&format!("/{path}"))
+            }) {
                 v(Tier::Confirm, "writes a sensitive path")
             } else {
                 v(Tier::Reversible, "file edit (snapshotted)")
@@ -625,6 +629,9 @@ fn is_sensitive_path(path: &str) -> bool {
         "/.gnupg/",
         "/.aws/",
         "/.config/gh/",
+        // Slate's own settings: whether approvals are asked at all, the rules they
+        // follow, whether Codex is kept in its sandbox.
+        "/.config/slate/",
         "credentials",
         "/etc/",
         "/.claude/",
@@ -690,6 +697,12 @@ pub fn classify_shell(cmd: &str) -> Verdict {
     }
     if all_read_only && !writes {
         v(Tier::Observe, "read-only command")
+    } else if trimmed.to_ascii_lowercase().contains(".config/slate/") && !trusted {
+        // Reading them is free; a command that could change them is not.
+        v(
+            Tier::Confirm,
+            "may change Slate's own settings, which decide what the agent may do",
+        )
     } else {
         v(Tier::Reversible, "shell command (snapshotted)")
     }
@@ -905,6 +918,43 @@ pub(crate) mod tests {
 
     fn tier(cmd: &str) -> Tier {
         classify_shell(cmd).tier
+    }
+
+    #[test]
+    fn slates_own_settings_are_not_the_agents_to_change_unasked() {
+        // Whether approvals are asked, the rules, Codex's sandbox: a change is asked
+        // about, whichever tool makes it. Reading stays free.
+        install_test_policy();
+        assert_eq!(
+            classify(
+                "Edit",
+                &json!({"file_path": "/home/u/.config/slate/slash.toml"})
+            )
+            .tier,
+            Tier::Confirm
+        );
+        let patch = "*** Begin Patch\n*** Update File: .config/slate/policy.toml\n@@\n-a\n+b\n*** End Patch";
+        assert_eq!(
+            classify("apply_patch", &json!({ "command": patch })).tier,
+            Tier::Confirm
+        );
+        assert_eq!(
+            tier("sed -i 's/workspace-write/danger-full-access/' ~/.config/slate/slash.toml"),
+            Tier::Confirm
+        );
+        assert_eq!(
+            tier("echo 'auto_approve = true' >> ~/.config/slate/slash.toml"),
+            Tier::Confirm
+        );
+        assert_eq!(tier("cat ~/.config/slate/slash.toml"), Tier::Observe);
+        assert_eq!(
+            classify(
+                "Read",
+                &json!({"file_path": "/home/u/.config/slate/slash.toml"})
+            )
+            .tier,
+            Tier::Observe
+        );
     }
 
     #[test]
