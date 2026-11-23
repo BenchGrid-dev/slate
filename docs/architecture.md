@@ -44,7 +44,7 @@ Slate does not call model APIs. It launches the official CLI of a backend and in
 | Backend | Launch | Integration surfaces used |
 |---|---|---|
 | Claude Code | `claude -p --output-format stream-json`, or interactive | hooks (PreToolUse, PostToolUse, …), MCP servers, `--permission-prompt-tool`, CLAUDE.md, skills, plugins |
-| Codex | `codex exec`, or interactive | MCP servers in config.toml, AGENTS.md, hooks, approval modes |
+| Codex | `codex exec`, or interactive | hooks (PreToolUse, PostToolUse; the system's, in `/etc/codex/hooks.json`), MCP servers given per run, its own sandbox |
 
 Why: since 2026-02 Anthropic's consumer terms restrict subscription OAuth to Claude.ai, Claude Code and the desktop app; third-party harnesses, including the Agent SDK, must use API keys. The only way to let people use the subscription they already pay for is to run the real binary and stay inside its extension surfaces. Codex is treated the same way for symmetry, and so that policy changes on either side only touch an adapter. See `decisions/0001-bring-your-own-agent.md`.
 
@@ -57,7 +57,7 @@ slated is the part of Slate that is an operating-system component rather than a 
 Responsibilities (implemented unless marked otherwise):
 
 - **Identity.** **Not started.** The design: agent tasks run as a separate Linux user, or as a dedicated session under the user's uid with its own cgroup, Landlock ruleset and polkit identity. **Open:** separate uid vs same uid with sandboxing; trade-offs are file ownership friction vs weaker isolation. Root for system changes: sudo without a tty asks the person through `slate-askpass` (`SUDO_ASKPASS`), so the agent runs plain `sudo` and never sees the password; a polkit agent for GUI privilege requests is still open.
-- **Approval broker.** Implements Claude Code's permission-prompt MCP tool and Codex's approval flow. Classifies every requested action into a tier (below) and either allows, snapshots-then-allows, or surfaces a prompt to the user via slash or the desktop shell.
+- **Approval broker.** Implements Claude Code's permission-prompt MCP tool; for Codex, whose hooks cannot hand a question on, the hook itself waits for the answer ([0011](decisions/0011-codex-through-system-hooks.md)). Classifies every requested action into a tier (below) and either allows, snapshots-then-allows, or surfaces a prompt to the user via slash or the desktop shell.
 - **Audit log.** Append-only log of every tool call: backend, session, what the agent saw (hash of screenshot / a11y snapshot), what it did, tier, outcome. Queryable via `slate audit`.
 - **Snapshots and undo.** On the first non-observe tool call of a task, take a read-only btrfs snapshot of the user's home (which must be a user-owned subvolume; see `decisions/0006-privilege-free-snapshots.md`). `/undo` diffs the snapshot against the live tree inside the directories the task touched and restores, deletes or recreates files accordingly. No privileges are needed. Non-filesystem side effects (emails sent, network calls) are unrecoverable and are therefore always tier Confirm. System-level state on NixOS (generations) is a separate, later concern.
 - **Memory.** Things the user asked to remember (`/remember`, or the agent's `remember` tool), per user, not per directory. Exposed to backends as MCP tools (`remember` / `recall` / `forget`) and listed at the start of every task.

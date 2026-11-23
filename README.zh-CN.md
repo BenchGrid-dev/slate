@@ -183,7 +183,7 @@ Terminal                         Desktop prompt
 | **Reversible · 可逆** | 尝试创建任务快照，然后允许执行。 |
 | **Confirm · 确认** | 执行前请求审批，已获批准或显式跳过审批的情况除外。 |
 
-规则可在 `~/.config/slate/policy.toml` 中自定义；未知工具默认归为 Confirm。Claude Code hooks 记录工具检查和执行结果。Codex 当前使用其配置的沙箱，`slated` 记录任务级信息；本仓库尚未为该后端提供等价的逐工具审批、审计或自动快照能力。
+规则可在 `~/.config/slate/policy.toml` 中自定义；未知工具默认归为 Confirm。工具检查和执行结果通过 Agent 的 hooks 记录：Claude Code 的 hooks 在每次运行时传入，Codex 的 hooks 安装在系统级（`/etc/codex/hooks.json`，由 SlateOS 写入）。Codex 另外始终运行在它自己的沙箱里，因此能做的更少：不能联网、不能获得 root，只能写入当前目录之下。
 
 **Undo 恢复的是已记录任务范围内的本地文件。** 它依赖用户拥有的 btrfs 子卷及成功创建的快照，默认根目录为用户主目录，也可通过 `SLATE_SNAPSHOT_ROOT` 指定。它不能撤回远程操作、消息或任意应用状态。恢复时会比较任务范围内的目录与快照，因此这些目录中的后续编辑也可能出现在恢复计划中；请先使用 `/undo --preview`。
 
@@ -199,7 +199,7 @@ Terminal                         Desktop prompt
 | --- | --- | --- |
 | Agent 交互 | Claude Code 与 Codex 适配；Claude 订阅或自己的 API 密钥（OpenAI 或 Anthropic 格式）；终端和桌面输入框；运行中的 shell 内会话续接。 | 跨输入框会话的对话历史。 |
 | 桌面控制 | 独立 Agent 席位及其后台屏幕、无障碍树元素与动作（AT-SPI2）、按窗口截图、Unicode 输入、焦点验证、窗口排列及用户席位回退。 | 独立可见光标、合成器席位过滤和更多应用覆盖（Qt）。 |
-| 任务控制 | Claude Code 审批与工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 与 polkit 通过桌面对话框向用户索要密码）。 | Codex 审批集成、Agent 身份隔离。 |
+| 任务控制 | Claude Code 与 Codex 的审批和工具审计、任务记录、记忆、btrfs 快照、限定范围的撤销，以及经用户授权的 root（sudo 与 polkit 通过桌面对话框向用户索要密码）。 | Agent 身份隔离。 |
 | 发行版 | NixOS 模块、桌面配置、应用套件、设置应用、SlateOS 系统命令，以及 live/安装镜像（`nix build .#iso`），带图形安装器和 `slateos-install`；安装和首次登录时配置 agent 并提供教程；系统更新支持试启动和回退。 | 真机镜像测试、可下载的镜像、更新用的二进制缓存。 |
 
 **应用兼容性是当前工作的重点。** 在 Agent 席位先于应用创建的条件下，foot、Firefox、GTK3（Thunar）和 GTK4/libadwaita 应用已通过验证。Electron 与 Chromium 应用只绑定一个席位：由 Agent 在后台打开时绑定 Agent 席位，否则绑定用户席位，此时可使用元素动作或回退至用户席位。Flatpak 应用的表现取决于其工具包。没有无障碍树的应用（如微信）通过截图和指针操作。Qt 尚未测试。当前桌面集成面向 sway 及其所需的 Wayland 协议，不能直接替换为 GNOME、KDE 或 X11。
