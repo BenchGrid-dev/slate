@@ -3,7 +3,7 @@
 
     slateos-settings show                        what the running system has and offers
     slateos-settings get KEY                     the value in effect (agent-while-locked, lock-while-agent-works,
-                                                 automatic-updates)
+                                                 automatic-updates, bypass-approvals, codex-sandbox, lock-after)
     slateos-settings set input-methods NAME,...  install these input methods ("none": no input method)
     slateos-settings set agents NAME,...         install these agent programs: claude-code, codex ("all": every
                                                  one this release offers; "none": remove them)
@@ -14,6 +14,9 @@
     slateos-settings set automatic-updates off|check|download
                                                  what software update does unasked: nothing, look for a new
                                                  version once a day, or also download and prepare it
+    slateos-settings set bypass-approvals yes|no yes: sessions start with approvals bypassed (/auto on)
+    slateos-settings set codex-sandbox keep|lift lift: Codex runs outside its own sandbox
+    slateos-settings set lock-after SECONDS      the screen locks after this long without input; 0: never
 
 The choices live in settings.json next to the system configuration (/etc/slateos, or
 /etc/nixos where there is no /etc/slateos), and the configuration itself wins where it
@@ -23,6 +26,12 @@ if the rebuild fails. The agent programs are not part of SlateOS's image; the re
 downloads them (Claude Code from Anthropic, Codex from cache.nixos.org), so it needs
 a network. The agent's choices are read while the session runs and take effect at once.
 `set` runs as root, so only someone with the password changes what the agent may do.
+
+The same holds for the other choices that lower a guard: whether the agent's actions are
+asked about, whether Codex keeps its sandbox, when the screen locks. They used to be in
+the person's own files (slash.toml, idle.json), where anything running as the person,
+the agent included, could change them. Here they are root's, and slash and the session
+read them from here.
 """
 import json
 import os
@@ -117,6 +126,49 @@ def agent_set(name, value):
     print(f"{path}: {name} {value}")
 
 
+# The guards: command-line name -> (settings.json key, the values, the default, the
+# value settings.json holds for each). Read at run time, by slash and the session.
+GUARDS = {
+    "bypass-approvals": ("bypassApprovals", ["no", "yes"], "no", {"no": False, "yes": True}),
+    "codex-sandbox": ("codexSandbox", ["keep", "lift"], "keep", {"keep": "keep", "lift": "lift"}),
+}
+LOCK_AFTER = 600        # seconds; the default
+LOCK_AFTER_MOST = 24 * 3600
+
+
+def guard_get(name):
+    key, _values, default, stored = GUARDS[name]
+    _, current = read_settings(settings_path())
+    return next((v for v, s in stored.items() if s == current.get(key) and type(s) is type(current.get(key))), default)
+
+
+def guard_set(name, value):
+    key, values, _default, stored = GUARDS[name]
+    if value not in values:
+        fail(f"{name} takes {'|'.join(values)}", 2)
+    path = settings_path()
+    _, current = read_settings(path)
+    current[key] = stored[value]
+    write_settings(path, current)
+    print(f"{path}: {name} {value}")
+
+
+def lock_after_get():
+    _, current = read_settings(settings_path())
+    value = current.get("lockAfter")
+    return value if type(value) is int and 0 <= value <= LOCK_AFTER_MOST else LOCK_AFTER
+
+
+def lock_after_set(value):
+    if not value.isdigit() or int(value) > LOCK_AFTER_MOST:
+        fail(f"lock-after takes seconds, 0 (never) to {LOCK_AFTER_MOST}", 2)
+    path = settings_path()
+    _, current = read_settings(path)
+    current["lockAfter"] = int(value)
+    write_settings(path, current)
+    print(f"{path}: lock-after {int(value)}")
+
+
 # What software update does without being asked (slateos-update reads it at run time).
 UPDATES = ["off", "check", "download"]
 
@@ -203,6 +255,8 @@ def main():
     if args[0] == "show":
         effective = {name: agent_get(name)[0] for name in AGENT}
         effective["automatic-updates"] = updates_get()
+        effective.update({name: guard_get(name) for name in GUARDS})
+        effective["lock-after"] = lock_after_get()
         print(json.dumps({"file": settings_path(), **system(), "effective": effective}, indent=2))
         return
     if args[0] == "get" and len(args) == 2 and args[1] == "automatic-updates":
@@ -211,7 +265,14 @@ def main():
     if args[0] == "get" and len(args) == 2 and args[1] in AGENT:
         print(agent_get(args[1])[0])
         return
-    if args[0] == "set" and len(args) == 3 and (args[1] in ("input-methods", "agents", "automatic-updates") or args[1] in AGENT):
+    if args[0] == "get" and len(args) == 2 and args[1] in GUARDS:
+        print(guard_get(args[1]))
+        return
+    if args[0] == "get" and len(args) == 2 and args[1] == "lock-after":
+        print(lock_after_get())
+        return
+    if args[0] == "set" and len(args) == 3 and (args[1] in ("input-methods", "agents", "automatic-updates", "lock-after")
+                                               or args[1] in AGENT or args[1] in GUARDS):
         if os.geteuid() != 0:
             fail("needs root: sudo slateos-settings set ...")
         if args[1] == "input-methods":
@@ -220,6 +281,10 @@ def main():
             set_agents(args[2])
         elif args[1] == "automatic-updates":
             updates_set(args[2])
+        elif args[1] == "lock-after":
+            lock_after_set(args[2])
+        elif args[1] in GUARDS:
+            guard_set(args[1], args[2])
         else:
             agent_set(args[1], args[2])
         return

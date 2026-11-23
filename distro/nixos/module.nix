@@ -307,19 +307,23 @@ let
       --text-color ffffffee --text-clear-color ffffffee --text-ver-color ffffffee --text-wrong-color ffffffee \
       --text-caps-lock-color ffffffee --show-failed-attempts --ignore-empty-password
   '';
-  # Away from the computer: the lock after `lock_after` seconds without input on the
+  # Away from the computer: the lock after so many seconds without input on the
   # person's seat (seat0; the agent's activity does not count), the screens off after
-  # `screen_off_after`, and the lock before the computer sleeps. Both from
-  # ~/.config/slate/idle.json (Settings, Power); 0 turns one off. When the person let
+  # `screen_off_after`, and the lock before the computer sleeps; 0 turns one off.
+  # When the screen locks is root's choice (slateos-settings lock-after; Settings,
+  # Power asks for the password): in the person's own file, as it was, anything
+  # running as them could put the lock off. When the screens go dark stays in
+  # ~/.config/slate/idle.json. When the person let
   # the agent keep the screen awake (lockWhileAgentWorks off, Settings, AI), both wait
   # for the agent to stop using the screen (slate-idle-wait); sleeping still locks.
   slateIdle = pkgs.writeShellScriptBin "slate-idle" ''
     conf="$HOME/.config/slate/idle.json"
-    lock=600 off=900
+    off=900
     if [ -r "$conf" ]; then
-      lock=$(${pkgs.jq}/bin/jq -r '.lock_after // 600' "$conf")
       off=$(${pkgs.jq}/bin/jq -r '.screen_off_after // 900' "$conf")
     fi
+    lock=$(${slateosSettings}/bin/slateos-settings get lock-after)
+    case "$lock" in ""|*[!0-9]*) lock=600 ;; esac
     ${lib.optionalString (!cfg.desktop.screenLock) "lock=0"}
     wait="" cancel=""
     if [ "$(${slateosSettings}/bin/slateos-settings get lock-while-agent-works)" = no ]; then
