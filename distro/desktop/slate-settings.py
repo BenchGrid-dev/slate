@@ -505,6 +505,12 @@ WHILE_LOCKED = [
 KEEP_AWAKE = ("Keep the screen unlocked while the agent works?",
               "While the agent uses the screen, it will not lock or turn off when you are away, and anyone at the computer can use it: "
               "your files, your accounts and the agent itself. It locks a minute after the agent stops. Super+L and sleeping still lock.")
+CODEX_NO_SANDBOX = "danger-full-access"     # [codex] sandbox in slash.toml
+CODEX_OUT = ("Let Codex out of its sandbox?",
+             "Codex will then do what Claude Code can: use the network, change files anywhere you can, and become root after your "
+             "password. SlateOS goes on asking before what needs your word, and undo stays.\n\n"
+             "That is then the only guard. Inside the sandbox a mistake stops at the folder you are in, whatever was allowed; "
+             "and a few of Codex's own tools, searching the web among them, do not pass SlateOS's questions.")
 SLATEOS_SETTINGS = "/run/current-system/sw/bin/slateos-settings"
 
 
@@ -559,6 +565,13 @@ class AIPage(Page):
         self.codex_model.connect("apply", lambda *_: self.set_value(["codex", "model"], self.codex_model.get_text().strip() or None))
         self.codex_model.set_show_apply_button(True)
         agent.add(self.codex_model)
+        self.codex_sandbox = Adw.SwitchRow(
+            title="Keep Codex in its sandbox",
+            subtitle="On: Codex works on your files in the folder you are in and on the desktop; it reaches no network and cannot "
+                     "install software or change system settings. Off: it can, as Claude Code can.")
+        self.codex_sandbox.set_active(self.cfg.get("codex", {}).get("sandbox") != CODEX_NO_SANDBOX)
+        self.codex_sandbox.connect("notify::active", lambda r, *_: self.choose_codex_sandbox(r.get_active()))
+        agent.add(self.codex_sandbox)
 
         signin = Adw.PreferencesGroup(title="Sign in", description="Sign-in with a subscription happens in the agent's own CLI (a terminal opens). Slate never sees those credentials.")
         page.add(signin)
@@ -588,6 +601,25 @@ class AIPage(Page):
         config_row = Adw.ActionRow(title="Configuration file", subtitle=SLASH_CONFIG)
         behaviour.add(config_row)
         self.add_away(page)
+
+    def choose_codex_sandbox(self, keep):
+        kept = self.cfg.get("codex", {}).get("sandbox") != CODEX_NO_SANDBOX
+        if keep == kept:
+            return      # the switch going back after Cancel
+        if keep:
+            # Back to Codex's default (workspace-write).
+            self.set_value(["codex", "sandbox"], None)
+            return
+        d = Adw.AlertDialog(heading=CODEX_OUT[0], body=CODEX_OUT[1])
+        d.add_response("cancel", "Cancel")
+        d.add_response("ok", "Turn Off")
+        d.set_response_appearance("ok", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_default_response("cancel")
+        d.set_close_response("cancel")
+        d.connect("response", lambda _d, resp: self.set_value(["codex", "sandbox"], CODEX_NO_SANDBOX) if resp == "ok"
+                  else self.codex_sandbox.set_active(True))
+        self.codex_sandbox_dialog = d       # (tests answer it)
+        d.present(self.win)
 
     # ---- while you are away: root's choices (slateos-settings), behind the password
 

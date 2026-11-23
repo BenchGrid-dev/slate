@@ -404,7 +404,7 @@ class AgentSetup(Gtk.Box):
         self.sub_row.add_prefix(self.sub_check)
         self.sub_row.set_activatable_widget(self.sub_check)
         how.add(self.sub_row)
-        self.gpt_row = Adw.ActionRow(title="ChatGPT subscription", subtitle="Sign in with your ChatGPT account (Plus or Pro). The agent is Codex. It stays inside its own sandbox: it works on your files and the desktop, and cannot install software or change system settings.", activatable=True)
+        self.gpt_row = Adw.ActionRow(title="ChatGPT subscription", subtitle="Sign in with your ChatGPT account (Plus or Pro). The agent is Codex. It starts inside its own sandbox: it works on your files and the desktop, and cannot install software or change system settings until you lift that in Settings, AI.", activatable=True)
         self.gpt_check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=self.sub_check)
         self.gpt_row.add_prefix(self.gpt_check)
         self.gpt_row.set_activatable_widget(self.gpt_check)
