@@ -30,6 +30,9 @@ pub struct Config {
     /// Why provider.toml could not be used, to say once at start.
     #[serde(skip)]
     pub provider_problem: Option<String>,
+    /// What slash.toml asked for and the system did not grant, to say once at start.
+    #[serde(skip)]
+    pub not_granted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,6 +93,7 @@ impl Default for Config {
             slated: SlatedConfig::default(),
             provider: slate_gateway::Provider::default(),
             provider_problem: None,
+            not_granted: vec![],
         }
     }
 }
@@ -137,7 +141,31 @@ impl Config {
             Ok(p) => cfg.provider = p,
             Err(e) => cfg.provider_problem = Some(format!("{e:#}")),
         }
+        cfg.apply_guards(crate::system::guards());
         Ok(cfg)
+    }
+
+    /// On SlateOS the choices that lower a guard are the system's (see `system`):
+    /// what slash.toml says about them does not count there.
+    pub fn apply_guards(&mut self, guards: Option<crate::system::Guards>) {
+        use crate::backend::codex::NO_SANDBOX;
+        let Some(guards) = guards else {
+            return; // no system to ask: slash.toml decides
+        };
+        if self.auto_approve && !guards.bypass_approvals {
+            self.not_granted.push(
+                "auto_approve in slash.toml is not used on SlateOS: Settings, AI turns it on, with your password".into(),
+            );
+        }
+        self.auto_approve = guards.bypass_approvals;
+        if guards.codex_unsandboxed {
+            self.codex.sandbox = NO_SANDBOX.into();
+        } else if self.codex.sandbox == NO_SANDBOX {
+            self.not_granted.push(
+                "sandbox = \"danger-full-access\" in slash.toml is not used on SlateOS: Settings, AI lets Codex out of its sandbox, with your password".into(),
+            );
+            self.codex.sandbox = CodexConfig::default().sandbox;
+        }
     }
 
     /// The POSIX shell slash delegates to. Never resolves to slash itself, and
@@ -173,5 +201,56 @@ impl Config {
             .into_iter()
             .find(|c| !c.contains('/') || std::path::Path::new(c).exists())
             .unwrap_or_else(|| "/bin/sh".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::codex::NO_SANDBOX;
+    use crate::system::Guards;
+
+    fn asked_for_everything() -> Config {
+        let mut cfg = Config {
+            auto_approve: true,
+            ..Config::default()
+        };
+        cfg.codex.sandbox = NO_SANDBOX.into();
+        cfg
+    }
+
+    #[test]
+    fn on_slateos_the_guards_are_the_systems_not_slash_tomls() {
+        // slash.toml asks; the system has not granted: both stay up, and slash says so.
+        let mut cfg = asked_for_everything();
+        cfg.apply_guards(Some(Guards::default()));
+        assert!(!cfg.auto_approve);
+        assert_eq!(cfg.codex.sandbox, "workspace-write");
+        assert_eq!(cfg.not_granted.len(), 2);
+
+        // The system grants; slash.toml need not ask.
+        let mut cfg = Config::default();
+        cfg.apply_guards(Some(Guards {
+            bypass_approvals: true,
+            codex_unsandboxed: true,
+        }));
+        assert!(cfg.auto_approve);
+        assert_eq!(cfg.codex.sandbox, NO_SANDBOX);
+        assert!(cfg.not_granted.is_empty());
+
+        // A stricter sandbox of the person's own stays.
+        let mut cfg = Config::default();
+        cfg.codex.sandbox = "read-only".into();
+        cfg.apply_guards(Some(Guards::default()));
+        assert_eq!(cfg.codex.sandbox, "read-only");
+    }
+
+    #[test]
+    fn without_a_system_to_ask_slash_toml_decides() {
+        let mut cfg = asked_for_everything();
+        cfg.apply_guards(None);
+        assert!(cfg.auto_approve);
+        assert_eq!(cfg.codex.sandbox, NO_SANDBOX);
+        assert!(cfg.not_granted.is_empty());
     }
 }

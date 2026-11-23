@@ -92,6 +92,9 @@ impl App {
         } else {
             None
         };
+        for note in &cfg.not_granted {
+            eprintln!("{} {note}", yellow("note:"));
+        }
         if let Some(problem) = &cfg.provider_problem {
             eprintln!(
                 "{} your API connection is not in use ({problem}); Settings, AI sets it up again",

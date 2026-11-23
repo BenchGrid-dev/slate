@@ -13,6 +13,7 @@ mod router;
 mod screen;
 mod session;
 mod shell;
+mod system;
 
 use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
