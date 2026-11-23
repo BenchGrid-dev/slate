@@ -1281,6 +1281,26 @@ in
     nix.settings.experimental-features = [ "nix-command" "flakes" ];
   }
 
+  # Codex tells Slate what it is about to do through hooks, and the only hooks it runs
+  # without a review by the person are the system's, in this file. Slate's asks slated
+  # (approvals, snapshots, the audit log) when Codex works for slash, and does nothing
+  # when someone uses Codex by themselves. `slate hook codex-config` prints the same.
+  {
+    environment.etc."codex/hooks.json".text = builtins.toJSON {
+      hooks = {
+        PreToolUse = [{
+          matcher = "*";
+          # Longer than slated waits for the person's answer (ten minutes).
+          hooks = [{ type = "command"; command = "${pkg}/bin/slate hook codex-pre-tool-use"; timeout = 900; }];
+        }];
+        PostToolUse = [{
+          matcher = "*";
+          hooks = [{ type = "command"; command = "${pkg}/bin/slate hook codex-post-tool-use"; timeout = 30; }];
+        }];
+      };
+    };
+  }
+
   # Software update (docs/software-update.md).
   (lib.mkIf cfg.update.enable {
     # What slateos-update knows about the system it runs on.
